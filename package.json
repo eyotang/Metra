@@ -1,0 +1,28 @@
+{
+  "name": "metra",
+  "private": true,
+  "version": "0.1.36",
+  "author": "sophon",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "vite": "vite",
+    "build": "tauri build",
+    "build:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1",
+    "check": "tsc --noEmit",
+    "verify:color": "node scripts/verify-color-picker.mjs",
+    "verify:cursor-login": "node scripts/verify-cursor-login.mjs",
+    "verify:cursor-ultra": "node scripts/verify-cursor-ultra.mjs",
+    "verify:provider-navigation": "node --experimental-strip-types scripts/verify-provider-navigation.mjs",
+    "verify:visibility": "node scripts/verify-bubble-visibility.mjs",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.8.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.1"
+  }
+}

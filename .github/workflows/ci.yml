@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Type check
+        run: npm run check
+      - name: Provider color contract
+        run: npm run verify:color
+      - name: Bubble visibility contract
+        run: npm run verify:visibility
+      - name: Cursor Ultra contract
+        run: npm run verify:cursor-ultra
+      - name: Cursor login contract
+        run: npm run verify:cursor-login
+      - name: Provider card navigation behavior
+        run: npm run verify:provider-navigation
+      - name: Frontend build
+        run: npm run vite -- build
+      - name: Rust tests
+        run: |
+          cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+          cargo test --manifest-path src-tauri/Cargo.toml --all-targets
+
+  release-artifacts:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: ""
+            artifact: windows-x64
+          - os: macos-latest
+            args: "--target universal-apple-darwin"
+            artifact: macos-universal
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
+      - run: npm ci
+      - name: Build application
+        run: npm run build -- ${{ matrix.args }}
+      - name: Collect portable Windows executable
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: Copy-Item src-tauri/target/release/metra.exe src-tauri/target/release/Metra-portable.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: metra-${{ matrix.artifact }}
+          path: |
+            src-tauri/target/release/Metra-portable.exe
+            src-tauri/target/release/bundle/**
+            src-tauri/target/universal-apple-darwin/release/bundle/**
+          if-no-files-found: error
