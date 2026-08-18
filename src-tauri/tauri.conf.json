@@ -1,0 +1,62 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Metra",
+  "version": "0.1.36",
+  "identifier": "dev.metra.desktop",
+  "build": {
+    "beforeDevCommand": "npm run vite -- --host 127.0.0.1 --port 1420",
+    "beforeBuildCommand": "npm run check && npm run vite -- build",
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "bubble",
+        "title": "Metra",
+        "url": "index.html?view=bubble",
+        "width": 56,
+        "height": 56,
+        "minWidth": 56,
+        "minHeight": 56,
+        "maxWidth": 56,
+        "maxHeight": 56,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "focus": false
+      },
+      {
+        "label": "panel",
+        "title": "Metra 详情",
+        "url": "index.html?view=panel",
+        "width": 340,
+        "height": 480,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "focus": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: data:; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "copyright": "Copyright © 2026 sophon",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "shortDescription": "Cursor、Codex 与 Claude Code 用量气泡"
+  }
+}

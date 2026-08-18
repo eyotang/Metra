@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+  <defs>
+    <clipPath id="inside">
+      <circle cx="18" cy="18" r="12.25"/>
+    </clipPath>
+  </defs>
+  <circle cx="18" cy="18" r="14.25" fill="none" stroke="#000" stroke-width="3.5"/>
+  <path d="M3.5 19.2c4.1-3.7 7.6-3.8 11.1-.8 3.4 2.9 6.3 2.8 9.5-.2 3.3-3.1 6.2-2.8 9.8.5V33H3.5z" fill="#000" clip-path="url(#inside)"/>
+</svg>
