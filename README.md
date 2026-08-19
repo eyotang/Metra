@@ -13,6 +13,12 @@ Metra 是一个轻量的跨平台桌面气泡，用来查看 Cursor、Codex 和 
 - 左键展开详情；右键设置刷新间隔、开机启动、兼容模式、重新检测或退出。
 - 刷新失败保留最后一次成功数据，并明确标记为过期。
 
+<p align="center">
+  <a href="docs/assets/readme/metra-readme-hero.png">
+    <img src="docs/assets/readme/metra-readme-hero-1920.jpg" alt="Metra 宣传海报：深色蓝黄光效中的 AI 用量悬浮球与经过脱敏的真实产品界面，展示 Cursor、Codex、Claude Code 和默认 C、X、A 字符。" width="100%">
+  </a>
+</p>
+
 ## 开发
 
 需要 Rust stable、Node.js 22+、npm，以及 Tauri 对应平台的系统依赖。
