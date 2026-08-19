@@ -5,6 +5,9 @@ use serde_json::Value;
 use crate::diagnostics;
 use crate::model::{Provider, ProviderSnapshot, ProviderStatus, QuotaWindow, TokenUsage};
 
+const CODEX_NOT_LOGGED_IN: &str = "Codex 未登录";
+const CODEX_NETWORK_UNAVAILABLE: &str = "Codex 网络暂时不可用，请稍后重试";
+
 pub fn snapshot_from_messages(messages: &[Value]) -> Result<ProviderSnapshot, String> {
     let account = result_for(messages, 1);
     let limits = result_for(messages, 2).ok_or_else(|| "Codex 未返回额度数据".to_string())?;
@@ -69,6 +72,17 @@ fn result_for(messages: &[Value], id: u64) -> Option<&Value> {
         .find(|message| message.get("id").and_then(Value::as_u64) == Some(id))
         .and_then(|message| message.get("result"))
 }
+
+fn account_is_explicitly_logged_out(messages: &[Value]) -> bool {
+    result_for(messages, 1)
+        .and_then(|result| result.get("account"))
+        .is_some_and(Value::is_null)
+}
+
+fn response_error_code(message: &Value) -> Option<i64> {
+    message.pointer("/error/code").and_then(Value::as_i64)
+}
+
 fn plan_from_limits(limits: &Value) -> Option<&str> {
     limits
         .pointer("/rateLimitsByLimitId/codex/planType")
@@ -220,6 +234,7 @@ impl CodexProvider {
         });
         let deadline = Instant::now() + self.timeout;
         let mut messages = Vec::new();
+        let mut rate_limit_attempts = 1_u8;
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
@@ -258,6 +273,35 @@ impl CodexProvider {
             match receiver.recv_timeout(remaining.min(Duration::from_millis(250))) {
                 Ok(message) => {
                     let id = message.get("id").and_then(Value::as_u64);
+                    if id == Some(2) && message.get("error").is_some() && rate_limit_attempts < 2 {
+                        diagnostics::warn(
+                            "codex.rate_limits.retry",
+                            format!(
+                                "attempt={} error_code={}",
+                                rate_limit_attempts + 1,
+                                response_error_code(&message)
+                                    .map(|code| code.to_string())
+                                    .unwrap_or_else(|| "unknown".into())
+                            ),
+                        );
+                        rate_limit_attempts += 1;
+                        thread::sleep(Duration::from_millis(300));
+                        let retry = serde_json::json!({
+                            "method": "account/rateLimits/read",
+                            "id": 2
+                        });
+                        writeln!(stdin, "{}", retry)
+                            .map_err(|_| "Codex App Server 写入失败".to_string())?;
+                        stdin
+                            .flush()
+                            .map_err(|_| "Codex App Server 写入失败".to_string())?;
+                        continue;
+                    }
+                    if id == Some(2) {
+                        messages.retain(|existing| {
+                            existing.get("id").and_then(Value::as_u64) != Some(2)
+                        });
+                    }
                     messages.push(message);
                     if [1, 2, 3].iter().all(|expected| {
                         messages.iter().any(|message| {
@@ -277,10 +321,22 @@ impl CodexProvider {
         drop(stdin);
         let _ = child.kill();
         let _ = child.wait();
-        if messages.iter().any(|message| {
+        if let Some(rate_limit_error) = messages.iter().find(|message| {
             message.get("id").and_then(Value::as_u64) == Some(2) && message.get("error").is_some()
         }) {
-            return Err("Codex 未登录或额度接口不可用".into());
+            if account_is_explicitly_logged_out(&messages) {
+                return Err(CODEX_NOT_LOGGED_IN.into());
+            }
+            diagnostics::warn(
+                "codex.rate_limits.unavailable",
+                format!(
+                    "attempts={rate_limit_attempts} error_code={}",
+                    response_error_code(rate_limit_error)
+                        .map(|code| code.to_string())
+                        .unwrap_or_else(|| "unknown".into())
+                ),
+            );
+            return Err(CODEX_NETWORK_UNAVAILABLE.into());
         }
         let mut snapshot = snapshot_from_messages(&messages)?;
         if snapshot
@@ -326,8 +382,15 @@ impl UsageProvider for CodexProvider {
                 ProviderStatus::NotInstalled,
                 message,
             ),
-            Err(message) if message.contains("未登录") => {
+            Err(message) if message == CODEX_NOT_LOGGED_IN => {
                 ProviderSnapshot::unavailable(Provider::Codex, ProviderStatus::NotLoggedIn, message)
+            }
+            Err(message) if message == CODEX_NETWORK_UNAVAILABLE => {
+                ProviderSnapshot::unavailable(
+                    Provider::Codex,
+                    ProviderStatus::NetworkError,
+                    message,
+                )
             }
             Err(message) => ProviderSnapshot::unavailable(
                 Provider::Codex,
@@ -579,6 +642,39 @@ mod boundary_tests {
         }
     }
 
+    fn write_flaky_rate_server(dir: &std::path::Path, recover_on_retry: bool) -> PathBuf {
+        #[cfg(windows)]
+        {
+            let path = dir.join("flaky-codex.ps1");
+            let final_rate_response = if recover_on_retry {
+                r#"Write-Output '{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":25,"windowDurationMins":300}}}}'"#
+            } else {
+                r#"Write-Output '{"id":2,"error":{"code":-32603,"message":"failed to fetch codex rate limits: error sending request"}}'"#
+            };
+            let body = format!(
+                "Start-Sleep -Milliseconds 200\nWrite-Output '{{\"id\":0,\"result\":{{\"userAgent\":\"mock\"}}}}'\nWrite-Output '{{\"id\":1,\"result\":{{\"account\":{{\"type\":\"chatgpt\",\"planType\":\"plus\"}}}}}}'\nWrite-Output '{{\"id\":2,\"error\":{{\"code\":-32603,\"message\":\"failed to fetch codex rate limits: error sending request\"}}}}'\nWrite-Output '{{\"id\":3,\"result\":{{\"summary\":{{\"lifetimeTokens\":1234}}}}}}'\nStart-Sleep -Milliseconds 400\n{final_rate_response}\n"
+            );
+            std::fs::write(&path, body).unwrap();
+            path
+        }
+        #[cfg(not(windows))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let path = dir.join("flaky-codex");
+            let final_rate_response = if recover_on_retry {
+                r#"'{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":25,"windowDurationMins":300}}}}'"#
+            } else {
+                r#"'{"id":2,"error":{"code":-32603,"message":"failed to fetch codex rate limits: error sending request"}}'"#
+            };
+            let body = format!(
+                "#!/bin/sh\nsleep 0.2\nprintf '%s\\n' '{{\"id\":0,\"result\":{{\"userAgent\":\"mock\"}}}}' '{{\"id\":1,\"result\":{{\"account\":{{\"type\":\"chatgpt\",\"planType\":\"plus\"}}}}}}' '{{\"id\":2,\"error\":{{\"code\":-32603,\"message\":\"failed to fetch codex rate limits: error sending request\"}}}}' '{{\"id\":3,\"result\":{{\"summary\":{{\"lifetimeTokens\":1234}}}}}}'\nsleep 0.4\nprintf '%s\\n' {final_rate_response}\n"
+            );
+            std::fs::write(&path, body).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            path
+        }
+    }
+
     #[test]
     fn mock_app_server_is_consumed_over_jsonl() {
         let temp = tempfile::tempdir().unwrap();
@@ -591,6 +687,52 @@ mod boundary_tests {
         assert_eq!(snapshot.status, ProviderStatus::Available);
         assert_eq!(snapshot.quotas[0].remaining_percent, 75.0);
         assert_eq!(snapshot.tokens.unwrap().lifetime, Some(1234));
+    }
+
+    #[test]
+    fn transient_rate_limit_error_is_retried_before_publishing_failure() {
+        let temp = tempfile::tempdir().unwrap();
+        let provider = CodexProvider {
+            executable_override: Some(write_flaky_rate_server(temp.path(), true)),
+            cached_executable: Mutex::new(None),
+            timeout: Duration::from_secs(3),
+        };
+
+        let snapshot = provider.refresh();
+
+        assert_eq!(snapshot.status, ProviderStatus::Available);
+        assert_eq!(snapshot.quotas[0].remaining_percent, 75.0);
+    }
+
+    #[test]
+    fn repeated_rate_limit_transport_error_is_not_treated_as_logout() {
+        let temp = tempfile::tempdir().unwrap();
+        let provider = CodexProvider {
+            executable_override: Some(write_flaky_rate_server(temp.path(), false)),
+            cached_executable: Mutex::new(None),
+            timeout: Duration::from_secs(3),
+        };
+
+        let snapshot = provider.refresh();
+
+        assert_eq!(snapshot.status, ProviderStatus::NetworkError);
+        assert!(
+            snapshot
+                .message
+                .as_deref()
+                .is_some_and(|message| message.contains("暂时"))
+        );
+    }
+
+    #[test]
+    fn an_explicitly_empty_account_is_still_treated_as_logout() {
+        let logged_out = [serde_json::json!({"id": 1, "result": {"account": null}})];
+        let logged_in = [
+            serde_json::json!({"id": 1, "result": {"account": {"type": "chatgpt"}}}),
+        ];
+
+        assert!(account_is_explicitly_logged_out(&logged_out));
+        assert!(!account_is_explicitly_logged_out(&logged_in));
     }
 
     #[test]
