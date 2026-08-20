@@ -76,6 +76,7 @@ button { font: inherit; color: inherit; }
 .track i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #7d65ff, #31d2b5); }
 .quota-meta { color: #68728d; font-size: 9px; }
 .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 9px; }
+.metrics.single-metric { grid-template-columns: 1fr; }
 .metrics > div { min-width: 0; padding: 8px; border-radius: 10px; background: #0709127a; }
 .metrics span { display: block; margin-bottom: 3px; color: #6f7992; font-size: 9px; }
 .metrics strong { display: block; overflow: hidden; color: #cfd5e6; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }

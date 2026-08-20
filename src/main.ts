@@ -425,7 +425,8 @@ function cursorLoginPrompt(cursorCompat: boolean): string {
 function providerCard(name: string, provider: ProviderSnapshot): string {
   const token = provider.provider === "codex" || provider.provider === "claude" ? provider.tokens : undefined;
   const cost = provider.cost;
-  const todayTokenLabel = "本机今日 token";
+  const claudeApiUsage = provider.provider === "claude" && cost?.todayUsedCents !== undefined;
+  const todayTokenLabel = claudeApiUsage ? "API 今日 token（UTC）" : "本机今日 token";
   const lifetimeTokenLabel = provider.provider === "claude" ? "本机累计 token" : "官方累计 token";
   const cursorCompat = provider.provider === "cursor" && Boolean(payload?.settings.cursorCompatEnabled);
   const cursorNeedsLogin = provider.provider === "cursor" && provider.status === "not_logged_in";
@@ -442,7 +443,7 @@ function providerCard(name: string, provider: ProviderSnapshot): string {
     ${usage}
     ${cursorNeedsLogin && !loading ? `<button class="compat-cta cursor-login-cta" id="login-cursor">${cursorCompat ? "在 Cursor 中重新登录" : "登录 Cursor"}</button>` : cursorCanEnableUsage && !cursorCompat && !loading ? `<button class="compat-cta" id="enable-cursor-usage">读取 Cursor 精确用量</button>` : ""}
     ${token ? `<div class="metrics"><div><span>${todayTokenLabel}</span><strong>${number(token.today)}</strong></div><div><span>${lifetimeTokenLabel}</span><strong>${number(token.lifetime)}</strong></div></div>` : ""}
-    ${cost && provider.provider !== "cursor" ? `<div class="metrics"><div><span>Included</span><strong>${money(cost.includedUsedCents)} / ${money(cost.includedLimitCents)}</strong></div><div><span>On-Demand</span><strong>${money(cost.onDemandUsedCents)} / ${money(cost.onDemandLimitCents)}</strong></div></div>` : ""}
+    ${claudeApiUsage ? `<div class="metrics single-metric"><div><span>API 今日预估费用（UTC）</span><strong>${cost.currency === "USD" ? money(cost.todayUsedCents) : `${escapeHtml(cost.currency)} ${((cost.todayUsedCents ?? 0) / 100).toFixed(2)}`}</strong></div></div>` : cost && provider.provider !== "cursor" ? `<div class="metrics"><div><span>Included</span><strong>${money(cost.includedUsedCents)} / ${money(cost.includedLimitCents)}</strong></div><div><span>On-Demand</span><strong>${money(cost.onDemandUsedCents)} / ${money(cost.onDemandLimitCents)}</strong></div></div>` : ""}
     ${provider.message && (provider.quotas.length || cursorCompat) ? `<p class="notice">${escapeHtml(provider.message)}</p>` : ""}
   </section>`;
 }

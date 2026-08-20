@@ -186,6 +186,7 @@ fn snapshot_from_payloads_with_on_demand(
     {
         Some(CostUsage {
             currency: "USD".into(),
+            today_used_cents: None,
             included_used_cents: included_used,
             included_limit_cents: included_limit,
             on_demand_used_cents,
