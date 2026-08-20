@@ -38,6 +38,7 @@ fn cursor_ultra_fields_have_stable_wire_names() {
 
     let cost = CostUsage {
         currency: "USD".into(),
+        today_used_cents: Some(123),
         included_used_cents: None,
         included_limit_cents: None,
         on_demand_used_cents: Some(0),
@@ -46,5 +47,6 @@ fn cursor_ultra_fields_have_stable_wire_names() {
         period_end: None,
     };
     let cost_json = serde_json::to_value(cost).unwrap();
+    assert_eq!(cost_json["todayUsedCents"], 123);
     assert_eq!(cost_json["onDemandEnabled"], false);
 }
