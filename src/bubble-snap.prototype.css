@@ -120,8 +120,8 @@ button { font: inherit; color: inherit; }
 .floating-bubble[data-state="idle"] .active-usage { opacity: 0; transform: scale(.84); }
 .floating-bubble[data-state="idle"] .idle-usage { opacity: 1; transform: translateX(0) scale(1); }
 .floating-bubble[data-state="idle"] .edge-grip { opacity: 1; }
-.floating-bubble[data-state="idle"][data-side="left"] .idle-usage { left: auto; width: 26px; right: 3px; text-align: right; }
-.floating-bubble[data-state="idle"][data-side="right"] .idle-usage { width: 26px; right: auto; left: 3px; text-align: left; }
+.floating-bubble[data-state="idle"][data-side="left"] .idle-usage { left: auto; width: 28px; right: 1px; text-align: left; }
+.floating-bubble[data-state="idle"][data-side="right"] .idle-usage { width: 28px; right: auto; left: 1px; text-align: right; }
 
 .variant-b .floating-bubble[data-state="idle"] .bubble-surface { top: 2px; bottom: auto; width: 33px; height: 52px; border-radius: 8px 18px 18px 8px; }
 .variant-b .floating-bubble[data-state="idle"][data-side="left"] .bubble-surface { right: 0; left: auto; border-radius: 18px 8px 8px 18px; }

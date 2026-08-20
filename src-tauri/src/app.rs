@@ -144,6 +144,19 @@ fn should_hide_panel(toggle: bool, requested_mode: u8, visible_mode: u8, visible
     toggle && visible && requested_mode == PANEL_MODE_DETAILS && visible_mode == PANEL_MODE_DETAILS
 }
 
+fn panel_bubble_x(
+    bubble_x: i32,
+    bubble_width: u32,
+    full_width: u32,
+    docked_right: bool,
+) -> i32 {
+    if !docked_right || bubble_width >= full_width {
+        return bubble_x;
+    }
+    let adjusted = i64::from(bubble_x) + i64::from(bubble_width) - i64::from(full_width);
+    adjusted.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+}
+
 fn calculate_panel_position(
     bubble_x: i32,
     bubble_y: i32,
@@ -206,6 +219,7 @@ fn show_panel_window(
         panel_visible,
     ) {
         panel.hide().map_err(|_| "无法收起详情窗口".to_string())?;
+        let _ = app.emit("panel-visibility-changed", serde_json::json!({ "visible": false }));
         return Ok(started.elapsed().as_millis() as u64);
     }
     panel
@@ -217,6 +231,9 @@ fn show_panel_window(
     let bubble_position = bubble
         .outer_position()
         .map_err(|_| "无法读取气泡位置".to_string())?;
+    let bubble_size = bubble
+        .outer_size()
+        .map_err(|_| "无法读取气泡大小".to_string())?;
     let monitor = bubble.current_monitor().ok().flatten();
     let scale = monitor
         .as_ref()
@@ -230,10 +247,28 @@ fn show_panel_window(
             work.size.height,
         )
     });
-    let (x, y) = calculate_panel_position(
+    let full_bubble_width = (56.0 * scale).round() as u32;
+    let docked_right = work_area.is_some_and(|(work_x, _, work_width, _)| {
+        i64::from(bubble_position.x) + i64::from(bubble_size.width / 2)
+            >= i64::from(work_x) + i64::from(work_width / 2)
+    });
+    let dock_side = if docked_right { "right" } else { "left" };
+    let bubble_x = panel_bubble_x(
         bubble_position.x,
+        bubble_size.width,
+        full_bubble_width,
+        docked_right,
+    );
+    if bubble_size.width < full_bubble_width {
+        let _ = app.emit(
+            "bubble-reveal-requested",
+            serde_json::json!({ "side": dock_side }),
+        );
+    }
+    let (x, y) = calculate_panel_position(
+        bubble_x,
         bubble_position.y,
-        (56.0 * scale).round() as u32,
+        full_bubble_width,
         (width * scale).round() as u32,
         (height * scale).round() as u32,
         work_area,
@@ -246,9 +281,13 @@ fn show_panel_window(
         return Ok(started.elapsed().as_millis() as u64);
     }
     panel
-        .emit("panel-mode", serde_json::json!({ "mode": mode }))
+        .emit(
+            "panel-mode",
+            serde_json::json!({ "mode": mode, "dockSide": dock_side }),
+        )
         .map_err(|_| "无法切换弹窗内容".to_string())?;
     panel.show().map_err(|_| "无法显示弹窗".to_string())?;
+    let _ = app.emit("panel-visibility-changed", serde_json::json!({ "visible": true }));
     requests.visible_mode.store(mode_code, Ordering::Release);
     panel.set_focus().map_err(|_| "无法聚焦弹窗".to_string())?;
     Ok(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64)
@@ -539,6 +578,10 @@ fn setup_status_item(app: &mut tauri::App) -> tauri::Result<()> {
                     if bubble.is_visible().unwrap_or(false) {
                         if let Some(panel) = app.get_webview_window("panel") {
                             let _ = panel.hide();
+                            let _ = app.emit(
+                                "panel-visibility-changed",
+                                serde_json::json!({ "visible": false }),
+                            );
                         }
                         let _ = bubble.hide();
                     } else {
@@ -669,7 +712,21 @@ pub fn run() {
 }
 #[cfg(test)]
 mod panel_geometry_tests {
-    use super::{PANEL_MODE_DETAILS, PANEL_MODE_MENU, calculate_panel_position, should_hide_panel};
+    use super::{
+        PANEL_MODE_DETAILS, PANEL_MODE_MENU, calculate_panel_position, panel_bubble_x,
+        should_hide_panel,
+    };
+
+    #[test]
+    fn right_peek_position_is_restored_to_the_full_bubble_anchor_for_the_panel() {
+        assert_eq!(panel_bubble_x(1168, 32, 56, true), 1144);
+        assert_eq!(panel_bubble_x(1144, 56, 56, true), 1144);
+    }
+
+    #[test]
+    fn left_peek_position_keeps_its_existing_anchor() {
+        assert_eq!(panel_bubble_x(0, 32, 56, false), 0);
+    }
 
     #[test]
     fn panel_prefers_the_left_when_both_sides_have_room() {

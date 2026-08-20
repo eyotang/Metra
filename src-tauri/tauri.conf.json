@@ -19,7 +19,7 @@
         "url": "index.html?view=bubble",
         "width": 56,
         "height": 56,
-        "minWidth": 56,
+        "minWidth": 32,
         "minHeight": 56,
         "maxWidth": 56,
         "maxHeight": 56,

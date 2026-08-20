@@ -28,6 +28,8 @@ jobs:
         run: npm run verify:color
       - name: Bubble visibility contract
         run: npm run verify:visibility
+      - name: Bubble snap and idle geometry
+        run: npm run verify:bubble-snap
       - name: Cursor Ultra contract
         run: npm run verify:cursor-ultra
       - name: Cursor login contract

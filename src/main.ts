@@ -1,6 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
+import { emit, listen } from "@tauri-apps/api/event";
+import { availableMonitors, getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
+import {
+  bubbleReleaseVelocity,
+  calculateBubbleDockTarget,
+  calculateBubblePeekFrame,
+  selectBubbleMonitor,
+  type BubbleDockSide,
+  type BubbleMonitorGeometry,
+  type BubbleMotionSample,
+  type BubblePoint,
+  type BubbleSize,
+} from "./bubble-geometry";
 import type { AppPayload, AppSettings, BubblePercentMode, ProviderName, ProviderSnapshot, ProviderStatus, QuotaKind } from "./types";
 import { ProviderCardNavigator, shouldNavigateFromProviderRow } from "./provider-navigation";
 import metraWaterUrl from "./metra-water.svg";
@@ -16,12 +27,17 @@ const currentWindow = getCurrentWindow();
 const view = new URLSearchParams(location.search).get("view") ?? "bubble";
 let payload: AppPayload | null = null;
 let panelMode: "details" | "menu" = "details";
+let panelDockSide: BubbleDockSide = "right";
 let panelRequestSequence = 0;
 const MENU_PANEL_HEIGHT = 390;
 const PANEL_GAP = 3;
 const ACTION_TIMEOUT_MS = 8_000;
 const PANEL_SHOW_TIMEOUT_MS = 1_000;
 const REFRESH_TIMEOUT_MS = 22_000;
+const BUBBLE_IDLE_DELAY_MS = 3_000;
+const BUBBLE_DRAG_THRESHOLD = 4;
+const BUBBLE_DRAG_SETTLE_MS = 180;
+const BUBBLE_SAMPLE_WINDOW_MS = 140;
 
 interface CursorLoginStart {
   method: "agent" | "editor";
@@ -285,6 +301,376 @@ function bubbleRow(label: string, provider: ProviderSnapshot, mode: BubblePercen
   </div>`;
 }
 
+function idleBubbleValue(provider: ProviderSnapshot, mode: BubblePercentMode): string {
+  return `<span class="bubble-idle-value ${provider.provider} ${provider.stale ? "stale" : ""}" data-provider-accent="${provider.provider}" style="${providerColorStyle(provider.provider, payload?.settings)}">${percent(bubblePercent(provider, mode))}</span>`;
+}
+
+type BubbleWindowState = "visible" | "dragging" | "snapping" | "peek";
+
+class BubbleWindowController {
+  private readonly shell: HTMLElement;
+  private readonly center: HTMLElement;
+  private readonly idleUsage: HTMLElement;
+  private readonly reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  private readonly initialization: Promise<void>;
+  private state: BubbleWindowState = "visible";
+  private side: BubbleDockSide = "right";
+  private anchor: BubblePoint | null = null;
+  private fullSize: BubbleSize | null = null;
+  private monitor: BubbleMonitorGeometry | null = null;
+  private busy = true;
+  private panelVisible = false;
+  private hovering = false;
+  private focused = false;
+  private initialized = false;
+  private dragged = false;
+  private nativeDragging = false;
+  private dragOrigin: { x: number; y: number; pointerId: number } | null = null;
+  private movementSamples: BubbleMotionSample[] = [];
+  private idleTimer: number | undefined;
+  private dragSettleTimer: number | undefined;
+  private snapToken = 0;
+  private snapCompletion: Promise<void> | null = null;
+  private nativeQueue: Promise<unknown> = Promise.resolve();
+
+  constructor() {
+    this.shell = document.querySelector<HTMLElement>(".bubble-shell")!;
+    this.center = document.querySelector<HTMLElement>(".bubble-center")!;
+    this.idleUsage = document.querySelector<HTMLElement>(".bubble-idle-usage")!;
+    this.bindEvents();
+    this.initialization = this.initialize();
+    void this.initialization.catch((reason) => this.reportError(reason, "初始化悬浮球位置失败"));
+  }
+
+  update(activeRows: string, idleValues: string, order: ProviderName[], mode: BubblePercentMode, busy: boolean): void {
+    this.center.className = `bubble-center provider-count-${order.length}`;
+    this.center.innerHTML = activeRows;
+    this.idleUsage.className = `bubble-idle-usage provider-count-${order.length}`;
+    this.idleUsage.innerHTML = idleValues;
+    const usage = order.map((provider) => {
+      const snapshot = payload?.snapshot[provider];
+      return `${PROVIDER_META[provider].name} ${snapshot ? percent(bubblePercent(snapshot, mode)) : "加载中"}`;
+    }).join("，");
+    this.shell.setAttribute("aria-label", `Metra 用量悬浮球，${usage}；拖动可吸附到屏幕边缘，按回车打开详情`);
+    const wasBusy = this.busy;
+    this.busy = busy;
+    this.applyVisualState();
+    if (busy) {
+      this.clearIdleTimer();
+      if (this.state === "peek") void this.reveal().catch((reason) => this.reportError(reason, "唤醒悬浮球失败"));
+    } else if (wasBusy || this.state === "visible") {
+      this.scheduleIdle();
+    }
+  }
+
+  async prepareForPanel(): Promise<void> {
+    await this.initialization;
+    if (this.snapCompletion) await this.snapCompletion;
+    await this.reveal();
+    this.clearIdleTimer();
+  }
+
+  setPanelVisible(visible: boolean): void {
+    this.panelVisible = visible;
+    this.shell.setAttribute("aria-expanded", String(visible));
+    if (visible) {
+      this.clearIdleTimer();
+      void this.reveal().catch((reason) => this.reportError(reason, "唤醒悬浮球失败"));
+    } else {
+      this.scheduleIdle();
+    }
+  }
+
+  private bindEvents(): void {
+    this.shell.addEventListener("selectstart", (event) => event.preventDefault());
+    this.shell.addEventListener("pointerenter", () => {
+      this.hovering = true;
+      this.clearIdleTimer();
+      void this.reveal().catch((reason) => this.reportError(reason, "唤醒悬浮球失败"));
+    });
+    this.shell.addEventListener("pointerleave", () => {
+      this.hovering = false;
+      this.scheduleIdle();
+    });
+    this.shell.addEventListener("focusin", () => {
+      this.focused = true;
+      this.clearIdleTimer();
+      void this.reveal().catch((reason) => this.reportError(reason, "唤醒悬浮球失败"));
+    });
+    this.shell.addEventListener("focusout", () => {
+      this.focused = false;
+      this.scheduleIdle();
+    });
+    this.shell.addEventListener("pointerdown", (event) => this.onPointerDown(event));
+    this.shell.addEventListener("pointermove", (event) => this.onPointerMove(event));
+    this.shell.addEventListener("pointerup", (event) => this.onPointerUp(event));
+    this.shell.addEventListener("pointercancel", () => this.onPointerCancel());
+    this.shell.addEventListener("click", () => {
+      if (this.dragged) return;
+      void showPanel("details", true);
+    });
+    this.shell.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      void showPanel("menu");
+    });
+    this.shell.addEventListener("keydown", (event) => {
+      if (event.repeat || (event.key !== "Enter" && event.key !== " ")) return;
+      event.preventDefault();
+      void showPanel("details", true);
+    });
+  }
+
+  private async initialize(): Promise<void> {
+    void currentWindow.onMoved((event) => this.onWindowMoved(event.payload))
+      .catch((reason) => this.reportError(reason, "监听悬浮球移动失败"));
+    await this.dockCurrentPosition({ x: 0, y: 0 }, false);
+    this.initialized = true;
+    this.applyVisualState();
+    if (!this.busy) this.scheduleIdle();
+  }
+
+  private onPointerDown(event: PointerEvent): void {
+    if (event.button !== 0) return;
+    window.getSelection()?.removeAllRanges();
+    this.clearIdleTimer();
+    this.cancelSnap();
+    this.dragged = false;
+    this.dragOrigin = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+    this.shell.setPointerCapture(event.pointerId);
+    if (this.state === "peek") {
+      void this.reveal().catch((reason) => this.reportError(reason, "唤醒悬浮球失败"));
+    } else {
+      this.state = "visible";
+      this.applyVisualState();
+    }
+  }
+
+  private onPointerMove(event: PointerEvent): void {
+    if (!this.dragOrigin || !(event.buttons & 1)) return;
+    if (Math.hypot(event.clientX - this.dragOrigin.x, event.clientY - this.dragOrigin.y) < BUBBLE_DRAG_THRESHOLD) return;
+    const pointerId = this.dragOrigin.pointerId;
+    this.dragged = true;
+    this.dragOrigin = null;
+    if (this.shell.hasPointerCapture(pointerId)) this.shell.releasePointerCapture(pointerId);
+    void this.beginNativeDrag();
+  }
+
+  private onPointerUp(event: PointerEvent): void {
+    this.dragOrigin = null;
+    if (this.shell.hasPointerCapture(event.pointerId)) this.shell.releasePointerCapture(event.pointerId);
+    if (this.nativeDragging) this.scheduleDragFinish(24);
+    window.setTimeout(() => { this.dragged = false; }, 0);
+  }
+
+  private onPointerCancel(): void {
+    this.dragOrigin = null;
+    if (this.nativeDragging) this.scheduleDragFinish(BUBBLE_DRAG_SETTLE_MS);
+    else this.scheduleIdle();
+  }
+
+  private async beginNativeDrag(): Promise<void> {
+    await this.initialization;
+    if (this.state === "peek") await this.reveal();
+    this.cancelSnap();
+    const position = await this.afterNativeQueue(() => currentWindow.outerPosition());
+    this.nativeDragging = true;
+    this.state = "dragging";
+    this.movementSamples = [{ x: position.x, y: position.y, time: performance.now() }];
+    this.applyVisualState();
+    try {
+      await withTimeout(currentWindow.startDragging(), ACTION_TIMEOUT_MS, "拖动气泡");
+      this.scheduleDragFinish(BUBBLE_DRAG_SETTLE_MS);
+    } catch (reason) {
+      this.nativeDragging = false;
+      this.state = "visible";
+      this.applyVisualState();
+      this.reportError(reason, "无法拖动气泡");
+      this.scheduleIdle();
+    }
+  }
+
+  private onWindowMoved(position: PhysicalPosition): void {
+    if (!this.nativeDragging) return;
+    const now = performance.now();
+    this.movementSamples.push({ x: position.x, y: position.y, time: now });
+    this.movementSamples = this.movementSamples.filter((sample) => now - sample.time <= BUBBLE_SAMPLE_WINDOW_MS);
+    this.scheduleDragFinish(BUBBLE_DRAG_SETTLE_MS);
+  }
+
+  private scheduleDragFinish(delay: number): void {
+    window.clearTimeout(this.dragSettleTimer);
+    this.dragSettleTimer = window.setTimeout(() => {
+      if (!this.nativeDragging) return;
+      this.nativeDragging = false;
+      const velocity = bubbleReleaseVelocity(this.movementSamples);
+      this.snapCompletion = this.dockCurrentPosition(velocity, true).finally(() => { this.snapCompletion = null; });
+    }, delay);
+  }
+
+  private async dockCurrentPosition(velocity: BubblePoint, animate: boolean): Promise<void> {
+    const [position, size, monitors] = await Promise.all([
+      this.afterNativeQueue(() => currentWindow.outerPosition()),
+      this.afterNativeQueue(() => currentWindow.outerSize()),
+      availableMonitors(),
+    ]);
+    const geometries = monitors.map((monitor) => ({
+      x: monitor.workArea.position.x,
+      y: monitor.workArea.position.y,
+      width: monitor.workArea.size.width,
+      height: monitor.workArea.size.height,
+      scaleFactor: monitor.scaleFactor,
+    }));
+    const monitor = selectBubbleMonitor(geometries, position, size);
+    if (!monitor) return;
+    const target = calculateBubbleDockTarget(position, velocity, monitor);
+    this.side = target.side;
+    this.monitor = monitor;
+    this.fullSize = target.size;
+    this.state = animate ? "snapping" : "visible";
+    this.applyVisualState();
+    await this.resizeWindow(target.size);
+    const completed = animate
+      ? await this.animateTo(target.position, velocity)
+      : await this.moveWindow(target.position).then(() => true);
+    if (!completed) return;
+    this.anchor = target.position;
+    this.state = "visible";
+    this.applyVisualState();
+    await this.saveAnchor();
+    this.scheduleIdle();
+  }
+
+  private async animateTo(target: BubblePoint, releaseVelocity: BubblePoint): Promise<boolean> {
+    const token = ++this.snapToken;
+    const start = await this.afterNativeQueue(() => currentWindow.outerPosition());
+    if (this.reducedMotion) {
+      await this.moveWindow(target);
+      return token === this.snapToken;
+    }
+    let x = start.x;
+    let y = start.y;
+    let velocityX = releaseVelocity.x;
+    let velocityY = releaseVelocity.y;
+    let previous = performance.now();
+    const started = previous;
+    const response = 0.38;
+    const omega = (2 * Math.PI) / response;
+    const stiffness = omega * omega;
+    const damping = 2 * omega;
+    while (token === this.snapToken) {
+      const now = await new Promise<number>((resolve) => requestAnimationFrame(resolve));
+      const elapsed = now - started;
+      const delta = Math.min((now - previous) / 1_000, 0.032);
+      previous = now;
+      velocityX += (-stiffness * (x - target.x) - damping * velocityX) * delta;
+      velocityY += (-stiffness * (y - target.y) - damping * velocityY) * delta;
+      x += velocityX * delta;
+      y += velocityY * delta;
+      await this.moveWindow({ x: Math.round(x), y: Math.round(y) });
+      const settled = Math.hypot(x - target.x, y - target.y) < 0.75
+        && Math.hypot(velocityX, velocityY) < 5;
+      if (settled || elapsed > 720) break;
+    }
+    if (token !== this.snapToken) return false;
+    await this.moveWindow(target);
+    return true;
+  }
+
+  private cancelSnap(): void {
+    this.snapToken += 1;
+  }
+
+  private clearIdleTimer(): void {
+    window.clearTimeout(this.idleTimer);
+    this.idleTimer = undefined;
+  }
+
+  private scheduleIdle(): void {
+    this.clearIdleTimer();
+    if (!this.initialized || this.busy || this.panelVisible || this.hovering || this.focused || this.nativeDragging || this.state !== "visible") return;
+    this.idleTimer = window.setTimeout(() => {
+      void this.enterPeek().catch((reason) => this.reportError(reason, "隐藏悬浮球失败"));
+    }, BUBBLE_IDLE_DELAY_MS);
+  }
+
+  private async enterPeek(): Promise<void> {
+    if (this.busy || this.panelVisible || this.hovering || this.focused || this.nativeDragging || this.state !== "visible") return;
+    await this.initialization;
+    if (!this.anchor || !this.fullSize || !this.monitor) return;
+    this.state = "peek";
+    this.applyVisualState();
+    const frame = calculateBubblePeekFrame(this.anchor, this.fullSize, this.side, this.monitor.scaleFactor);
+    await this.setWindowFrame(frame.position, frame.size);
+  }
+
+  private async reveal(): Promise<void> {
+    this.clearIdleTimer();
+    await this.initialization;
+    if (this.state !== "peek") {
+      if (this.state !== "dragging" && this.state !== "snapping") this.state = "visible";
+      this.applyVisualState();
+      return;
+    }
+    if (!this.anchor || !this.fullSize) return;
+    this.state = "visible";
+    this.applyVisualState();
+    await this.setWindowFrame(this.anchor, this.fullSize);
+  }
+
+  private applyVisualState(): void {
+    this.shell.dataset.state = this.state === "peek" ? "idle" : this.state;
+    this.shell.dataset.side = this.side;
+  }
+
+  private resizeWindow(size: BubbleSize): Promise<void> {
+    return this.queueNative(() => currentWindow.setSize(new PhysicalSize(size.width, size.height)));
+  }
+
+  private moveWindow(position: BubblePoint): Promise<void> {
+    return this.queueNative(() => currentWindow.setPosition(new PhysicalPosition(Math.round(position.x), Math.round(position.y))));
+  }
+
+  private setWindowFrame(position: BubblePoint, size: BubbleSize): Promise<void> {
+    return this.queueNative(async () => {
+      await Promise.all([
+        currentWindow.setSize(new PhysicalSize(size.width, size.height)),
+        currentWindow.setPosition(new PhysicalPosition(Math.round(position.x), Math.round(position.y))),
+      ]);
+    });
+  }
+
+  private queueNative(operation: () => Promise<unknown>): Promise<void> {
+    const task = this.nativeQueue.then(operation, operation).then(() => undefined);
+    this.nativeQueue = task.catch(() => undefined);
+    return task;
+  }
+
+  private async afterNativeQueue<T>(operation: () => Promise<T>): Promise<T> {
+    await this.nativeQueue;
+    return operation();
+  }
+
+  private async saveAnchor(): Promise<void> {
+    if (!this.anchor) return;
+    try {
+      await invokeWithTimeout<AppSettings>(
+        "save_window_position",
+        { x: Math.round(this.anchor.x), y: Math.round(this.anchor.y) },
+        ACTION_TIMEOUT_MS,
+        "保存气泡位置",
+      );
+    } catch (reason) {
+      this.reportError(reason, "保存气泡位置失败");
+    }
+  }
+
+  private reportError(reason: unknown, fallback: string): void {
+    showToast(friendlyError(reason, fallback), "error", 4_500);
+  }
+}
+
+let bubbleController: BubbleWindowController | null = null;
+
 function renderBubble(): void {
   const snapshot = payload?.snapshot;
   const mode = payload?.settings.bubblePercentMode ?? "remaining";
@@ -292,39 +678,19 @@ function renderBubble(): void {
   const rows = snapshot
     ? order.map((provider) => bubbleRow(bubbleProviderLabel(provider, payload?.settings), snapshot[provider], mode, tokenGains[provider])).join("")
     : order.map((provider) => `<div class="bubble-row ${provider} loading-row" data-provider-accent="${provider}" style="${providerColorStyle(provider, payload?.settings)}"><span class="provider-mark">${escapeHtml(bubbleProviderLabel(provider, payload?.settings))}</span><strong>··</strong></div>`).join("");
-  app.innerHTML = `<div class="bubble-shell">
-      <div class="bubble-glow"></div>
-      <div class="bubble-center provider-count-${order.length}" id="open-details" role="button" tabindex="0" aria-label="查看 ${order.map((provider) => PROVIDER_META[provider].name).join("、")} 用量">
-        ${rows}
-      </div>
-    </div>`;
-  const shell = document.querySelector<HTMLElement>(".bubble-shell")!;
-  window.getSelection()?.removeAllRanges();
-  let dragOrigin: { x: number; y: number; pointerId: number } | null = null;
-  let dragged = false;
-  shell.addEventListener("selectstart", (event) => event.preventDefault());
-  shell.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0) return;
-    window.getSelection()?.removeAllRanges();
-    dragged = false;
-    dragOrigin = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
-    shell.setPointerCapture(event.pointerId);
-  });
-  shell.addEventListener("pointermove", (event) => {
-    if (!dragOrigin || !(event.buttons & 1)) return;
-    if (Math.hypot(event.clientX - dragOrigin.x, event.clientY - dragOrigin.y) < 4) return;
-    dragged = true;
-    if (shell.hasPointerCapture(dragOrigin.pointerId)) shell.releasePointerCapture(dragOrigin.pointerId);
-    dragOrigin = null;
-    void withTimeout(currentWindow.startDragging(), ACTION_TIMEOUT_MS, "拖动气泡").catch((reason) => showToast(friendlyError(reason, "无法拖动气泡"), "error", 4_500));
-  });
-  shell.addEventListener("pointerup", () => { dragOrigin = null; window.setTimeout(() => { dragged = false; }, 0); });
-  shell.addEventListener("pointercancel", () => { dragOrigin = null; });
-  shell.addEventListener("click", () => {
-    if (!dragged) void showPanel("details", true);
-  });  shell.addEventListener("contextmenu", (event) => {
-    event.preventDefault(); void showPanel("menu");
-  });
+  const idleValues = snapshot
+    ? order.map((provider) => idleBubbleValue(snapshot[provider], mode)).join("")
+    : order.map((provider) => `<span class="bubble-idle-value ${provider}" data-provider-accent="${provider}" style="${providerColorStyle(provider, payload?.settings)}">··</span>`).join("");
+  if (!bubbleController) {
+    app.innerHTML = `<div class="bubble-shell" id="open-details" data-state="visible" data-side="right" role="button" tabindex="0" aria-haspopup="dialog" aria-expanded="false">
+        <div class="bubble-glow" aria-hidden="true"></div>
+        <div class="bubble-center provider-count-${order.length}" aria-hidden="true"></div>
+        <span class="bubble-idle-usage provider-count-${order.length}" aria-hidden="true"></span>
+      </div>`;
+    bubbleController = new BubbleWindowController();
+  }
+  const busy = !snapshot || snapshot.refreshing || Object.keys(tokenGains).length > 0;
+  bubbleController.update(rows, idleValues, order, mode, busy);
 }
 
 function quotaRows(provider: ProviderSnapshot): string {
@@ -952,12 +1318,16 @@ function renderMenu(): void {
   });
 }
 
-function renderPanel(): void { panelMode === "details" ? renderDetails() : renderMenu(); }
+function renderPanel(): void {
+  panelMode === "details" ? renderDetails() : renderMenu();
+  app.dataset.panelDockSide = panelDockSide;
+}
 function render(): void { view === "bubble" ? renderBubble() : renderPanel(); }
 
 async function showPanel(mode: "details" | "menu", toggle = false): Promise<void> {
   const requestId = ++panelRequestSequence;
   try {
+    if (view === "bubble") await bubbleController?.prepareForPanel();
     await invokeWithTimeout<number>(
       "show_panel",
       { mode, toggle, requestId },
@@ -970,36 +1340,16 @@ async function showPanel(mode: "details" | "menu", toggle = false): Promise<void
     }
   }
 }
-async function clampAndSave(): Promise<void> {
-  const [position, monitor] = await Promise.all([currentWindow.outerPosition(), currentMonitor()]);
-  if (!monitor) return;
-  const work = monitor.workArea;
-  const size = await currentWindow.innerSize();
-  const left = work.position.x + 8;
-  const right = work.position.x + work.size.width - size.width - 8;
-  const top = work.position.y + 8;
-  const bottom = work.position.y + work.size.height - size.height - 8;
-  const x = Math.max(left, Math.min(position.x, right));
-  const y = Math.max(top, Math.min(position.y, bottom));
-  if (x !== position.x || y !== position.y) {
-    await withTimeout(currentWindow.setPosition(new PhysicalPosition(x, y)), ACTION_TIMEOUT_MS, "修正气泡位置");
-  }
-  try {
-    await invokeWithTimeout<AppSettings>("save_window_position", { x, y }, ACTION_TIMEOUT_MS, "保存气泡位置");
-  } catch (reason) {
-    showToast(friendlyError(reason, "保存气泡位置失败"), "error", 4_500);
-  }
+
+async function hidePanelWindow(): Promise<void> {
+  await withTimeout(currentWindow.hide(), ACTION_TIMEOUT_MS, "收起弹窗");
+  await withTimeout(emit("panel-visibility-changed", { visible: false }), ACTION_TIMEOUT_MS, "同步弹窗状态");
 }
 
-if (view === "bubble") {
-  let moveTimer: number | undefined;
-  void currentWindow.onMoved(() => {
-    window.clearTimeout(moveTimer);
-    moveTimer = window.setTimeout(() => void clampAndSave(), 260);
-  });
-} else {
-  void listen<{ mode: "details" | "menu" }>("panel-mode", (event) => {
+if (view !== "bubble") {
+  void listen<{ mode: "details" | "menu"; dockSide?: BubbleDockSide }>("panel-mode", (event) => {
     panelMode = event.payload.mode;
+    panelDockSide = event.payload.dockSide ?? panelDockSide;
     renderPanel();
   });
   void currentWindow.onFocusChanged(({ payload: focused }) => {
@@ -1011,7 +1361,7 @@ if (view === "bubble") {
       void (async () => {
         try {
           const stillFocused = await withTimeout(currentWindow.isFocused(), ACTION_TIMEOUT_MS, "检查弹窗焦点");
-          if (!stillFocused) await withTimeout(currentWindow.hide(), ACTION_TIMEOUT_MS, "收起弹窗");
+          if (!stillFocused) await hidePanelWindow();
         } catch (reason) {
           showToast(friendlyError(reason, "收起弹窗失败"), "error", 4_500);
         }
@@ -1024,11 +1374,17 @@ if (view === "bubble") {
         event.preventDefault();
         return;
       }
-      void withTimeout(currentWindow.hide(), ACTION_TIMEOUT_MS, "收起弹窗")
+      void hidePanelWindow()
         .catch((reason) => showToast(friendlyError(reason, "收起弹窗失败"), "error", 4_500));
     }
   });
 }
+void listen<{ visible: boolean }>("panel-visibility-changed", (event) => {
+  if (view === "bubble") bubbleController?.setPanelVisible(event.payload.visible);
+});
+void listen<{ side?: BubbleDockSide }>("bubble-reveal-requested", () => {
+  if (view === "bubble") void bubbleController?.prepareForPanel();
+});
 void listen<AppSettings>("settings-updated", (event) => {
   if (!payload) return;
   payload.settings = event.payload;
