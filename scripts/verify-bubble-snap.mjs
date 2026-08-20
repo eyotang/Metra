@@ -66,7 +66,15 @@ assert.match(main, /const BUBBLE_IDLE_DELAY_MS = 3_000/, "idle peek must wait th
 assert.match(main, /function idleBubbleValue\(/, "idle mode needs a percentage-only renderer");
 assert.match(main, /availableMonitors\(\)/, "dock selection must consider every display");
 assert.match(main, /calculateBubblePeekFrame\(/, "idle mode must resize and reposition the native window");
-assert.match(main, /event\.screenX - this\.dragOrigin\.x/, "drag threshold must use stable screen coordinates while the window wakes");
+assert.match(main, /data-tauri-drag-region="deep"/, "native dragging must begin on mousedown through Tauri's drag region");
+assert.match(main, /private onWindowMoved[\s\S]{0,520}this\.dragMoved = true;[\s\S]{0,80}this\.dragged = true;/, "only actual native window movement may classify the gesture as a drag");
+assert.match(main, /private onWindowMoved[\s\S]{0,180}consumeProgrammaticMove\(position\)[\s\S]{0,120}!this\.nativeDragging/, "programmatic positions must be ignored before classifying native drag movement");
+assert.match(main, /private onPointerCancel[\s\S]{0,180}nativeReleaseConfirmed = false/, "pointer cancellation must fall back to the real native mouse-button state");
+assert.match(main, /private onPointerUp[\s\S]{0,640}scheduleDragFinish\(BUBBLE_DRAG_CLICK_SETTLE_MS\)/, "pointer release must leave time for delayed native move events");
+assert.match(main, /event\.screenX[\s\S]{0,220}this\.dragMoved = true;/, "pointer travel must suppress a drag gesture's synthetic click");
+assert.match(main, /if \(this\.nativeDragging\) \{\s*this\.pendingClick = true;/, "clicks must wait until the native gesture is classified");
+assert.match(main, /currentWindow\.outerPosition\(\)[\s\S]{0,520}this\.dragMoved = true;/, "gesture classification must reconcile the final native window position");
+assert.match(main, /if \(this\.finishInProgress\)[\s\S]{0,180}this\.finishInProgress = true;/, "native drag completion must be serialized");
 assert.match(main, /is_primary_mouse_button_pressed/, "native drag fallback must confirm the real pointer release");
 assert.match(main, /if \(requestId !== panelRequestSequence\) return;/, "older panel requests must not overtake newer interactions");
 assert.doesNotMatch(main, /function clampAndSave\(/, "the previous full-window clamp must not fight snap or peek moves");

@@ -35,10 +35,12 @@ const ACTION_TIMEOUT_MS = 8_000;
 const PANEL_SHOW_TIMEOUT_MS = 1_000;
 const REFRESH_TIMEOUT_MS = 22_000;
 const BUBBLE_IDLE_DELAY_MS = 3_000;
-const BUBBLE_DRAG_THRESHOLD = 4;
 const BUBBLE_DRAG_FALLBACK_MS = 800;
 const BUBBLE_DRAG_RELEASE_POLL_MS = 120;
+const BUBBLE_DRAG_CLICK_SETTLE_MS = 80;
+const BUBBLE_POINTER_DRAG_THRESHOLD_PX = 4;
 const BUBBLE_SAMPLE_WINDOW_MS = 140;
+const BUBBLE_PROGRAMMATIC_MOVE_TTL_MS = 180;
 
 interface CursorLoginStart {
   method: "agent" | "editor";
@@ -325,17 +327,25 @@ class BubbleWindowController {
   private focused = false;
   private initialized = false;
   private dragged = false;
+  private dragMoved = false;
   private primaryPointerDown = false;
   private nativeDragging = false;
   private nativeReleaseConfirmed = false;
-  private dragOrigin: { x: number; y: number; pointerId: number } | null = null;
+  private pendingClick = false;
+  private dragStartedFromPeek = false;
+  private pointerStartScreen: BubblePoint | null = null;
+  private dragStartPosition: BubblePoint | null = null;
+  private lastObservedPosition: BubblePoint | null = null;
   private movementSamples: BubbleMotionSample[] = [];
   private idleTimer: number | undefined;
   private dragSettleTimer: number | undefined;
+  private dragGeneration = 0;
+  private finishInProgress = false;
   private snapToken = 0;
   private snapCompletion: Promise<void> | null = null;
   private frameTransition: Promise<void> | null = null;
   private nativeQueue: Promise<unknown> = Promise.resolve();
+  private pendingProgrammaticMoves: Array<BubblePoint & { expiresAt: number }> = [];
 
   constructor() {
     this.shell = document.querySelector<HTMLElement>(".bubble-shell")!;
@@ -406,11 +416,14 @@ class BubbleWindowController {
       this.scheduleIdle();
     });
     this.shell.addEventListener("pointerdown", (event) => this.onPointerDown(event));
-    this.shell.addEventListener("pointermove", (event) => this.onPointerMove(event));
     window.addEventListener("pointerup", (event) => this.onPointerUp(event));
     window.addEventListener("pointercancel", () => this.onPointerCancel());
     this.shell.addEventListener("click", () => {
       if (this.dragged) return;
+      if (this.nativeDragging) {
+        this.pendingClick = true;
+        return;
+      }
       void showPanel("details", true);
     });
     this.shell.addEventListener("contextmenu", (event) => {
@@ -437,79 +450,69 @@ class BubbleWindowController {
     if (event.button !== 0) return;
     window.getSelection()?.removeAllRanges();
     this.clearIdleTimer();
+    this.cancelSnap();
+    this.dragStartedFromPeek = this.state === "peek";
+    this.dragStartPosition = this.lastObservedPosition
+      ? { ...this.lastObservedPosition }
+      : this.state === "peek" && this.anchor && this.fullSize && this.monitor
+      ? calculateBubblePeekFrame(this.anchor, this.fullSize, this.side, this.monitor.scaleFactor).position
+      : this.anchor ? { ...this.anchor } : null;
     this.primaryPointerDown = true;
+    this.nativeDragging = true;
+    this.nativeReleaseConfirmed = false;
     this.dragged = false;
-    this.dragOrigin = { x: event.screenX, y: event.screenY, pointerId: event.pointerId };
-    this.shell.setPointerCapture(event.pointerId);
-    if (this.state === "peek") {
-      void this.reveal().catch((reason) => this.reportError(reason, "唤醒悬浮球失败"));
-    } else {
-      this.state = "visible";
-      this.applyVisualState();
-    }
-  }
-
-  private onPointerMove(event: PointerEvent): void {
-    if (!this.dragOrigin || !(event.buttons & 1)) return;
-    if (Math.hypot(event.screenX - this.dragOrigin.x, event.screenY - this.dragOrigin.y) < BUBBLE_DRAG_THRESHOLD) return;
-    const pointerId = this.dragOrigin.pointerId;
-    this.dragged = true;
-    this.dragOrigin = null;
-    if (this.shell.hasPointerCapture(pointerId)) this.shell.releasePointerCapture(pointerId);
-    void this.beginNativeDrag();
+    this.dragMoved = false;
+    this.pendingClick = false;
+    this.pointerStartScreen = { x: event.screenX, y: event.screenY };
+    this.dragGeneration += 1;
+    this.movementSamples = this.dragStartPosition
+      ? [{ ...this.dragStartPosition, time: performance.now() }]
+      : [];
+    this.state = "dragging";
+    this.applyVisualState();
+    this.scheduleDragFinish(BUBBLE_DRAG_FALLBACK_MS);
   }
 
   private onPointerUp(event: PointerEvent): void {
     if (event.button !== 0) return;
+    if (this.pointerStartScreen
+      && Math.hypot(event.screenX - this.pointerStartScreen.x, event.screenY - this.pointerStartScreen.y)
+        >= BUBBLE_POINTER_DRAG_THRESHOLD_PX) {
+      this.dragMoved = true;
+      this.dragged = true;
+    }
+    this.pointerStartScreen = null;
     this.primaryPointerDown = false;
-    this.dragOrigin = null;
-    if (this.shell.hasPointerCapture(event.pointerId)) this.shell.releasePointerCapture(event.pointerId);
     this.nativeReleaseConfirmed = true;
-    if (this.nativeDragging) this.scheduleDragFinish(24);
+    if (this.nativeDragging) this.scheduleDragFinish(BUBBLE_DRAG_CLICK_SETTLE_MS);
     else this.scheduleIdle();
     window.setTimeout(() => { this.dragged = false; }, 0);
   }
 
   private onPointerCancel(): void {
-    this.primaryPointerDown = false;
-    this.dragOrigin = null;
-    this.nativeReleaseConfirmed = true;
-    if (this.nativeDragging) this.scheduleDragFinish(24);
-    else this.scheduleIdle();
-  }
-
-  private async beginNativeDrag(): Promise<void> {
-    await this.initialization;
-    this.cancelSnap();
-    if (this.snapCompletion) await this.snapCompletion;
-    await this.reveal();
-    if (!this.primaryPointerDown) {
-      this.state = "visible";
-      this.applyVisualState();
-      this.startDock({ x: 0, y: 0 }, true);
-      return;
-    }
-    const position = await this.afterNativeQueue(() => currentWindow.outerPosition());
-    this.nativeDragging = true;
+    this.pendingClick = false;
+    this.pointerStartScreen = null;
     this.nativeReleaseConfirmed = false;
-    this.state = "dragging";
-    this.movementSamples = [{ x: position.x, y: position.y, time: performance.now() }];
-    this.applyVisualState();
-    try {
-      await withTimeout(currentWindow.startDragging(), ACTION_TIMEOUT_MS, "拖动气泡");
-      this.scheduleDragFinish(BUBBLE_DRAG_FALLBACK_MS);
-    } catch (reason) {
-      this.nativeDragging = false;
-      this.state = "visible";
-      this.applyVisualState();
-      this.reportError(reason, "无法拖动气泡");
-      this.startDock({ x: 0, y: 0 }, true);
+    if (this.nativeDragging) this.scheduleDragFinish(24);
+    else {
+      this.primaryPointerDown = false;
+      this.scheduleIdle();
     }
   }
 
   private onWindowMoved(position: PhysicalPosition): void {
+    this.lastObservedPosition = { x: position.x, y: position.y };
+    if (this.consumeProgrammaticMove(position)) {
+      this.rebaseUnmovedGesture(position);
+      return;
+    }
     if (!this.nativeDragging) return;
     const now = performance.now();
+    if (!this.dragStartPosition) this.dragStartPosition = { x: position.x, y: position.y };
+    if (Math.hypot(position.x - this.dragStartPosition.x, position.y - this.dragStartPosition.y) >= 1) {
+      this.dragMoved = true;
+      this.dragged = true;
+    }
     this.movementSamples.push({ x: position.x, y: position.y, time: now });
     this.movementSamples = this.movementSamples.filter((sample) => now - sample.time <= BUBBLE_SAMPLE_WINDOW_MS);
     this.scheduleDragFinish(this.nativeReleaseConfirmed ? 24 : BUBBLE_DRAG_FALLBACK_MS);
@@ -524,27 +527,87 @@ class BubbleWindowController {
 
   private async finishNativeDrag(): Promise<void> {
     if (!this.nativeDragging) return;
-    if (!this.nativeReleaseConfirmed) {
-      try {
-        const pressed = await invokeWithTimeout<boolean>(
-          "is_primary_mouse_button_pressed",
-          undefined,
-          ACTION_TIMEOUT_MS,
-          "检查拖动状态",
-        );
-        if (pressed) {
-          this.scheduleDragFinish(BUBBLE_DRAG_RELEASE_POLL_MS);
-          return;
-        }
-      } catch (reason) {
-        this.reportError(reason, "无法确认拖动是否结束");
-      }
-      this.primaryPointerDown = false;
-      this.nativeReleaseConfirmed = true;
+    if (this.finishInProgress) {
+      this.scheduleDragFinish(BUBBLE_DRAG_RELEASE_POLL_MS);
+      return;
     }
+    this.finishInProgress = true;
+    const generation = this.dragGeneration;
+    try {
+      if (!this.nativeReleaseConfirmed) {
+        try {
+          const pressed = await invokeWithTimeout<boolean>(
+            "is_primary_mouse_button_pressed",
+            undefined,
+            ACTION_TIMEOUT_MS,
+            "检查拖动状态",
+          );
+          if (!this.isActiveDrag(generation)) return;
+          if (pressed) {
+            this.scheduleDragFinish(BUBBLE_DRAG_RELEASE_POLL_MS);
+            return;
+          }
+        } catch (reason) {
+          if (!this.isActiveDrag(generation)) return;
+          this.reportError(reason, "无法确认拖动是否结束");
+        }
+        this.primaryPointerDown = false;
+        this.nativeReleaseConfirmed = true;
+      }
+      if (!this.dragMoved) {
+        const position = await this.afterNativeQueue(() => currentWindow.outerPosition());
+        if (!this.isActiveDrag(generation)) return;
+        this.lastObservedPosition = { x: position.x, y: position.y };
+        if (this.consumeProgrammaticMove(position)) {
+          this.rebaseUnmovedGesture(position);
+        } else if (!this.dragStartPosition) {
+          this.dragStartPosition = { x: position.x, y: position.y };
+        } else if (Math.hypot(position.x - this.dragStartPosition.x, position.y - this.dragStartPosition.y) >= 1) {
+          this.dragMoved = true;
+          this.dragged = true;
+          this.movementSamples.push({ x: position.x, y: position.y, time: performance.now() });
+        }
+      }
+      if (!this.dragMoved) {
+        this.finishNativeGestureWithoutMovement();
+        return;
+      }
+      this.nativeDragging = false;
+      this.dragMoved = false;
+      this.pendingClick = false;
+      this.dragStartedFromPeek = false;
+      this.dragStartPosition = null;
+      const velocity = bubbleReleaseVelocity(this.movementSamples);
+      this.startDock(velocity, true);
+    } finally {
+      this.finishInProgress = false;
+    }
+  }
+
+  private isActiveDrag(generation: number): boolean {
+    return this.nativeDragging && this.dragGeneration === generation;
+  }
+
+  private finishNativeGestureWithoutMovement(): void {
+    const shouldOpenPanel = this.pendingClick;
+    this.pendingClick = false;
     this.nativeDragging = false;
-    const velocity = bubbleReleaseVelocity(this.movementSamples);
-    this.startDock(velocity, true);
+    this.nativeReleaseConfirmed = true;
+    this.dragMoved = false;
+    this.pointerStartScreen = null;
+    this.dragStartPosition = null;
+    this.movementSamples = [];
+    this.state = this.dragStartedFromPeek ? "peek" : "visible";
+    this.dragStartedFromPeek = false;
+    this.applyVisualState();
+    this.scheduleIdle();
+    if (shouldOpenPanel) void showPanel("details", true);
+  }
+
+  private rebaseUnmovedGesture(position: BubblePoint): void {
+    if (!this.nativeDragging || this.dragMoved) return;
+    this.dragStartPosition = { x: position.x, y: position.y };
+    this.movementSamples = [{ x: position.x, y: position.y, time: performance.now() }];
   }
 
   private startDock(velocity: BubblePoint, animate: boolean): void {
@@ -566,6 +629,7 @@ class BubbleWindowController {
       this.afterNativeQueue(() => currentWindow.outerSize()),
       availableMonitors(),
     ]);
+    this.lastObservedPosition = { x: position.x, y: position.y };
     const geometries = monitors.map((monitor) => ({
       x: monitor.workArea.position.x,
       y: monitor.workArea.position.y,
@@ -686,17 +750,44 @@ class BubbleWindowController {
 
   private moveWindow(position: BubblePoint): Promise<void> {
     const rounded = { x: Math.round(position.x), y: Math.round(position.y) };
-    return this.queueNative(() => currentWindow.setPosition(new PhysicalPosition(rounded.x, rounded.y)));
+    return this.queueNative(() => {
+      this.rememberProgrammaticMove(rounded);
+      return currentWindow.setPosition(new PhysicalPosition(rounded.x, rounded.y));
+    });
   }
 
   private setWindowFrame(position: BubblePoint, size: BubbleSize): Promise<void> {
     const rounded = { x: Math.round(position.x), y: Math.round(position.y) };
     return this.queueNative(async () => {
+      this.rememberProgrammaticMove(rounded);
       await Promise.all([
         currentWindow.setSize(new PhysicalSize(size.width, size.height)),
         currentWindow.setPosition(new PhysicalPosition(rounded.x, rounded.y)),
       ]);
     });
+  }
+
+  private rememberProgrammaticMove(position: BubblePoint): void {
+    const now = performance.now();
+    this.pendingProgrammaticMoves = this.pendingProgrammaticMoves
+      .filter((candidate) => candidate.expiresAt > now)
+      .slice(-63);
+    if (this.lastObservedPosition
+      && this.lastObservedPosition.x === position.x
+      && this.lastObservedPosition.y === position.y) return;
+    this.pendingProgrammaticMoves.push({ ...position, expiresAt: now + BUBBLE_PROGRAMMATIC_MOVE_TTL_MS });
+  }
+
+  private consumeProgrammaticMove(position: BubblePoint): boolean {
+    const now = performance.now();
+    this.pendingProgrammaticMoves = this.pendingProgrammaticMoves
+      .filter((candidate) => candidate.expiresAt > now);
+    const index = this.pendingProgrammaticMoves.findIndex(
+      (candidate) => candidate.x === position.x && candidate.y === position.y,
+    );
+    if (index < 0) return false;
+    this.pendingProgrammaticMoves.splice(index, 1);
+    return true;
   }
 
   private async runFrameTransition(position: BubblePoint, size: BubbleSize): Promise<void> {
@@ -752,7 +843,7 @@ function renderBubble(): void {
     ? order.map((provider) => idleBubbleValue(snapshot[provider], mode)).join("")
     : order.map((provider) => `<span class="bubble-idle-value ${provider}" data-provider-accent="${provider}" style="${providerColorStyle(provider, payload?.settings)}">··</span>`).join("");
   if (!bubbleController) {
-    app.innerHTML = `<div class="bubble-shell" id="open-details" data-state="visible" data-side="right" role="button" tabindex="0" aria-haspopup="dialog" aria-expanded="false">
+    app.innerHTML = `<div class="bubble-shell" id="open-details" data-tauri-drag-region="deep" data-state="visible" data-side="right" role="button" tabindex="0" aria-haspopup="dialog" aria-expanded="false">
         <div class="bubble-glow" aria-hidden="true"></div>
         <div class="bubble-center provider-count-${order.length}" aria-hidden="true"></div>
         <span class="bubble-idle-usage provider-count-${order.length}" aria-hidden="true"></span>
