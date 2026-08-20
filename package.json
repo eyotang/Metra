@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "tauri dev",
     "vite": "vite",
+    "prototype:bubble": "vite --open /bubble-snap-prototype.html?variant=A",
     "build": "tauri build",
     "build:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1",
     "check": "tsc --noEmit",
