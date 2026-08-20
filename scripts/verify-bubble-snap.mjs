@@ -66,12 +66,19 @@ assert.match(main, /const BUBBLE_IDLE_DELAY_MS = 3_000/, "idle peek must wait th
 assert.match(main, /function idleBubbleValue\(/, "idle mode needs a percentage-only renderer");
 assert.match(main, /availableMonitors\(\)/, "dock selection must consider every display");
 assert.match(main, /calculateBubblePeekFrame\(/, "idle mode must resize and reposition the native window");
+assert.match(main, /event\.screenX - this\.dragOrigin\.x/, "drag threshold must use stable screen coordinates while the window wakes");
+assert.match(main, /is_primary_mouse_button_pressed/, "native drag fallback must confirm the real pointer release");
+assert.match(main, /if \(requestId !== panelRequestSequence\) return;/, "older panel requests must not overtake newer interactions");
 assert.doesNotMatch(main, /function clampAndSave\(/, "the previous full-window clamp must not fight snap or peek moves");
 assert.match(css, /data-state="idle"/, "the idle visual state is missing");
 assert.match(css, /\.bubble-idle-value[^}]*var\(--provider-color\)/, "idle percentages must retain provider colors");
+assert.match(css, /\.bubble-idle-usage[^}]*width:\s*32px[^}]*align-items:\s*flex-end/, "right-docked percentages must reach the right screen edge");
+assert.match(css, /\.bubble-shell\[data-side="left"\] \.bubble-idle-usage[^}]*align-items:\s*flex-start/, "left-docked percentages must reach the left screen edge");
 assert.match(config, /"minWidth":\s*32/, "the native bubble must be allowed to shrink to the peek width");
 assert.match(config, /"maxWidth":\s*56/, "the native bubble must remain bounded to the full width");
 assert.match(appRust, /panel_bubble_x\(/, "panel positioning must account for a half-width bubble");
 assert.match(appRust, /panel-visibility-changed/, "the bubble must know when panel interaction blocks idle mode");
+assert.match(appRust, /fn next_panel_request\(/, "tray and bubble panel requests must share one native sequence");
+assert.match(appRust, /fn is_primary_mouse_button_pressed\(/, "native drag release confirmation command is missing");
 
 console.log("Bubble snap and idle geometry: PASS");
