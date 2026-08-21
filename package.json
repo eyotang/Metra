@@ -1,13 +1,12 @@
 {
   "name": "metra",
   "private": true,
-  "version": "0.1.36",
+  "version": "0.1.37",
   "author": "sophon",
   "type": "module",
   "scripts": {
     "dev": "tauri dev",
     "vite": "vite",
-    "prototype:bubble": "vite --open /bubble-snap-prototype.html?variant=A",
     "build": "tauri build",
     "build:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1",
     "check": "tsc --noEmit",

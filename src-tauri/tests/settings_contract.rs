@@ -11,6 +11,7 @@ fn missing_settings_file_uses_safe_defaults() {
     assert_eq!(settings.refresh_minutes, 5);
     assert!(!settings.autostart);
     assert!(!settings.cursor_compat_enabled);
+    assert!(!settings.bubble_snap_enabled);
     assert_eq!(settings.bubble_percent_mode, BubblePercentMode::Remaining);
     assert_eq!(
         settings.bubble_provider_order,
@@ -26,6 +27,22 @@ fn missing_settings_file_uses_safe_defaults() {
         settings.bubble_visible_providers,
         vec![Provider::Cursor, Provider::Codex, Provider::Claude]
     );
+}
+
+#[test]
+fn bubble_snap_is_opt_in_and_persisted() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("settings.db");
+    let store = SettingsStore::new(path.clone());
+    assert!(!store.load().bubble_snap_enabled);
+
+    let settings = AppSettings {
+        bubble_snap_enabled: true,
+        ..AppSettings::default()
+    };
+    store.save(&settings).unwrap();
+    drop(store);
+    assert!(SettingsStore::new(path).load().bubble_snap_enabled);
 }
 
 #[test]
@@ -160,6 +177,7 @@ fn old_two_provider_sqlite_settings_preserve_order_and_append_claude() {
     assert_eq!(settings.cursor_bubble_color, "#9c83ff");
     assert_eq!(settings.codex_bubble_color, "#4bd8c0");
     assert_eq!(settings.claude_bubble_color, "#e99068");
+    assert!(!settings.bubble_snap_enabled);
     assert_eq!(
         settings.bubble_visible_providers,
         vec![Provider::Cursor, Provider::Codex, Provider::Claude]

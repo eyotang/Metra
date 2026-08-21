@@ -75,7 +75,7 @@ if ($appRust -notmatch 'include_cursor\.unwrap_or_else' -or $appRust -notmatch '
 }
 $directInvokes = [regex]::Matches($main, '\binvoke(?:<[^>]+>)?\(').Count
 if ($directInvokes -ne 1) { $failures += "some IPC operations bypass the timeout wrapper" }
-if ($main -notmatch 'const MENU_PANEL_HEIGHT = 390' -or $appRust -notmatch '"menu" => \(252\.0, 390\.0, PANEL_MODE_MENU\)') { $failures += "menu panel height is not fitted to its content" }
+if ($main -notmatch 'const MENU_PANEL_HEIGHT = 432' -or $appRust -notmatch '"menu" => \(252\.0, 432\.0, PANEL_MODE_MENU\)') { $failures += "menu panel height is not fitted to its content" }
 if ($main -notmatch 'const PANEL_GAP = 3') { $failures += "panel gap is not the compact 3px contract" }
 if ($appRust -notmatch '\(56\.0 \* scale\)\.round\(\) as u32') { $failures += "native panel position does not scale the fixed bubble window size" }
 if ($main -match 'position\.x \+ 64') { $failures += "panel still uses the old hard-coded bubble offset" }
@@ -120,6 +120,9 @@ if ($main -notmatch 'function bubblePercent\(' -or $main -notmatch 'Math\.max\(\
 }
 if ($main -notmatch 'data-percent-mode="used"' -or $main -notmatch 'data-percent-mode="remaining"' -or $main -notmatch 'set_bubble_percent_mode') {
   $failures += "bubble percentage mode is missing from the settings menu"
+}
+if ($types -notmatch 'bubbleSnapEnabled:\s*boolean' -or $settingsRust -notmatch 'bubble_snap_enabled:\s*false' -or $main -notmatch 'data-action="snap"' -or $main -notmatch 'set_bubble_snap_enabled') {
+  $failures += "edge snapping is not an opt-in persisted context-menu setting"
 }
 if ($main -notmatch 'settings-updated' -or $appRust -notmatch 'app\.emit\("settings-updated"') {
   $failures += "bubble percentage changes are not broadcast for immediate rendering"
