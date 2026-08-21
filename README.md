@@ -4,7 +4,8 @@ Metra 是一个轻量的跨平台桌面气泡，用来查看 Cursor、Codex 和 
 
 ## 功能
 
-- Windows / macOS 透明置顶气泡，支持拖动、屏幕边缘吸附和多显示器。
+- Windows / macOS 透明置顶气泡，支持自由拖动和多显示器；屏幕边缘吸附可在右键菜单中开启，默认关闭。
+- 开启自动吸边后，闲置 3 秒会缩成 32px 半隐藏状态，只保留按自定义颜色区分的用量百分比；移入、聚焦或点击会立即完整显示。
 - 自动发现本机 `cursor-agent` / `agent`、`codex` 与 `claude` CLI。
 - Codex 使用官方 App Server 获取多额度窗口和 token 汇总。
 - Cursor 未登录时可直接进入官方登录流程；该动作不会隐式开启兼容模式，也不会自动安装 CLI。登录后，用户仍需单独确认才会开启个人兼容模式读取精确用量。Ultra 会分别展示 Cursor Models、Other Models、Grok Bot 周额度和 On-Demand 四部分；Team 等旧套餐继续使用原有金额布局。
@@ -45,7 +46,7 @@ npm run build -- --target universal-apple-darwin
 
 ## 数据与隐私
 
-- SQLite 配置只保存刷新周期、气泡位置、Provider 顺序与显隐、字符与颜色、自启动和兼容模式授权状态。
+- SQLite 配置只保存刷新周期、气泡完整位置、自动吸边开关、Provider 顺序与显隐、字符与颜色、自启动和兼容模式授权状态；临时半隐藏坐标不会持久化。
 - Codex 凭据由已安装的 Codex CLI/App Server 管理，Metra 不直接读取或保存。
 - Cursor 个人兼容模式默认关闭。开启后只读查询 Cursor 的 `state.vscdb`，令牌仅存在于单次请求内存中并在使用后清除。
 - Cursor 网络请求只允许 HTTPS 的 `api2.cursor.sh` 和 `cursor.com`，禁止跨域重定向。

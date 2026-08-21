@@ -38,7 +38,9 @@ if ($appRust -notmatch 'TRAY_DETAILS_ID' -or $appRust -notmatch 'TRAY_SETTINGS_I
 if ($main -notmatch 'selectstart' -or $main -notmatch 'getSelection\(\)\?\.removeAllRanges\(\)' -or $css -notmatch '-webkit-user-select:\s*none') {
   $failures += "bubble dragging can still leave a white text-selection highlight"
 }
-if ($main -match 'Math\.abs\(position\.x - left\).*\? left : right') { $failures += "dragged x position still snaps to an edge" }
+if ($main -notmatch 'calculateBubbleDockTarget\(' -or $main -notmatch 'selectBubbleMonitor\(' -or $main -match 'function clampAndSave\(') {
+  $failures += "bubble dragging does not settle against the selected monitor edge"
+}
 if ($main -match '\bconfirm\(') { $failures += "native confirm can be clipped inside the panel" }
 if ($main -match '(?m)^\s*\+\s*$') { $failures += "detail template contains a stray patch marker" }
 if (($main -notmatch 'cursorIncludedLimit') -or ($main -notmatch 'CURSOR_PRO_INCLUDED_FALLBACK_CENTS = 2_000') -or ($main -notmatch 'CURSOR_ON_DEMAND_FALLBACK_CENTS = 50_000')) {
@@ -73,12 +75,18 @@ if ($appRust -notmatch 'include_cursor\.unwrap_or_else' -or $appRust -notmatch '
 }
 $directInvokes = [regex]::Matches($main, '\binvoke(?:<[^>]+>)?\(').Count
 if ($directInvokes -ne 1) { $failures += "some IPC operations bypass the timeout wrapper" }
-if ($main -notmatch 'const MENU_PANEL_HEIGHT = 390' -or $appRust -notmatch '"menu" => \(252\.0, 390\.0, PANEL_MODE_MENU\)') { $failures += "menu panel height is not fitted to its content" }
+if ($main -notmatch 'const MENU_PANEL_HEIGHT = 432' -or $appRust -notmatch '"menu" => \(252\.0, 432\.0, PANEL_MODE_MENU\)') { $failures += "menu panel height is not fitted to its content" }
 if ($main -notmatch 'const PANEL_GAP = 3') { $failures += "panel gap is not the compact 3px contract" }
 if ($appRust -notmatch '\(56\.0 \* scale\)\.round\(\) as u32') { $failures += "native panel position does not scale the fixed bubble window size" }
 if ($main -match 'position\.x \+ 64') { $failures += "panel still uses the old hard-coded bubble offset" }
-if ($main -match 'HOVER_HIDE_DELAY_MS|panel-hover-changed|shell\.addEventListener\("mouseenter"|shell\.addEventListener\("mouseleave"') {
+if ($main -match 'HOVER_HIDE_DELAY_MS|panel-hover-changed|showPanel\([\s\S]{0,80}(pointerenter|pointerleave|mouseenter|mouseleave)') {
   $failures += "hover-only panel logic still conflicts with click and context menu"
+}
+if ($config -notmatch '"minWidth":\s*32' -or $config -notmatch '"maxWidth":\s*56' -or $main -notmatch 'const BUBBLE_IDLE_DELAY_MS = 3_000' -or $main -notmatch 'function idleBubbleValue\(') {
+  $failures += "three-second native half-hide with usage-only content is missing"
+}
+if ($css -notmatch '\.bubble-idle-value[^}]*var\(--provider-color\)' -or $css -notmatch 'data-state="idle"' -or $main -notmatch 'calculateBubblePeekFrame\(') {
+  $failures += "idle bubble does not expose provider-colored usage in the resized edge slice"
 }
 if ($main -notmatch 'shell\.addEventListener\("click"[\s\S]*?showPanel\("details", true\)') {
   $failures += "clicking the bubble does not toggle details"
@@ -95,7 +103,7 @@ if ($types -notmatch 'cursorBubbleColor:\s*string' -or $types -notmatch 'codexBu
 if ($main -notmatch 'PROVIDER_ORDER[\s\S]*?"cursor"[\s\S]*?"codex"[\s\S]*?"claude"' -or $main -notmatch 'for \(const provider of PROVIDER_ORDER\)') {
   $failures += "Claude Code does not participate in provider ordering and token gain updates"
 }
-if ($main -notmatch 'providerCard\("Claude Code",\s*payload\.snapshot\.claude\)' -or $main -notmatch 'loading-state[\s\S]*?Cursor、Codex 和 Claude Code' -or $main -notmatch 'aria-label="查看 \$\{order\.map') {
+if ($main -notmatch 'providerCard\("Claude Code",\s*payload\.snapshot\.claude\)' -or $main -notmatch 'loading-state[\s\S]*?Cursor、Codex 和 Claude Code' -or $main -notmatch 'PROVIDER_META\[provider\]\.name' -or $main -notmatch 'setAttribute\("aria-label"') {
   $failures += "details, loading, or accessible copy does not include Claude Code"
 }
 if ($appRust -notmatch '\(width \* scale\)\.round\(\) as u32' -or $appRust -notmatch '\(height \* scale\)\.round\(\) as u32') {
@@ -112,6 +120,9 @@ if ($main -notmatch 'function bubblePercent\(' -or $main -notmatch 'Math\.max\(\
 }
 if ($main -notmatch 'data-percent-mode="used"' -or $main -notmatch 'data-percent-mode="remaining"' -or $main -notmatch 'set_bubble_percent_mode') {
   $failures += "bubble percentage mode is missing from the settings menu"
+}
+if ($types -notmatch 'bubbleSnapEnabled:\s*boolean' -or $settingsRust -notmatch 'bubble_snap_enabled:\s*false' -or $main -notmatch 'data-action="snap"' -or $main -notmatch 'set_bubble_snap_enabled') {
+  $failures += "edge snapping is not an opt-in persisted context-menu setting"
 }
 if ($main -notmatch 'settings-updated' -or $appRust -notmatch 'app\.emit\("settings-updated"') {
   $failures += "bubble percentage changes are not broadcast for immediate rendering"

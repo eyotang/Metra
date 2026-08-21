@@ -24,6 +24,20 @@ use crate::{
     settings::{AppSettings, BubblePercentMode, REFRESH_INTERVALS, SavedPosition, SettingsStore},
 };
 
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    #[link_name = "CGEventSourceButtonState"]
+    fn cg_event_source_button_state(state_id: i32, button: u32) -> bool;
+}
+
+#[cfg(target_os = "windows")]
+#[link(name = "user32")]
+unsafe extern "system" {
+    #[link_name = "GetAsyncKeyState"]
+    fn get_async_key_state(vkey: i32) -> i16;
+}
+
 const PANEL_MODE_DETAILS: u8 = 1;
 const PANEL_MODE_MENU: u8 = 2;
 const CURSOR_SETTINGS_DEEP_LINK: &str =
@@ -45,6 +59,7 @@ const TRAY_QUIT_ID: &str = "tray-quit";
 #[derive(Default)]
 struct PanelRequestState {
     latest_request: AtomicU64,
+    latest_bubble_request: AtomicU64,
     visible_mode: AtomicU8,
 }
 
@@ -144,6 +159,46 @@ fn should_hide_panel(toggle: bool, requested_mode: u8, visible_mode: u8, visible
     toggle && visible && requested_mode == PANEL_MODE_DETAILS && visible_mode == PANEL_MODE_DETAILS
 }
 
+fn next_panel_request(requests: &PanelRequestState) -> u64 {
+    requests.latest_request.fetch_add(1, Ordering::AcqRel) + 1
+}
+
+#[tauri::command]
+fn is_primary_mouse_button_pressed() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        // SAFETY: This reads the combined-session state for the fixed primary mouse button.
+        unsafe { cg_event_source_button_state(0, 0) }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // SAFETY: This reads process-independent input state for the fixed VK_LBUTTON code.
+        (unsafe { get_async_key_state(1) }) < 0
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    false
+}
+
+fn claim_bubble_panel_request(requests: &PanelRequestState, request_id: u64) -> bool {
+    requests
+        .latest_bubble_request
+        .fetch_max(request_id, Ordering::AcqRel)
+        < request_id
+}
+
+fn panel_bubble_x(
+    bubble_x: i32,
+    bubble_width: u32,
+    full_width: u32,
+    docked_right: bool,
+) -> i32 {
+    if !docked_right || bubble_width >= full_width {
+        return bubble_x;
+    }
+    let adjusted = i64::from(bubble_x) + i64::from(bubble_width) - i64::from(full_width);
+    adjusted.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+}
+
 fn calculate_panel_position(
     bubble_x: i32,
     bubble_y: i32,
@@ -186,10 +241,9 @@ fn show_panel_window(
     requests: &PanelRequestState,
 ) -> Result<u64, String> {
     let started = Instant::now();
-    requests.latest_request.store(request_id, Ordering::Release);
     let (width, height, mode_code) = match mode {
         "details" => (340.0, 480.0, PANEL_MODE_DETAILS),
-        "menu" => (252.0, 390.0, PANEL_MODE_MENU),
+        "menu" => (252.0, 432.0, PANEL_MODE_MENU),
         _ => return Err("未知弹窗模式".into()),
     };
     let bubble = app
@@ -206,6 +260,7 @@ fn show_panel_window(
         panel_visible,
     ) {
         panel.hide().map_err(|_| "无法收起详情窗口".to_string())?;
+        let _ = app.emit("panel-visibility-changed", serde_json::json!({ "visible": false }));
         return Ok(started.elapsed().as_millis() as u64);
     }
     panel
@@ -217,6 +272,9 @@ fn show_panel_window(
     let bubble_position = bubble
         .outer_position()
         .map_err(|_| "无法读取气泡位置".to_string())?;
+    let bubble_size = bubble
+        .outer_size()
+        .map_err(|_| "无法读取气泡大小".to_string())?;
     let monitor = bubble.current_monitor().ok().flatten();
     let scale = monitor
         .as_ref()
@@ -230,10 +288,28 @@ fn show_panel_window(
             work.size.height,
         )
     });
-    let (x, y) = calculate_panel_position(
+    let full_bubble_width = (56.0 * scale).round() as u32;
+    let docked_right = work_area.is_some_and(|(work_x, _, work_width, _)| {
+        i64::from(bubble_position.x) + i64::from(bubble_size.width / 2)
+            >= i64::from(work_x) + i64::from(work_width / 2)
+    });
+    let dock_side = if docked_right { "right" } else { "left" };
+    let bubble_x = panel_bubble_x(
         bubble_position.x,
+        bubble_size.width,
+        full_bubble_width,
+        docked_right,
+    );
+    if bubble_size.width < full_bubble_width {
+        let _ = app.emit(
+            "bubble-reveal-requested",
+            serde_json::json!({ "side": dock_side }),
+        );
+    }
+    let (x, y) = calculate_panel_position(
+        bubble_x,
         bubble_position.y,
-        (56.0 * scale).round() as u32,
+        full_bubble_width,
         (width * scale).round() as u32,
         (height * scale).round() as u32,
         work_area,
@@ -246,9 +322,13 @@ fn show_panel_window(
         return Ok(started.elapsed().as_millis() as u64);
     }
     panel
-        .emit("panel-mode", serde_json::json!({ "mode": mode }))
+        .emit(
+            "panel-mode",
+            serde_json::json!({ "mode": mode, "dockSide": dock_side }),
+        )
         .map_err(|_| "无法切换弹窗内容".to_string())?;
     panel.show().map_err(|_| "无法显示弹窗".to_string())?;
+    let _ = app.emit("panel-visibility-changed", serde_json::json!({ "visible": true }));
     requests.visible_mode.store(mode_code, Ordering::Release);
     panel.set_focus().map_err(|_| "无法聚焦弹窗".to_string())?;
     Ok(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64)
@@ -262,6 +342,10 @@ fn show_panel(
     app: AppHandle,
     requests: State<'_, PanelRequestState>,
 ) -> Result<u64, String> {
+    if !claim_bubble_panel_request(requests.inner(), request_id) {
+        return Ok(0);
+    }
+    let request_id = next_panel_request(requests.inner());
     show_panel_window(&mode, toggle, request_id, &app, requests.inner())
 }
 #[tauri::command]
@@ -376,6 +460,18 @@ fn set_bubble_percent_mode(
     let settings = service.update_settings(|settings| settings.bubble_percent_mode = mode)?;
     app.emit("settings-updated", settings.clone())
         .map_err(|_| "无法同步气泡百分比设置".to_string())?;
+    Ok(settings)
+}
+
+#[tauri::command]
+fn set_bubble_snap_enabled(
+    enabled: bool,
+    app: AppHandle,
+    service: State<'_, Arc<RefreshService>>,
+) -> Result<AppSettings, String> {
+    let settings = service.update_settings(|settings| settings.bubble_snap_enabled = enabled)?;
+    app.emit("settings-updated", settings.clone())
+        .map_err(|_| "无法同步自动吸边设置".to_string())?;
     Ok(settings)
 }
 
@@ -525,7 +621,7 @@ fn setup_status_item(app: &mut tauri::App) -> tauri::Result<()> {
                     "menu"
                 };
                 let requests = app.state::<PanelRequestState>();
-                let request_id = requests.latest_request.fetch_add(1, Ordering::AcqRel) + 1;
+                let request_id = next_panel_request(requests.inner());
                 let _ = show_panel_window(mode, false, request_id, app, requests.inner());
             }
             TRAY_REFRESH_ID => {
@@ -539,6 +635,10 @@ fn setup_status_item(app: &mut tauri::App) -> tauri::Result<()> {
                     if bubble.is_visible().unwrap_or(false) {
                         if let Some(panel) = app.get_webview_window("panel") {
                             let _ = panel.hide();
+                            let _ = app.emit(
+                                "panel-visibility-changed",
+                                serde_json::json!({ "visible": false }),
+                            );
                         }
                         let _ = bubble.hide();
                     } else {
@@ -594,12 +694,14 @@ pub fn run() {
         ))
         .invoke_handler(tauri::generate_handler![
             show_panel,
+            is_primary_mouse_button_pressed,
             get_app_payload,
             refresh_now,
             start_cursor_login,
             recheck_cursor_login,
             set_refresh_interval,
             set_bubble_percent_mode,
+            set_bubble_snap_enabled,
             set_bubble_display_config,
             set_cursor_compat,
             set_autostart,
@@ -669,7 +771,39 @@ pub fn run() {
 }
 #[cfg(test)]
 mod panel_geometry_tests {
-    use super::{PANEL_MODE_DETAILS, PANEL_MODE_MENU, calculate_panel_position, should_hide_panel};
+    use super::{
+        PANEL_MODE_DETAILS, PANEL_MODE_MENU, PanelRequestState, calculate_panel_position,
+        claim_bubble_panel_request, next_panel_request, panel_bubble_x, should_hide_panel,
+    };
+
+    #[test]
+    fn every_panel_entry_point_can_share_one_monotonic_sequence() {
+        let requests = PanelRequestState::default();
+        assert_eq!(next_panel_request(&requests), 1);
+        assert_eq!(next_panel_request(&requests), 2);
+        assert!(claim_bubble_panel_request(&requests, 1));
+        assert_eq!(next_panel_request(&requests), 3);
+    }
+
+    #[test]
+    fn older_bubble_request_is_rejected_without_affecting_tray_sequence() {
+        let requests = PanelRequestState::default();
+        assert!(claim_bubble_panel_request(&requests, 2));
+        assert!(!claim_bubble_panel_request(&requests, 2));
+        assert!(!claim_bubble_panel_request(&requests, 1));
+        assert_eq!(next_panel_request(&requests), 1);
+    }
+
+    #[test]
+    fn right_peek_position_is_restored_to_the_full_bubble_anchor_for_the_panel() {
+        assert_eq!(panel_bubble_x(1168, 32, 56, true), 1144);
+        assert_eq!(panel_bubble_x(1144, 56, 56, true), 1144);
+    }
+
+    #[test]
+    fn left_peek_position_keeps_its_existing_anchor() {
+        assert_eq!(panel_bubble_x(0, 32, 56, false), 0);
+    }
 
     #[test]
     fn panel_prefers_the_left_when_both_sides_have_room() {
