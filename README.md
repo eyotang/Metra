@@ -25,7 +25,7 @@ Metra is a lightweight cross-platform desktop bubble for checking Cursor, Codex,
 
 ## Development
 
-You need Rust stable, Node.js 22+, npm, and the Tauri system dependencies for your platform.
+You need Rust stable, Node.js 22+, npm or pnpm, and the Tauri system dependencies for your platform.
 
 ```text
 npm install
@@ -41,12 +41,15 @@ Create a release build with:
 npm run build
 ```
 
-Windows artifacts are written to `src-tauri/target/release` and `src-tauri/target/release/bundle`. To create a universal macOS build:
+Windows artifacts are written to `src-tauri/target/release` and `src-tauri/target/release/bundle`. For a universal macOS build, use the dedicated command:
 
 ```text
-rustup target add x86_64-apple-darwin aarch64-apple-darwin
-npm run build -- --target universal-apple-darwin
+pnpm run build:macos-universal
+# or
+npm run build:macos-universal
 ```
+
+This command pins Cargo and rustc to the same rustup `stable` toolchain, installs both macOS targets, disables `sccache`, and invokes Tauri for `universal-apple-darwin`. Running `pnpm run build -- --target universal-apple-darwin` manually adds an extra `--`; it can reach Cargo/rustc and make the universal target be parsed as a Rust target specification. A build can also fail when Homebrew Rust shadows rustup and Cargo and rustc come from different toolchains. The dedicated command avoids both problems.
 
 ## Optional official Claude Code API usage
 

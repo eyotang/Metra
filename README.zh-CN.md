@@ -25,7 +25,7 @@ Metra 是一个轻量的跨平台桌面气泡，用来查看 Cursor、Codex 和 
 
 ## 开发
 
-需要 Rust stable、Node.js 22+、npm，以及 Tauri 对应平台的系统依赖。
+需要 Rust stable、Node.js 22+、npm 或 pnpm，以及 Tauri 对应平台的系统依赖。
 
 ```text
 npm install
@@ -41,12 +41,15 @@ npm run dev
 npm run build
 ```
 
-Windows 产物位于 `src-tauri/target/release` 和 `src-tauri/target/release/bundle`。macOS 通用包使用：
+Windows 产物位于 `src-tauri/target/release` 和 `src-tauri/target/release/bundle`。构建 macOS 通用包请使用专用命令：
 
 ```text
-rustup target add x86_64-apple-darwin aarch64-apple-darwin
-npm run build -- --target universal-apple-darwin
+pnpm run build:macos-universal
+# 或
+npm run build:macos-universal
 ```
+
+该命令会将 Cargo 和 rustc 固定到同一个 rustup `stable` 工具链，安装两个 macOS targets，禁用 `sccache`，再调用 Tauri 构建 `universal-apple-darwin`。手动运行 `pnpm run build -- --target universal-apple-darwin` 会多传一个 `--`；它可能进入 Cargo/rustc，导致 universal target 被当作 Rust target specification 解析。Homebrew Rust 遮蔽 rustup、造成 Cargo 与 rustc 来自不同工具链时也会构建失败。专用命令会同时规避这两个问题。
 
 ## 可选：官方 Claude Code API 用量
 
