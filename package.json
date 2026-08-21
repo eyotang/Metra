@@ -8,6 +8,7 @@
     "dev": "tauri dev",
     "vite": "vite",
     "build": "tauri build",
+    "build:macos-universal": "node scripts/build-macos-universal.mjs",
     "build:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1",
     "check": "tsc --noEmit",
     "verify:color": "node scripts/verify-color-picker.mjs",
@@ -16,6 +17,7 @@
     "verify:provider-navigation": "node --experimental-strip-types scripts/verify-provider-navigation.mjs",
     "verify:bubble-snap": "node --experimental-strip-types scripts/verify-bubble-snap.mjs",
     "verify:i18n": "node --experimental-strip-types scripts/verify-i18n.mjs",
+    "verify:macos-build": "node scripts/verify-macos-universal-build.mjs",
     "verify:visibility": "node scripts/verify-bubble-visibility.mjs",
     "test": "cargo test --manifest-path src-tauri/Cargo.toml"
   },

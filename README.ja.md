@@ -41,12 +41,17 @@ npm run dev
 npm run build
 ```
 
-Windows の成果物は `src-tauri/target/release` と `src-tauri/target/release/bundle` に出力されます。macOS の Universal ビルドを作成するには、次を実行します。
+Windows の成果物は `src-tauri/target/release` と `src-tauri/target/release/bundle` に出力されます。macOS の Universal ビルドには、専用コマンドを使用してください。
 
 ```text
-rustup target add x86_64-apple-darwin aarch64-apple-darwin
-npm run build -- --target universal-apple-darwin
+pnpm run build:macos-universal
+# npm を使用する場合
+npm run build:macos-universal
 ```
+
+このコマンドは `cargo` と `rustc` を同じ rustup stable ツールチェーンに固定し、`aarch64-apple-darwin` と `x86_64-apple-darwin` の両ターゲットをインストールして、`sccache` を無効にしたうえで Tauri の Universal ビルドを実行します。
+
+`pnpm run build -- --target universal-apple-darwin` は使用しないでください。pnpm では余分な `--` が下位のコマンドへ渡り、Rust が `universal-apple-darwin` を存在しない単一ターゲットとして受け取るため、ビルドに失敗します。また、Homebrew の `cargo` / `rustc` が PATH 上で rustup より優先されている状態で、rustup にインストールしたターゲットと混在させても失敗します。上記の専用コマンドは、どちらの問題も自動的に回避します。
 
 ## 任意：公式 Claude Code API の使用量
 
