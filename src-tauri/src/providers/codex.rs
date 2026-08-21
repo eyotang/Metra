@@ -622,7 +622,15 @@ mod boundary_tests {
             let body = if silent {
                 "Start-Sleep -Seconds 5\n"
             } else {
-                "Start-Sleep -Milliseconds 200\nWrite-Output '{\"id\":0,\"result\":{\"userAgent\":\"mock\"}}'\nWrite-Output '{\"id\":1,\"result\":{\"account\":{\"type\":\"chatgpt\",\"planType\":\"plus\"}}}'\nWrite-Output '{\"id\":2,\"result\":{\"rateLimits\":{\"limitId\":\"codex\",\"primary\":{\"usedPercent\":25,\"windowDurationMins\":300}}}}'\nWrite-Output '{\"id\":3,\"result\":{\"summary\":{\"lifetimeTokens\":1234}}}'\n"
+                r#"$null = [Console]::In.ReadLine()
+Write-Output '{"id":0,"result":{"userAgent":"mock"}}'
+for ($i = 0; $i -lt 4; $i++) {
+    $null = [Console]::In.ReadLine()
+}
+Write-Output '{"id":1,"result":{"account":{"type":"chatgpt","planType":"plus"}}}'
+Write-Output '{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":25,"windowDurationMins":300}}}}'
+Write-Output '{"id":3,"result":{"summary":{"lifetimeTokens":1234}}}'
+"#
             };
             std::fs::write(&path, body).unwrap();
             path
@@ -634,7 +642,16 @@ mod boundary_tests {
             let body = if silent {
                 "#!/bin/sh\nsleep 5\n"
             } else {
-                "#!/bin/sh\nsleep 0.2\nprintf '%s\\n' '{\"id\":0,\"result\":{\"userAgent\":\"mock\"}}' '{\"id\":1,\"result\":{\"account\":{\"type\":\"chatgpt\",\"planType\":\"plus\"}}}' '{\"id\":2,\"result\":{\"rateLimits\":{\"limitId\":\"codex\",\"primary\":{\"usedPercent\":25,\"windowDurationMins\":300}}}}' '{\"id\":3,\"result\":{\"summary\":{\"lifetimeTokens\":1234}}}'\n"
+                r#"#!/bin/sh
+IFS= read -r _ || exit 1
+printf '%s\n' '{"id":0,"result":{"userAgent":"mock"}}'
+request_count=0
+while [ "$request_count" -lt 4 ]; do
+    IFS= read -r _ || exit 1
+    request_count=$((request_count + 1))
+done
+printf '%s\n' '{"id":1,"result":{"account":{"type":"chatgpt","planType":"plus"}}}' '{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":25,"windowDurationMins":300}}}}' '{"id":3,"result":{"summary":{"lifetimeTokens":1234}}}'
+"#
             };
             std::fs::write(&path, body).unwrap();
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -652,7 +669,17 @@ mod boundary_tests {
                 r#"Write-Output '{"id":2,"error":{"code":-32603,"message":"failed to fetch codex rate limits: error sending request"}}'"#
             };
             let body = format!(
-                "Start-Sleep -Milliseconds 200\nWrite-Output '{{\"id\":0,\"result\":{{\"userAgent\":\"mock\"}}}}'\nWrite-Output '{{\"id\":1,\"result\":{{\"account\":{{\"type\":\"chatgpt\",\"planType\":\"plus\"}}}}}}'\nWrite-Output '{{\"id\":2,\"error\":{{\"code\":-32603,\"message\":\"failed to fetch codex rate limits: error sending request\"}}}}'\nWrite-Output '{{\"id\":3,\"result\":{{\"summary\":{{\"lifetimeTokens\":1234}}}}}}'\nStart-Sleep -Milliseconds 400\n{final_rate_response}\n"
+                r#"$null = [Console]::In.ReadLine()
+Write-Output '{{"id":0,"result":{{"userAgent":"mock"}}}}'
+for ($i = 0; $i -lt 4; $i++) {{
+    $null = [Console]::In.ReadLine()
+}}
+Write-Output '{{"id":1,"result":{{"account":{{"type":"chatgpt","planType":"plus"}}}}}}'
+Write-Output '{{"id":2,"error":{{"code":-32603,"message":"failed to fetch codex rate limits: error sending request"}}}}'
+Write-Output '{{"id":3,"result":{{"summary":{{"lifetimeTokens":1234}}}}}}'
+$null = [Console]::In.ReadLine()
+{final_rate_response}
+"#
             );
             std::fs::write(&path, body).unwrap();
             path
@@ -667,7 +694,18 @@ mod boundary_tests {
                 r#"'{"id":2,"error":{"code":-32603,"message":"failed to fetch codex rate limits: error sending request"}}'"#
             };
             let body = format!(
-                "#!/bin/sh\nsleep 0.2\nprintf '%s\\n' '{{\"id\":0,\"result\":{{\"userAgent\":\"mock\"}}}}' '{{\"id\":1,\"result\":{{\"account\":{{\"type\":\"chatgpt\",\"planType\":\"plus\"}}}}}}' '{{\"id\":2,\"error\":{{\"code\":-32603,\"message\":\"failed to fetch codex rate limits: error sending request\"}}}}' '{{\"id\":3,\"result\":{{\"summary\":{{\"lifetimeTokens\":1234}}}}}}'\nsleep 0.4\nprintf '%s\\n' {final_rate_response}\n"
+                r#"#!/bin/sh
+IFS= read -r _ || exit 1
+printf '%s\n' '{{"id":0,"result":{{"userAgent":"mock"}}}}'
+request_count=0
+while [ "$request_count" -lt 4 ]; do
+    IFS= read -r _ || exit 1
+    request_count=$((request_count + 1))
+done
+printf '%s\n' '{{"id":1,"result":{{"account":{{"type":"chatgpt","planType":"plus"}}}}}}' '{{"id":2,"error":{{"code":-32603,"message":"failed to fetch codex rate limits: error sending request"}}}}' '{{"id":3,"result":{{"summary":{{"lifetimeTokens":1234}}}}}}'
+IFS= read -r _ || exit 1
+printf '%s\n' {final_rate_response}
+"#
             );
             std::fs::write(&path, body).unwrap();
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
