@@ -75,7 +75,11 @@ API 按 UTC 自然日汇总用量，数据可能有最长约一小时的延迟�
 
 ## 发布签名
 
-CI 可生成未签名的 Windows x64 与 macOS Universal 产物。正式分发前应在发布环境配置 Windows 代码签名，以及 Apple Developer ID 签名和 notarization 凭据。
+推送 `v*` 标签会触发发布产物工作流。正式发布 macOS 版本时，发布环境必须提供 `APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_ID`、`APPLE_PASSWORD` 和 `APPLE_TEAM_ID`。
+
+工作流会强制校验 macOS 产物：必须同时包含 `arm64` 与 `x86_64` 的 Universal 二进制，使用 `Developer ID Application` 签名，带有 hardened runtime 标记，通过 Gatekeeper 检查，并且 `.app` 与 `.dmg` 的 notarization ticket 都能通过验证；否则直接失败。
+
+本地 ad-hoc macOS 构建仍然适合做架构和打包自检，但只可用于测试，不适合公开发布。
 
 ## License
 

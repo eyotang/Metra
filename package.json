@@ -1,8 +1,8 @@
 {
   "name": "metra",
   "private": true,
-  "version": "0.1.37",
-  "author": "sophon",
+  "version": "0.1.38",
+  "author": "eyotang",
   "type": "module",
   "scripts": {
     "dev": "tauri dev",

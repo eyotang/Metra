@@ -75,7 +75,11 @@ API は UTC の暦日単位で使用量を集計し、データには最大で�
 
 ## リリース署名
 
-CI では、署名されていない Windows x64 と macOS Universal の成果物を生成できます。正式に配布する前に、リリース環境へ Windows のコード署名、および Apple Developer ID の署名と公証に必要な認証情報を設定してください。
+`v*` タグを push すると、リリース成果物ワークフローが起動します。macOS を正式配布するには、リリース環境に `APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_ID`、`APPLE_PASSWORD`、`APPLE_TEAM_ID` を設定する必要があります。
+
+このワークフローは macOS 成果物に対して、`arm64` と `x86_64` の Universal バイナリ、`Developer ID Application` 署名、hardened runtime フラグ、Gatekeeper の審査通過、そして `.app` と `.dmg` の notarization ticket 検証を必須条件として強制します。どれか 1 つでも欠けると失敗します。
+
+ローカルの ad-hoc macOS ビルドは、アーキテクチャやパッケージングの確認には有用ですが、テスト専用であり一般公開には使えません。
 
 ## ライセンス
 

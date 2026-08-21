@@ -75,7 +75,11 @@ API는 UTC 달력일 기준으로 사용량을 집계하며, 데이터가 최대
 
 ## 릴리스 서명
 
-CI에서는 서명되지 않은 Windows x64 및 macOS Universal 결과물을 생성할 수 있습니다. 공식 배포 전에는 릴리스 환경에 Windows 코드 서명과 Apple Developer ID 서명 및 공증 자격 증명을 설정해야 합니다.
+`v*` 태그를 푸시하면 릴리스 아티팩트 워크플로가 실행됩니다. macOS를 공식 배포하려면 릴리스 환경에 `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`를 설정해야 합니다.
+
+이 워크플로는 macOS 산출물에 대해 `arm64`와 `x86_64`를 모두 포함한 Universal 바이너리, `Developer ID Application` 서명, hardened runtime 플래그, Gatekeeper 통과, 그리고 `.app` 및 `.dmg`의 notarization ticket 검증을 모두 강제합니다. 하나라도 빠지면 바로 실패합니다.
+
+로컬 ad-hoc macOS 빌드는 아키텍처와 패키징 점검에는 유용하지만, 테스트 전용이며 공개 배포에는 사용할 수 없습니다.
 
 ## 라이선스
 

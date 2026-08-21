@@ -75,7 +75,11 @@ The API aggregates usage by UTC calendar day, data may lag by up to about one ho
 
 ## Release signing
 
-CI can produce unsigned Windows x64 and macOS Universal artifacts. Before official distribution, configure Windows code signing plus Apple Developer ID signing and notarization credentials in the release environment.
+Pushing a `v*` tag triggers the release-artifact workflow. Official macOS distribution requires `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_PASSWORD`, and `APPLE_TEAM_ID` in the release environment.
+
+The workflow rejects macOS artifacts unless the bundle is Universal for both `arm64` and `x86_64`, signed with `Developer ID Application`, contains the hardened runtime flag, passes Gatekeeper assessment, and validates its notarization ticket for both the `.app` and `.dmg`.
+
+Local ad-hoc macOS builds remain useful for architecture and packaging checks, but they are for testing only and are not suitable for public release.
 
 ## License
 
