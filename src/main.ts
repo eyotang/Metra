@@ -1245,7 +1245,8 @@ function cursorLoginPrompt(cursorCompat: boolean): string {
 function providerCard(name: string, provider: ProviderSnapshot): string {
   const token = provider.provider === "codex" || provider.provider === "claude" ? provider.tokens : undefined;
   const cost = provider.cost;
-  const todayTokenLabel = t("provider.localTodayTokens");
+  const claudeApiUsage = provider.provider === "claude" && cost?.todayUsedCents !== undefined;
+  const todayTokenLabel = claudeApiUsage ? t("provider.apiTodayTokensUtc") : t("provider.localTodayTokens");
   const lifetimeTokenLabel = provider.provider === "claude" ? t("provider.localLifetimeTokens") : t("provider.officialLifetimeTokens");
   const cursorCompat = provider.provider === "cursor" && Boolean(payload?.settings.cursorCompatEnabled);
   const cursorNeedsLogin = provider.provider === "cursor" && provider.status === "not_logged_in";
@@ -1263,7 +1264,7 @@ function providerCard(name: string, provider: ProviderSnapshot): string {
     ${usage}
     ${cursorNeedsLogin && !loading ? `<button class="compat-cta cursor-login-cta" id="login-cursor">${cursorCompat ? t("cursor.loginInCursor") : t("cursor.login")}</button>` : cursorCanEnableUsage && !cursorCompat && !loading ? `<button class="compat-cta" id="enable-cursor-usage">${t("cursor.readExactUsage")}</button>` : ""}
     ${token ? `<div class="metrics"><div><span>${todayTokenLabel}</span><strong>${number(token.today)}</strong></div><div><span>${lifetimeTokenLabel}</span><strong>${number(token.lifetime)}</strong></div></div>` : ""}
-    ${cost && provider.provider !== "cursor" ? `<div class="metrics"><div><span>Included</span><strong>${money(cost.includedUsedCents)} / ${money(cost.includedLimitCents)}</strong></div><div><span>On-Demand</span><strong>${money(cost.onDemandUsedCents)} / ${money(cost.onDemandLimitCents)}</strong></div></div>` : ""}
+    ${claudeApiUsage ? `<div class="metrics single-metric"><div><span>${t("provider.apiEstimatedCostUtc")}</span><strong>${cost.currency === "USD" ? money(cost.todayUsedCents) : `${escapeHtml(cost.currency)} ${((cost.todayUsedCents ?? 0) / 100).toFixed(2)}`}</strong></div></div>` : cost && provider.provider !== "cursor" ? `<div class="metrics"><div><span>Included</span><strong>${money(cost.includedUsedCents)} / ${money(cost.includedLimitCents)}</strong></div><div><span>On-Demand</span><strong>${money(cost.onDemandUsedCents)} / ${money(cost.onDemandLimitCents)}</strong></div></div>` : ""}
     ${localizedMessage && (provider.quotas.length || cursorCompat) ? `<p class="notice">${escapeHtml(localizedMessage)}</p>` : ""}
   </section>`;
 }

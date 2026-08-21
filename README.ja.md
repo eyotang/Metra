@@ -11,7 +11,7 @@ Metra は、Cursor、Codex、Claude Code のログイン状態、使用量上限
 - ローカルの `cursor-agent` / `agent`、`codex`、`claude` CLI を自動検出します。
 - 公式の Codex App Server を使って、複数の上限期間とトークン累計を取得します。
 - 必要に応じて Cursor の公式ログインフローを開きます。互換モードを無断で有効にしたり、CLI を自動でインストールしたりすることはありません。個人の正確な使用量を取得するには、別途同意が必要です。Ultra では Cursor Models、Other Models、Grok Bot の週間上限、On-Demand を個別に表示します。Team などの従来プランでは、既存の金額表示を維持します。
-- `claude auth status --json` で Claude Code のログイン状態を確認し、利用可能な場合はローカルセッションのトークン数を読み取り専用で集計します。API キーやカスタムゲートウェイからサブスクリプション上限を取得できない場合は、架空の割合を表示せず、上限データがないことを通知します。
+- `claude auth status --json` で Claude Code のログイン状態を確認し、利用可能な場合はローカルセッションのトークン数を読み取り専用で集計します。Anthropic API キーでログインしている場合、組織管理者は Admin API キーを明示的に設定し、選択したキーアクターの UTC 当日分の公式トークン使用量と推定コストを取得できます。API キーやカスタムゲートウェイから残りの上限を取得できない場合は、架空の割合を表示せず、上限データがないことを通知します。
 - プロバイダーごとに表示・非表示を切り替え、6 点ハンドルで並べ替え、バブル内のラベルとマーカー色を個別に変更できます。内蔵の 55 色パレットは、ほかの設定とともに SQLite に保存されます。
 - 左クリックで詳細を開き、パネル内の更新アイコンから使用量を更新できます。コンテキストメニューの先頭には言語セレクターがあり、更新間隔、自動起動、互換モード、再検出、終了も設定できます。更新操作は重複して表示しません。
 - 更新に失敗しても直近の正常な結果を保持し、古いデータであることを明確に示します。
@@ -48,6 +48,21 @@ rustup target add x86_64-apple-darwin aarch64-apple-darwin
 npm run build -- --target universal-apple-darwin
 ```
 
+## 任意：公式 Claude Code API の使用量
+
+Anthropic の Claude Code Analytics API で使用できるのは、組織レベルの Admin API キー（`sk-ant-admin...`）のみです。通常の Claude API キー（`sk-ant-api...`）では過去の使用量を照会できず、個人アカウントは Admin API を利用できません。詳細は [Claude Code Analytics API のドキュメント](https://platform.claude.com/docs/en/manage-claude/claude-code-analytics-api) を参照してください。
+
+Metra を起動するプロセスの環境に、次の変数を設定します。
+
+```text
+ANTHROPIC_ADMIN_KEY=sk-ant-admin...
+METRA_CLAUDE_API_KEY_NAME=Claude Code Key
+```
+
+`METRA_CLAUDE_API_KEY_NAME` は Anthropic Console の API キー名と一致させる必要があります。1 日分のレポートに API キーアクターが 1 つしかない場合は省略できますが、複数ある場合は必須です。Claude Code Analytics が返すのはキー ID ではなくキー名なので、組織内で一意の名前を付けてください。名前が曖昧な場合、Metra は他のキーの使用量が混入するのを防ぐため、結果を表示しません。どちらかの環境変数を変更した後は、Metra を再起動してください。
+
+API は UTC の暦日単位で使用量を集計し、データには最大で約 1 時間の遅延が生じることがあります。また、Pro / Max の残りの割合ではなく、トークン数と推定コストが返されます。Admin API キーには組織レベルの権限があるため、信頼できるデバイスでのみ、OS の環境またはシークレットマネージャーから注入し、定期的にローテーションしてください。Metra には、これらのキーを平文で永続化する機能はありません。
+
 ## データとプライバシー
 
 - SQLite の設定に保存されるのは、更新間隔、インターフェース言語の設定、バブル全体の位置、自動吸着の切り替え、プロバイダーの順序と表示状態、カスタムラベルと色、自動起動の設定、互換モードへの同意だけです。半隠れ状態の一時的な座標は保存されません。
@@ -55,6 +70,7 @@ npm run build -- --target universal-apple-darwin
 - Cursor 個人互換モードは初期設定では無効です。有効にすると、Cursor の `state.vscdb` を変更せずに読み取ります。トークンは 1 回のリクエスト中だけメモリに保持され、その後消去されます。
 - Cursor へのネットワークリクエストは、`api2.cursor.sh` と `cursor.com` の HTTPS エンドポイントだけに制限され、オリジンをまたぐリダイレクトは拒否されます。
 - Claude Code の収集処理では、ログイン状態を確認するコマンドだけを実行し、`~/.claude/projects` 内の JSONL ファイルからタイムスタンプ、メッセージ ID、使用量の数値をデシリアライズします。メッセージ本文、API キー、ベース URL は読み取りません。
+- `ANTHROPIC_ADMIN_KEY` は Rust プロセス内で一時的に使用されるだけです。SQLite への書き込み、WebView への送信、ログへの記録、Metra が起動するサブプロセスへの引き渡しは行われません。公式リクエスト先は `https://api.anthropic.com` に固定され、リダイレクトは拒否されます。レスポンス内のユーザーアクター情報は無視され、選択した API キーの集計値だけがキャッシュされます。
 - Metra は、メールアドレス、トークン、メッセージ内容、API レスポンス全体をログに記録しません。
 
 ## リリース署名

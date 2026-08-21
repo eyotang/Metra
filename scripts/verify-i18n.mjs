@@ -49,6 +49,14 @@ assert.equal(
   "Claude Code does not provide subscription limits; tokens are counted from local sessions.",
 );
 assert.equal(
+  localizeProviderMessage("官方 API 今日用量按 UTC 统计，最多延迟 1 小时", "claude", "available", "en"),
+  "Official daily API usage uses UTC and may be delayed by up to 1 hour.",
+);
+assert.equal(
+  localizeProviderMessage("官方用量不可用：请求失败", "claude", "available", "ko"),
+  "공식 사용량을 현재 이용할 수 없습니다.",
+);
+assert.equal(
   localizeProviderMessage("未检测到 Codex CLI", "codex", "not_installed", "en"),
   "Codex CLI was not detected",
 );

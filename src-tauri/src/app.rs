@@ -24,6 +24,7 @@ use crate::{
     diagnostics,
     model::Provider,
     providers::{
+        scrub_sensitive_child_environment,
         cursor::cursor_login_executable,
         discovery::{ResolvedExecutable, command_for, invalidate_shell_cache},
     },
@@ -331,6 +332,7 @@ fn cursor_login_launch(
 }
 
 fn configure_login_command(command: &mut Command) {
+    scrub_sensitive_child_environment(command);
     command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -1173,10 +1175,13 @@ mod panel_geometry_tests {
 mod cursor_login_tests {
     use super::{
         CURSOR_AGENT_LOGIN_ARGS, CURSOR_SETTINGS_DEEP_LINK, CursorLoginLaunch,
-        cursor_login_launch,
+        configure_login_command, cursor_login_launch,
     };
-    use crate::providers::discovery::ResolvedExecutable;
-    use std::path::PathBuf;
+    use crate::providers::{
+        ANTHROPIC_ADMIN_KEY_ENV, CLAUDE_API_KEY_NAME_ENV,
+        discovery::ResolvedExecutable,
+    };
+    use std::{ffi::OsStr, path::PathBuf, process::Command};
 
     #[test]
     fn installed_agent_uses_only_the_official_login_subcommand() {
@@ -1208,5 +1213,22 @@ mod cursor_login_tests {
             ),
             CursorLoginLaunch::Editor
         );
+    }
+
+    #[test]
+    fn editor_login_commands_scrub_claude_usage_credentials() {
+        let mut command = Command::new("open");
+        command
+            .env(ANTHROPIC_ADMIN_KEY_ENV, "sk-ant-admin01-secret")
+            .env(CLAUDE_API_KEY_NAME_ENV, "Claude Code");
+
+        configure_login_command(&mut command);
+
+        let removed = command
+            .get_envs()
+            .filter_map(|(name, value)| value.is_none().then_some(name))
+            .collect::<Vec<_>>();
+        assert!(removed.contains(&OsStr::new(ANTHROPIC_ADMIN_KEY_ENV)));
+        assert!(removed.contains(&OsStr::new(CLAUDE_API_KEY_NAME_ENV)));
     }
 }

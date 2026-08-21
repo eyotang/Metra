@@ -91,6 +91,8 @@ const zhCN = {
   "provider.localTodayTokens": "本机今日 token",
   "provider.localLifetimeTokens": "本机累计 token",
   "provider.officialLifetimeTokens": "官方累计 token",
+  "provider.apiTodayTokensUtc": "API 今日 token（UTC）",
+  "provider.apiEstimatedCostUtc": "API 今日预估费用（UTC）",
   "provider.message.notInstalled": "未检测到 {provider} CLI",
   "provider.message.notLoggedIn": "{provider} 尚未登录",
   "provider.message.networkError": "{provider} 网络暂时不可用，请稍后重试",
@@ -99,6 +101,14 @@ const zhCN = {
   "cursor.compatRequired": "开启个人兼容模式后可读取精确用量",
   "claude.noLimitLocalTokens": "Claude Code 未提供套餐额度；Token 为本地会话统计",
   "claude.noUsageStats": "Claude Code 当前登录方式未提供额度或 Token 统计",
+  "claude.adminConfigureWithLocal": "API Key 登录；当前显示本机会话 Token。配置 ANTHROPIC_ADMIN_KEY 后可读取官方用量",
+  "claude.adminConfigure": "API Key 登录；配置 ANTHROPIC_ADMIN_KEY 后可读取官方用量",
+  "claude.adminKeyInvalid": "ANTHROPIC_ADMIN_KEY 无效；需要组织级 Admin API Key",
+  "claude.officialUtcWithLocal": "官方 API 今日用量按 UTC 统计，最多延迟 1 小时；累计 Token 为本机会话统计",
+  "claude.officialUtc": "官方 API 今日用量按 UTC 统计，最多延迟 1 小时",
+  "claude.officialStale": "官方用量刷新失败，正在显示缓存数据",
+  "claude.officialUnavailableWithLocal": "官方用量不可用，继续显示本机会话 Token",
+  "claude.officialUnavailable": "官方用量暂不可用",
   "quota.agentRequests": "Agent 请求",
   "quota.cursorTotal": "Cursor 总额度 · {value}",
   "quota.secondary": "{label} · 次级",
@@ -298,6 +308,8 @@ const en: Record<TranslationKey, string> = {
   "provider.localTodayTokens": "Local tokens today",
   "provider.localLifetimeTokens": "Local lifetime tokens",
   "provider.officialLifetimeTokens": "Official lifetime tokens",
+  "provider.apiTodayTokensUtc": "API tokens today (UTC)",
+  "provider.apiEstimatedCostUtc": "Estimated API cost today (UTC)",
   "provider.message.notInstalled": "{provider} CLI was not detected",
   "provider.message.notLoggedIn": "{provider} is not signed in",
   "provider.message.networkError": "{provider} is temporarily unavailable because of a network error. Try again later.",
@@ -306,6 +318,14 @@ const en: Record<TranslationKey, string> = {
   "cursor.compatRequired": "Enable personal compatibility mode to read exact usage",
   "claude.noLimitLocalTokens": "Claude Code does not provide subscription limits; tokens are counted from local sessions.",
   "claude.noUsageStats": "This Claude Code sign-in method does not provide limits or token totals.",
+  "claude.adminConfigureWithLocal": "Signed in with an API key. Showing tokens from local sessions; configure ANTHROPIC_ADMIN_KEY to read official usage.",
+  "claude.adminConfigure": "Signed in with an API key. Configure ANTHROPIC_ADMIN_KEY to read official usage.",
+  "claude.adminKeyInvalid": "ANTHROPIC_ADMIN_KEY is invalid; an organization Admin API key is required.",
+  "claude.officialUtcWithLocal": "Official daily API usage uses UTC and may be delayed by up to 1 hour; lifetime tokens come from local sessions.",
+  "claude.officialUtc": "Official daily API usage uses UTC and may be delayed by up to 1 hour.",
+  "claude.officialStale": "Official usage could not be refreshed; showing cached data.",
+  "claude.officialUnavailableWithLocal": "Official usage is unavailable; continuing to show tokens from local sessions.",
+  "claude.officialUnavailable": "Official usage is temporarily unavailable.",
   "quota.agentRequests": "Agent requests",
   "quota.cursorTotal": "Cursor total limit · {value}",
   "quota.secondary": "{label} · Secondary",
@@ -508,8 +528,23 @@ export function localizeProviderMessage(
     ["开启个人兼容模式后可读取精确用量", "cursor.compatRequired"],
     ["Claude Code 未提供套餐额度；Token 为本地会话统计", "claude.noLimitLocalTokens"],
     ["Claude Code 当前登录方式未提供额度或 Token 统计", "claude.noUsageStats"],
+    ["API Key 登录；当前显示本机会话 Token。配置 ANTHROPIC_ADMIN_KEY 后可读取官方用量", "claude.adminConfigureWithLocal"],
+    ["API Key 登录；配置 ANTHROPIC_ADMIN_KEY 后可读取官方用量", "claude.adminConfigure"],
+    ["ANTHROPIC_ADMIN_KEY 不是有效文本", "claude.adminKeyInvalid"],
+    ["官方用量需要组织 Admin API Key；普通 ANTHROPIC_API_KEY 不具备用量查询权限", "claude.adminKeyInvalid"],
+    ["官方 API 今日用量按 UTC 统计，最多延迟 1 小时；累计 Token 为本机会话统计", "claude.officialUtcWithLocal"],
+    ["官方 API 今日用量按 UTC 统计，最多延迟 1 小时", "claude.officialUtc"],
   ]).get(message);
   if (exactKey) return translateForLocale(locale, exactKey);
+  if (message.startsWith("官方用量刷新失败，显示缓存数据：")) {
+    return translateForLocale(locale, "claude.officialStale");
+  }
+  if (message.startsWith("官方用量不可用，继续显示本机会话 Token：")) {
+    return translateForLocale(locale, "claude.officialUnavailableWithLocal");
+  }
+  if (message.startsWith("官方用量不可用：")) {
+    return translateForLocale(locale, "claude.officialUnavailable");
+  }
   const key: Partial<Record<ProviderStatus, TranslationKey>> = {
     not_installed: "provider.message.notInstalled",
     not_logged_in: "provider.message.notLoggedIn",
