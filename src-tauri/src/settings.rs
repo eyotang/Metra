@@ -30,6 +30,55 @@ pub enum BubblePercentMode {
     Remaining,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub enum UiLanguage {
+    #[default]
+    #[serde(rename = "system")]
+    System,
+    #[serde(rename = "zh-CN")]
+    ZhCn,
+    #[serde(rename = "en")]
+    En,
+    #[serde(rename = "ja")]
+    Ja,
+    #[serde(rename = "ko")]
+    Ko,
+}
+
+impl<'de> Deserialize<'de> for UiLanguage {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let normalized = value
+            .as_str()
+            .unwrap_or_default()
+            .trim()
+            .replace('_', "-")
+            .to_ascii_lowercase();
+        Ok(match normalized.as_str() {
+            "zh-cn" => Self::ZhCn,
+            "en" => Self::En,
+            "ja" => Self::Ja,
+            "ko" => Self::Ko,
+            _ => Self::System,
+        })
+    }
+}
+
+impl UiLanguage {
+    pub fn explicit_locale(self) -> Option<&'static str> {
+        match self {
+            Self::System => None,
+            Self::ZhCn => Some("zh-CN"),
+            Self::En => Some("en"),
+            Self::Ja => Some("ja"),
+            Self::Ko => Some("ko"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SavedPosition {
@@ -45,6 +94,7 @@ pub struct AppSettings {
     pub cursor_compat_enabled: bool,
     pub bubble_snap_enabled: bool,
     pub bubble_percent_mode: BubblePercentMode,
+    pub ui_language: UiLanguage,
     pub bubble_position: Option<SavedPosition>,
     pub bubble_position_version: u8,
     pub bubble_provider_order: Vec<Provider>,
@@ -65,6 +115,7 @@ impl Default for AppSettings {
             cursor_compat_enabled: false,
             bubble_snap_enabled: false,
             bubble_percent_mode: BubblePercentMode::Remaining,
+            ui_language: UiLanguage::System,
             bubble_position: None,
             bubble_position_version: 0,
             bubble_provider_order: vec![Provider::Cursor, Provider::Codex, Provider::Claude],
@@ -79,6 +130,56 @@ impl Default for AppSettings {
             cursor_bubble_color: DEFAULT_CURSOR_BUBBLE_COLOR.into(),
             codex_bubble_color: DEFAULT_CODEX_BUBBLE_COLOR.into(),
             claude_bubble_color: DEFAULT_CLAUDE_BUBBLE_COLOR.into(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AppSettings, UiLanguage};
+
+    #[test]
+    fn old_settings_default_to_system_language() {
+        let settings: AppSettings = serde_json::from_str(r#"{"refreshMinutes":30}"#).unwrap();
+        assert_eq!(settings.refresh_minutes, 30);
+        assert_eq!(settings.ui_language, UiLanguage::System);
+    }
+
+    #[test]
+    fn unknown_language_only_falls_back_to_system() {
+        let settings: AppSettings = serde_json::from_str(
+            r#"{"refreshMinutes":15,"bubbleSnapEnabled":true,"uiLanguage":"fr"}"#,
+        )
+        .unwrap();
+        assert_eq!(settings.refresh_minutes, 15);
+        assert!(settings.bubble_snap_enabled);
+        assert_eq!(settings.ui_language, UiLanguage::System);
+
+        let non_string: AppSettings = serde_json::from_str(
+            r#"{"refreshMinutes":15,"bubbleSnapEnabled":true,"uiLanguage":42}"#,
+        )
+        .unwrap();
+        assert_eq!(non_string.refresh_minutes, 15);
+        assert!(non_string.bubble_snap_enabled);
+        assert_eq!(non_string.ui_language, UiLanguage::System);
+    }
+
+    #[test]
+    fn every_language_preference_round_trips() {
+        for language in [
+            UiLanguage::System,
+            UiLanguage::ZhCn,
+            UiLanguage::En,
+            UiLanguage::Ja,
+            UiLanguage::Ko,
+        ] {
+            let settings = AppSettings {
+                ui_language: language,
+                ..AppSettings::default()
+            };
+            let json = serde_json::to_string(&settings).unwrap();
+            let decoded: AppSettings = serde_json::from_str(&json).unwrap();
+            assert_eq!(decoded.ui_language, language);
         }
     }
 }

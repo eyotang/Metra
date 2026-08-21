@@ -1,6 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $main = Get-Content -Raw -Encoding UTF8 "$PSScriptRoot\..\src\main.ts"
+$i18n = Get-Content -Raw -Encoding UTF8 "$PSScriptRoot\..\src\i18n.ts"
 $css = Get-Content -Raw -Encoding UTF8 "$PSScriptRoot\..\src\styles.css"
 $types = Get-Content -Raw -Encoding UTF8 "$PSScriptRoot\..\src\types.ts"
 $config = Get-Content -Raw -Encoding UTF8 "$PSScriptRoot\..\src-tauri\tauri.conf.json"
@@ -74,8 +75,12 @@ if ($appRust -notmatch 'include_cursor\.unwrap_or_else' -or $appRust -notmatch '
   $failures += "native refresh does not default Cursor selection to compatibility mode"
 }
 $directInvokes = [regex]::Matches($main, '\binvoke(?:<[^>]+>)?\(').Count
-if ($directInvokes -ne 1) { $failures += "some IPC operations bypass the timeout wrapper" }
-if ($main -notmatch 'const MENU_PANEL_HEIGHT = 432' -or $appRust -notmatch '"menu" => \(252\.0, 432\.0, PANEL_MODE_MENU\)') { $failures += "menu panel height is not fitted to its content" }
+if ($directInvokes -ne 3) { $failures += "unexpected IPC operations bypass the timeout wrapper" }
+if ($main -notmatch 'const MENU_PANEL_HEIGHT = 480' -or $appRust -notmatch '"menu" => \(252\.0, 480\.0, PANEL_MODE_MENU\)') { $failures += "menu panel height is not fitted to four-language content" }
+$menuRenderer = [regex]::Match($main, 'function renderMenu\(\): void \{[\s\S]*?\n\}').Value
+if ($menuRenderer -notmatch 'menu-language-row[\s\S]{0,500}data-ui-language' -or $menuRenderer -match 'data-action="refresh"' -or $main -notmatch 'set_ui_language' -or $types -notmatch 'uiLanguage:\s*UiLanguage' -or $settingsRust -notmatch 'pub ui_language:\s*UiLanguage') {
+  $failures += "the context menu must start with the persisted language selector without a duplicate refresh action"
+}
 if ($main -notmatch 'const PANEL_GAP = 3') { $failures += "panel gap is not the compact 3px contract" }
 if ($appRust -notmatch '\(56\.0 \* scale\)\.round\(\) as u32') { $failures += "native panel position does not scale the fixed bubble window size" }
 if ($main -match 'position\.x \+ 64') { $failures += "panel still uses the old hard-coded bubble offset" }
@@ -103,7 +108,7 @@ if ($types -notmatch 'cursorBubbleColor:\s*string' -or $types -notmatch 'codexBu
 if ($main -notmatch 'PROVIDER_ORDER[\s\S]*?"cursor"[\s\S]*?"codex"[\s\S]*?"claude"' -or $main -notmatch 'for \(const provider of PROVIDER_ORDER\)') {
   $failures += "Claude Code does not participate in provider ordering and token gain updates"
 }
-if ($main -notmatch 'providerCard\("Claude Code",\s*payload\.snapshot\.claude\)' -or $main -notmatch 'loading-state[\s\S]*?Cursor、Codex 和 Claude Code' -or $main -notmatch 'PROVIDER_META\[provider\]\.name' -or $main -notmatch 'setAttribute\("aria-label"') {
+if ($main -notmatch 'providerCard\("Claude Code",\s*payload\.snapshot\.claude\)' -or $main -notmatch 't\("loading\.usage"\)' -or $i18n -notmatch 'Cursor、Codex 和 Claude Code' -or $i18n -notmatch 'Cursor, Codex, and Claude Code' -or $main -notmatch 'PROVIDER_META\[provider\]\.name' -or $main -notmatch 'setAttribute\("aria-label"') {
   $failures += "details, loading, or accessible copy does not include Claude Code"
 }
 if ($appRust -notmatch '\(width \* scale\)\.round\(\) as u32' -or $appRust -notmatch '\(height \* scale\)\.round\(\) as u32') {
@@ -166,7 +171,7 @@ if ($main -notmatch 'cursorColor,\s*codexColor,\s*claudeColor' -or $appRust -not
 if ($main -notmatch '--provider-color:' -or $css -notmatch 'var\(--provider-color\)' -or $main -notmatch 'bubbleProviderColor\(') {
   $failures += "selected colors do not synchronize across bubble, config rows, and provider cards"
 }
-if ($main -notmatch 'provider\.provider === "codex"\s*\|\|\s*provider\.provider === "claude"' -or $main -notmatch 'provider\.provider === "claude"\s*\?\s*"本机累计 token"') {
+if ($main -notmatch 'provider\.provider === "codex"\s*\|\|\s*provider\.provider === "claude"' -or $main -notmatch 'provider\.provider === "claude"\s*\?\s*t\("provider\.localLifetimeTokens"\)') {
   $failures += "Claude local token metrics are not shown in the details card"
 }
 if ($appRust -notmatch 'config_dir\.join\("settings\.db"\)' -or $settingsRust -notmatch 'CREATE TABLE IF NOT EXISTS app_settings') {

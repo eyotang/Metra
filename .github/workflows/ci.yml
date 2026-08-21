@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -24,6 +25,12 @@ jobs:
         run: npm ci
       - name: Type check
         run: npm run check
+      - name: Localization contract
+        run: npm run verify:i18n
+      - name: Windows UI contract
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/verify-ui-contract.ps1
       - name: Provider color contract
         run: npm run verify:color
       - name: Bubble visibility contract
@@ -51,10 +58,8 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            args: ""
             artifact: windows-x64
           - os: macos-latest
-            args: "--target universal-apple-darwin"
             artifact: macos-universal
     runs-on: ${{ matrix.os }}
     steps:
@@ -67,8 +72,85 @@ jobs:
         with:
           targets: ${{ matrix.os == 'macos-latest' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
       - run: npm ci
-      - name: Build application
-        run: npm run build -- ${{ matrix.args }}
+      - name: Build Windows application
+        if: runner.os == 'Windows'
+        run: npm run build
+      - name: Validate Apple release secrets
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for required in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!required:-}" ]]; then
+              echo "Missing required Apple release secret: ${required}" >&2
+              exit 1
+            fi
+          done
+      - name: Build signed Universal macOS application
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run build -- --target universal-apple-darwin
+      - name: Notarize and staple macOS DMG
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          app_version="$(node -p "require('./package.json').version")"
+          dmg_path="src-tauri/target/universal-apple-darwin/release/bundle/dmg/Metra_${app_version}_universal.dmg"
+
+          xcrun notarytool submit "${dmg_path}" \
+            --apple-id "${APPLE_ID}" \
+            --password "${APPLE_PASSWORD}" \
+            --team-id "${APPLE_TEAM_ID}" \
+            --wait
+          xcrun stapler staple "${dmg_path}"
+      - name: Verify Universal architecture, Developer ID, and notarization
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app_version="$(node -p "require('./package.json').version")"
+          app_path="src-tauri/target/universal-apple-darwin/release/bundle/macos/Metra.app"
+          app_binary="${app_path}/Contents/MacOS/metra"
+          dmg_path="src-tauri/target/universal-apple-darwin/release/bundle/dmg/Metra_${app_version}_universal.dmg"
+          release_dmg_path="src-tauri/target/universal-apple-darwin/release/bundle/dmg/Metra-${app_version}-macos-universal.dmg"
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            test "${GITHUB_REF_NAME}" = "v${app_version}"
+          fi
+
+          test -d "${app_path}"
+          test -f "${dmg_path}"
+          test "$(plutil -extract CFBundleShortVersionString raw -o - "${app_path}/Contents/Info.plist")" = "${app_version}"
+          test "$(plutil -extract CFBundleVersion raw -o - "${app_path}/Contents/Info.plist")" = "${app_version}"
+          lipo "${app_binary}" -verify_arch arm64 x86_64
+
+          codesign --verify --deep --strict --all-architectures --verbose=4 "${app_path}"
+          signature_details="$(codesign -d --verbose=4 "${app_path}" 2>&1)"
+          grep -q '^Authority=Developer ID Application:' <<<"${signature_details}"
+          grep -Eq '^TeamIdentifier=[A-Z0-9]{10}$' <<<"${signature_details}"
+          grep -Eq 'flags=.*runtime' <<<"${signature_details}"
+          spctl --assess --type execute --verbose=4 "${app_path}"
+          xcrun stapler validate "${app_path}"
+
+          codesign --verify --verbose=4 "${dmg_path}"
+          hdiutil verify "${dmg_path}"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "${dmg_path}"
+          xcrun stapler validate "${dmg_path}"
+          cp "${dmg_path}" "${release_dmg_path}"
+          shasum -a 256 "${release_dmg_path}" > macos-universal-sha256.txt
       - name: Collect portable Windows executable
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -80,4 +162,5 @@ jobs:
             src-tauri/target/release/Metra-portable.exe
             src-tauri/target/release/bundle/**
             src-tauri/target/universal-apple-darwin/release/bundle/**
+            macos-universal-sha256.txt
           if-no-files-found: error

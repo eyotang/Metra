@@ -192,6 +192,13 @@ button { font: inherit; color: inherit; }
 
 .menu-panel { padding: 14px; }
 .menu-brand { justify-content: flex-start; margin: 2px 4px 12px; }
+.menu-language-row { height: 36px; display: grid; grid-template-columns: max-content 100px; align-items: center; justify-content: end; gap: 7px; margin-bottom: 2px; color: #c7cede; }
+.menu-language-row > span { font-size: 11px; }
+.language-select-control { position: relative; min-width: 0; height: 36px; }
+.language-select-control select { width: 100%; height: 100%; padding: 0 27px 0 10px; appearance: none; border: 1px solid #ffffff12; border-radius: 10px; outline: 0; background: #ffffff09; color: #c7cede; color-scheme: dark; cursor: pointer; font-family: inherit; font-size: 10px; }
+.language-select-control select:hover, .language-select-control select:focus-visible { border-color: #836cff66; background: #8067ff18; color: #d7d0ff; }
+.language-select-control select:disabled { cursor: wait; opacity: .65; }
+.language-select-control > i { position: absolute; top: 13px; right: 11px; width: 6px; height: 6px; border-right: 1.5px solid #8e97ad; border-bottom: 1.5px solid #8e97ad; transform: rotate(45deg); pointer-events: none; }
 .menu-panel > button { width: 100%; min-height: 39px; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; border: 0; border-radius: 11px; background: transparent; text-align: left; cursor: pointer; }
 .menu-panel > button:hover { background: #ffffff0b; }
 .menu-panel button span { font-size: 12px; }

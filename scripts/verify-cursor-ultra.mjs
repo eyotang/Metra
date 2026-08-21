@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (path) => readFileSync(join(root, path), "utf8");
 const main = read("src/main.ts");
+const i18n = read("src/i18n.ts");
 const types = read("src/types.ts");
 const css = read("src/styles.css");
 
@@ -26,7 +27,8 @@ assert.match(main, /CURSOR_ULTRA_QUOTA_KINDS\.map/, "all three Ultra percentage 
 assert.match(main, /function cursorUltraOnDemandBlock\(/, "Ultra needs a dedicated On-Demand block");
 
 const ultraOnDemand = main.match(/function cursorUltraOnDemandBlock\([\s\S]*?\n\}/)?.[0] ?? "";
-assert.match(ultraOnDemand, /onDemandEnabled\s*===\s*false[\s\S]*未启用/, "disabled On-Demand must be labelled 未启用");
+assert.match(ultraOnDemand, /onDemandEnabled\s*===\s*false[\s\S]*t\("common\.disabled"\)/, "disabled On-Demand must use the localized disabled label");
+assert.match(i18n, /"common\.disabled":\s*"未启用"[\s\S]*"common\.disabled":\s*"Disabled"/, "disabled On-Demand needs both Chinese and English copy");
 assert.doesNotMatch(ultraOnDemand, /CURSOR_ON_DEMAND_FALLBACK_CENTS|50_000|\$500/, "Ultra On-Demand must never invent a $500 limit");
 assert.doesNotMatch(main, /CURSOR_ULTRA_INCLUDED_FALLBACK_CENTS/, "the obsolete combined Ultra subscription fallback must not remain reachable");
 
@@ -36,7 +38,7 @@ assert.match(card, /cursorUltraBlocks\(provider\)/, "the provider card must rout
 assert.match(card, /cursorCostBlocks\(provider\)/, "Team and other legacy Cursor plans must keep the two monetary blocks");
 
 const legacyCosts = main.match(/function cursorCostBlocks\([\s\S]*?\n\}/)?.[0] ?? "";
-assert.match(legacyCosts, /cursorCostBlock\(`订阅额度/, "the legacy subscription monetary block must remain");
+assert.match(legacyCosts, /cursorCostBlock\(t\("quota\.subscription"/, "the legacy subscription monetary block must remain localized");
 assert.match(legacyCosts, /cursorCostBlock\(`On-Demand/, "the legacy On-Demand monetary block must remain");
 
 const bubble = main.match(/function bubblePercent\([\s\S]*?\n\}/)?.[0] ?? "";
