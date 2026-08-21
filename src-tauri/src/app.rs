@@ -28,7 +28,10 @@ use crate::{
         discovery::{ResolvedExecutable, command_for, invalidate_shell_cache},
     },
     service::{AppPayload, RefreshService},
-    settings::{AppSettings, BubblePercentMode, REFRESH_INTERVALS, SavedPosition, SettingsStore},
+    settings::{
+        AppSettings, BubblePercentMode, REFRESH_INTERVALS, SavedPosition, SettingsStore,
+        UiLanguage,
+    },
 };
 
 #[cfg(target_os = "macos")]
@@ -75,7 +78,8 @@ struct NativeCopy {
 }
 
 fn native_copy(locale: &str) -> NativeCopy {
-    if locale.trim().to_ascii_lowercase().starts_with("zh") {
+    let locale = locale.trim().to_ascii_lowercase();
+    if locale.starts_with("zh") {
         NativeCopy {
             panel_title: "Metra 详情",
             details: "打开详情",
@@ -84,6 +88,26 @@ fn native_copy(locale: &str) -> NativeCopy {
             toggle_bubble: "显示/隐藏悬浮球",
             quit: "退出 Metra",
             tooltip: "Metra · AI 用量",
+        }
+    } else if locale.starts_with("ja") {
+        NativeCopy {
+            panel_title: "Metra 詳細",
+            details: "詳細を開く",
+            settings: "設定",
+            refresh: "今すぐ更新",
+            toggle_bubble: "バブルを表示／非表示",
+            quit: "Metra を終了",
+            tooltip: "Metra · AI 使用量",
+        }
+    } else if locale.starts_with("ko") {
+        NativeCopy {
+            panel_title: "Metra 세부 정보",
+            details: "세부 정보 열기",
+            settings: "설정",
+            refresh: "지금 새로고침",
+            toggle_bubble: "버블 표시/숨기기",
+            quit: "Metra 종료",
+            tooltip: "Metra · AI 사용량",
         }
     } else {
         NativeCopy {
@@ -457,7 +481,7 @@ fn show_panel_window(
     let started = Instant::now();
     let (width, height, mode_code) = match mode {
         "details" => (340.0, 480.0, PANEL_MODE_DETAILS),
-        "menu" => (252.0, 432.0, PANEL_MODE_MENU),
+        "menu" => (252.0, 480.0, PANEL_MODE_MENU),
         _ => return Err("未知弹窗模式".into()),
     };
     let bubble = app
@@ -758,14 +782,9 @@ fn save_window_position(
         settings.bubble_position_version = 1;
     })
 }
-#[tauri::command]
-fn quit_app(app: AppHandle) {
-    app.exit(0);
-}
 
-#[tauri::command]
-fn set_runtime_locale(locale: String, app: AppHandle) -> Result<(), String> {
-    let copy = native_copy(&locale);
+fn apply_runtime_locale(locale: &str, app: &AppHandle) -> Result<(), String> {
+    let copy = native_copy(locale);
     if let Some(panel) = app.get_webview_window("panel") {
         panel
             .set_title(copy.panel_title)
@@ -773,7 +792,7 @@ fn set_runtime_locale(locale: String, app: AppHandle) -> Result<(), String> {
     }
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     if let Some(tray) = app.tray_by_id("metra-status") {
-        let menu = build_status_menu(&app, copy)
+        let menu = build_status_menu(app, copy)
             .map_err(|_| "Unable to localize the status menu".to_string())?;
         tray.set_menu(Some(menu))
             .map_err(|_| "Unable to update the status menu".to_string())?;
@@ -781,6 +800,29 @@ fn set_runtime_locale(locale: String, app: AppHandle) -> Result<(), String> {
             .map_err(|_| "Unable to localize the status tooltip".to_string())?;
     }
     Ok(())
+}
+
+#[tauri::command]
+fn set_ui_language(
+    language: UiLanguage,
+    locale: String,
+    app: AppHandle,
+    service: State<'_, Arc<RefreshService>>,
+) -> Result<AppSettings, String> {
+    let settings = service.update_settings(|settings| settings.ui_language = language)?;
+    let _ = apply_runtime_locale(&locale, &app);
+    let _ = app.emit("settings-updated", settings.clone());
+    Ok(settings)
+}
+
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
+fn set_runtime_locale(locale: String, app: AppHandle) -> Result<(), String> {
+    apply_runtime_locale(&locale, &app)
 }
 
 fn spawn_refresh(app: AppHandle, service: Arc<RefreshService>, include_cursor: bool) {
@@ -819,8 +861,8 @@ fn queue_refresh(app: AppHandle, service: Arc<RefreshService>) {
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-fn setup_status_item(app: &mut tauri::App) -> tauri::Result<()> {
-    let copy = native_copy("en");
+fn setup_status_item(app: &mut tauri::App, locale: &str) -> tauri::Result<()> {
+    let copy = native_copy(locale);
     let menu = build_status_menu(app, copy)?;
 
     let tray = TrayIconBuilder::with_id("metra-status")
@@ -937,6 +979,7 @@ pub fn run() {
             set_cursor_compat,
             set_autostart,
             save_window_position,
+            set_ui_language,
             set_runtime_locale,
             quit_app
         ])
@@ -994,7 +1037,10 @@ pub fn run() {
             });
             app.manage(service.clone());
             #[cfg(any(target_os = "macos", target_os = "windows"))]
-            setup_status_item(app)?;
+            setup_status_item(
+                app,
+                settings.ui_language.explicit_locale().unwrap_or("en"),
+            )?;
             start_scheduler(app.handle().clone(), service);
             Ok(())
         })
@@ -1010,10 +1056,12 @@ mod panel_geometry_tests {
     };
 
     #[test]
-    fn native_copy_supports_chinese_and_defaults_other_locales_to_english() {
+    fn native_copy_supports_all_interface_languages() {
         assert_eq!(native_copy("zh-CN").details, "打开详情");
         assert_eq!(native_copy("zh_Hans_CN").tooltip, "Metra · AI 用量");
         assert_eq!(native_copy("en-US").details, "Open details");
+        assert_eq!(native_copy("ja-JP").settings, "設定");
+        assert_eq!(native_copy("ko-KR").quit, "Metra 종료");
         assert_eq!(native_copy("fr-FR").panel_title, "Metra Details");
     }
 

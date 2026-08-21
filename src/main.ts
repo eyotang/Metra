@@ -13,9 +13,18 @@ import {
   type BubblePoint,
   type BubbleSize,
 } from "./bubble-geometry";
-import type { AppPayload, AppSettings, BubblePercentMode, ProviderName, ProviderSnapshot, ProviderStatus, QuotaKind } from "./types";
+import type { AppPayload, AppSettings, BubblePercentMode, ProviderName, ProviderSnapshot, ProviderStatus, QuotaKind, UiLanguage } from "./types";
 import { ProviderCardNavigator, shouldNavigateFromProviderRow } from "./provider-navigation";
-import { applyDocumentLocale, i18n, localizeProviderMessage, localizeQuotaLabel, t } from "./i18n";
+import {
+  applyDocumentLocale,
+  detectLocale,
+  i18n,
+  localizeProviderMessage,
+  localizeQuotaLabel,
+  t,
+  type SupportedLocale,
+  type TranslationKey,
+} from "./i18n";
 import metraWaterUrl from "./metra-water.svg";
 import "./styles.css";
 
@@ -30,10 +39,12 @@ const providerCardNavigator = new ProviderCardNavigator(document, {
 const currentWindow = getCurrentWindow();
 const view = new URLSearchParams(location.search).get("view") ?? "bubble";
 let payload: AppPayload | null = null;
+let pendingSettings: AppSettings | null = null;
+let activeLanguagePreference: UiLanguage | null = null;
 let panelMode: "details" | "menu" = "details";
 let panelDockSide: BubbleDockSide = "right";
 let panelRequestSequence = 0;
-const MENU_PANEL_HEIGHT = 432;
+const MENU_PANEL_HEIGHT = 480;
 const PANEL_GAP = 3;
 const ACTION_TIMEOUT_MS = 8_000;
 const PANEL_SHOW_TIMEOUT_MS = 1_000;
@@ -45,6 +56,7 @@ const BUBBLE_DRAG_CLICK_SETTLE_MS = 80;
 const BUBBLE_POINTER_DRAG_THRESHOLD_PX = 4;
 const BUBBLE_SAMPLE_WINDOW_MS = 140;
 const BUBBLE_PROGRAMMATIC_MOVE_TTL_MS = 180;
+const detectedSystemLocale = detectLocale();
 
 interface CursorLoginStart {
   method: "agent" | "editor";
@@ -55,14 +67,14 @@ function metraLogo(): string {
   return `<img class="logo-mark" src="${metraWaterUrl}" alt="" aria-hidden="true">`;
 }
 
-const statusText: Record<ProviderStatus, string> = {
-  available: t("status.available"),
-  desktop_installed: t("status.desktopInstalled"),
-  not_installed: t("status.notInstalled"),
-  not_logged_in: t("status.notLoggedIn"),
-  unsupported: t("status.unsupported"),
-  network_error: t("status.networkError"),
-  protocol_error: t("status.protocolError"),
+const STATUS_TEXT_KEYS: Record<ProviderStatus, TranslationKey> = {
+  available: "status.available",
+  desktop_installed: "status.desktopInstalled",
+  not_installed: "status.notInstalled",
+  not_logged_in: "status.notLoggedIn",
+  unsupported: "status.unsupported",
+  network_error: "status.networkError",
+  protocol_error: "status.protocolError",
 };
 const PROVIDER_ORDER = ["cursor", "codex", "claude"] as const satisfies readonly ProviderName[];
 const COLOR_PALETTE = [
@@ -73,14 +85,21 @@ const COLOR_PALETTE = [
   ["#cf332d", "#a84d08", "#8f6508", "#496600", "#208c2b", "#087164", "#0b6787", "#2456d9", "#98246e", "#6d2bd1", "#3f454d"],
 ] as const satisfies readonly (readonly string[])[];
 const COLOR_PALETTE_SET = new Set<string>(COLOR_PALETTE.flat());
-const COLOR_HUE_NAMES = [
-  t("color.hue.red"), t("color.hue.orange"), t("color.hue.yellow"), t("color.hue.lime"),
-  t("color.hue.green"), t("color.hue.cyan"), t("color.hue.sky"), t("color.hue.blue"),
-  t("color.hue.pink"), t("color.hue.purple"), t("color.hue.gray"),
-] as const;
-const COLOR_TONE_NAMES = [
-  t("color.tone.standard"), t("color.tone.light"), t("color.tone.soft"), t("color.tone.deep"),
-  t("color.tone.dark"),
+const COLOR_HUE_KEYS = [
+  "color.hue.red", "color.hue.orange", "color.hue.yellow", "color.hue.lime",
+  "color.hue.green", "color.hue.cyan", "color.hue.sky", "color.hue.blue",
+  "color.hue.pink", "color.hue.purple", "color.hue.gray",
+] as const satisfies readonly TranslationKey[];
+const COLOR_TONE_KEYS = [
+  "color.tone.standard", "color.tone.light", "color.tone.soft", "color.tone.deep",
+  "color.tone.dark",
+] as const satisfies readonly TranslationKey[];
+const UI_LANGUAGE_OPTIONS = [
+  { value: "system", labelKey: "menu.languageSystem" },
+  { value: "zh-CN", labelKey: "menu.languageZhCn" },
+  { value: "en", labelKey: "menu.languageEnglish" },
+  { value: "ja", labelKey: "menu.languageJapanese" },
+  { value: "ko", labelKey: "menu.languageKorean" },
 ] as const;
 const PROVIDER_META: Record<ProviderName, { name: string; fallbackLabel: string; fallbackColor: string }> = {
   cursor: { name: "Cursor", fallbackLabel: "C", fallbackColor: "#9c83ff" },
@@ -150,10 +169,10 @@ function planName(value?: string): string {
 const CURSOR_PRO_INCLUDED_FALLBACK_CENTS = 2_000;
 const CURSOR_ON_DEMAND_FALLBACK_CENTS = 50_000;
 const CURSOR_ULTRA_QUOTA_KINDS = ["cursor_models", "other_models", "grok_bot"] as const satisfies readonly QuotaKind[];
-const CURSOR_ULTRA_QUOTA_META: Record<QuotaKind, { label: string; hint: string }> = {
-  cursor_models: { label: "Cursor Models", hint: t("quota.cursorModelsHint") },
-  other_models: { label: "Other Models", hint: t("quota.otherModelsHint") },
-  grok_bot: { label: "Grok Bot", hint: t("quota.grokBotHint") },
+const CURSOR_ULTRA_QUOTA_META: Record<QuotaKind, { label: string; hintKey: TranslationKey }> = {
+  cursor_models: { label: "Cursor Models", hintKey: "quota.cursorModelsHint" },
+  other_models: { label: "Other Models", hintKey: "quota.otherModelsHint" },
+  grok_bot: { label: "Grok Bot", hintKey: "quota.grokBotHint" },
 };
 function money(cents?: number): string { return cents === undefined ? "—" : `$${(cents / 100).toFixed(2)}`; }
 function cursorIncludedLimit(provider: ProviderSnapshot): number {
@@ -197,7 +216,9 @@ function applyUsageUpdate(updated: AppPayload): void {
     }
   }
   if (updated.snapshot.cursor.status === "available") cursorLoginPending = false;
-  payload = updated;
+  const uiLanguage = activeLanguagePreference ?? updated.settings.uiLanguage;
+  applyLanguagePreference(uiLanguage);
+  payload = { ...updated, settings: { ...updated.settings, uiLanguage } };
   render();
 }
 
@@ -215,11 +236,28 @@ function invokeWithTimeout<T>(command: string, args?: Record<string, unknown>, t
   return withTimeout(invoke<T>(command, args), timeoutMs, label);
 }
 
+function effectiveLocale(language: UiLanguage): SupportedLocale {
+  return language === "system" ? detectedSystemLocale : language;
+}
+
+function applyLanguagePreference(language: UiLanguage, forceNativeSync = false): SupportedLocale {
+  const locale = effectiveLocale(language);
+  const changed = activeLanguagePreference !== language || i18n.locale !== locale;
+  activeLanguagePreference = language;
+  i18n.setLocale(locale);
+  applyDocumentLocale(locale);
+  if (view === "bubble" && (changed || forceNativeSync)) {
+    void invokeWithTimeout<void>("set_runtime_locale", { locale })
+      .catch(() => undefined);
+  }
+  return locale;
+}
+
 function friendlyError(reason: unknown, fallback: string): string {
   if (reason instanceof ActionTimeoutError) return reason.message;
   const message = String(reason ?? "").trim();
   if (!message || message === "[object Object]") return fallback;
-  return i18n.locale === "en" && /[\p{Script=Han}]/u.test(message) ? fallback : message;
+  return i18n.locale !== "zh-CN" && /[\p{Script=Han}]/u.test(message) ? fallback : message;
 }
 
 function showToast(message: string, tone: ToastTone = "info", durationMs = 2_800): void {
@@ -301,7 +339,11 @@ async function loadPayload(): Promise<void> {
   if (view === "bubble") renderBubble();
   else renderLoadingPanel();
   try {
-    payload = await invokeWithTimeout<AppPayload>("get_app_payload", undefined, ACTION_TIMEOUT_MS, t("refresh.readUsage"));
+    const loaded = await invokeWithTimeout<AppPayload>("get_app_payload", undefined, ACTION_TIMEOUT_MS, t("refresh.readUsage"));
+    if (pendingSettings) loaded.settings = pendingSettings;
+    payload = loaded;
+    pendingSettings = null;
+    applyLanguagePreference(payload.settings.uiLanguage, true);
     render();
   } catch (reason) {
     if (view === "panel") showToast(friendlyError(reason, t("refresh.readUsageFailed")), "error", 4_500);
@@ -1122,17 +1164,18 @@ function isCursorUltraUsage(provider: ProviderSnapshot): boolean {
 function cursorUltraQuotaBlock(provider: ProviderSnapshot, kind: QuotaKind): string {
   const quota = provider.quotas.find((candidate) => candidate.kind === kind);
   const meta = CURSOR_ULTRA_QUOTA_META[kind];
+  const hint = t(meta.hintKey);
   if (!quota) {
     return `<div class="cursor-ultra-quota unavailable" data-quota-kind="${kind}">
       <div class="quota-head"><span>${meta.label}</span><strong>${t("common.waitingForData")}</strong></div>
       <div class="track"><i style="width:0%"></i></div>
-      <div class="quota-meta"><span>${meta.hint}</span><span>—</span></div>
+      <div class="quota-meta"><span>${hint}</span><span>—</span></div>
     </div>`;
   }
   return `<div class="cursor-ultra-quota" data-quota-kind="${kind}">
     <div class="quota-head"><span>${escapeHtml(localizeQuotaLabel(quota.label || meta.label))}</span><strong>${t("quota.remaining", { value: Math.round(quota.remainingPercent) })}</strong></div>
     <div class="track"><i style="width:${Math.max(0, Math.min(100, quota.remainingPercent))}%"></i></div>
-    <div class="quota-meta"><span>${t("quota.used", { value: Math.round(quota.usedPercent) })}</span><span>${quota.resetsAt ? t("quota.resetsAt", { date: dateTime(quota.resetsAt) }) : meta.hint}</span></div>
+    <div class="quota-meta"><span>${t("quota.used", { value: Math.round(quota.usedPercent) })}</span><span>${quota.resetsAt ? t("quota.resetsAt", { date: dateTime(quota.resetsAt) }) : hint}</span></div>
   </div>`;
 }
 
@@ -1212,7 +1255,7 @@ function providerCard(name: string, provider: ProviderSnapshot): string {
   const loading = Boolean(payload?.snapshot.refreshing && !provider.quotas.length && !provider.cost && !provider.tokens);
   const usage = loading ? providerLoading(name) : cursorNeedsLogin ? cursorLoginPrompt(cursorCompat) : cursorUltra ? cursorUltraBlocks(provider) : cursorUsageAvailable ? cursorCostBlocks(provider) : quotaRows(provider);
   const localizedMessage = localizeProviderMessage(provider.message, provider.provider, provider.status);
-  const displayedStatus = loading ? t("status.connecting") : provider.stale ? t("status.stale") : statusText[provider.status];
+  const displayedStatus = loading ? t("status.connecting") : provider.stale ? t("status.stale") : t(STATUS_TEXT_KEYS[provider.status]);
   const statusTone = loading ? "pending" : provider.stale ? "stale" : provider.status === "available" ? "available" : provider.status === "desktop_installed" ? "pending" : "unavailable";
   return `<section id="provider-card-${provider.provider}" class="provider-card ${provider.stale ? "is-stale" : ""}" data-provider-card="${provider.provider}" data-provider-accent="${provider.provider}" style="${providerColorStyle(provider.provider, payload?.settings)}" tabindex="-1" aria-labelledby="provider-title-${provider.provider}">
     <header><div><span class="provider-dot ${provider.provider}" aria-hidden="true"></span><strong id="provider-title-${provider.provider}">${name}</strong></div><span class="status ${statusTone}">${displayedStatus}</span></header>
@@ -1298,8 +1341,8 @@ function openColorPalette(provider: ProviderName, item: HTMLElement, trigger: HT
   popover.setAttribute("role", "dialog");
   popover.setAttribute("aria-modal", "false");
   popover.setAttribute("aria-label", t("config.chooseColor", { provider: PROVIDER_META[provider].name }));
-  popover.innerHTML = COLOR_PALETTE.map((row, rowIndex) => `<div class="color-palette-row" role="group" aria-label="${t("color.group", { tone: COLOR_TONE_NAMES[rowIndex] })}">
-    ${row.map((color, columnIndex) => `<button type="button" class="color-swatch ${color === selectedColor ? "selected" : ""}" data-color-value="${color}" style="--swatch-color:${color}" aria-label="${t("color.swatch", { tone: COLOR_TONE_NAMES[rowIndex], hue: COLOR_HUE_NAMES[columnIndex], color })}" aria-pressed="${color === selectedColor}" tabindex="${color === selectedColor ? "0" : "-1"}"></button>`).join("")}
+  popover.innerHTML = COLOR_PALETTE.map((row, rowIndex) => `<div class="color-palette-row" role="group" aria-label="${t("color.group", { tone: t(COLOR_TONE_KEYS[rowIndex]) })}">
+    ${row.map((color, columnIndex) => `<button type="button" class="color-swatch ${color === selectedColor ? "selected" : ""}" data-color-value="${color}" style="--swatch-color:${color}" aria-label="${t("color.swatch", { tone: t(COLOR_TONE_KEYS[rowIndex]), hue: t(COLOR_HUE_KEYS[columnIndex]), color })}" aria-pressed="${color === selectedColor}" tabindex="${color === selectedColor ? "0" : "-1"}"></button>`).join("")}
   </div>`).join("");
   document.body.append(popover);
   activeColorPopover = popover;
@@ -1325,8 +1368,8 @@ function openColorPalette(provider: ProviderName, item: HTMLElement, trigger: HT
     let nextIndex: number | null = null;
     if (event.key === "ArrowLeft") nextIndex = currentIndex > 0 ? currentIndex - 1 : currentIndex;
     if (event.key === "ArrowRight") nextIndex = currentIndex < swatches.length - 1 ? currentIndex + 1 : currentIndex;
-    if (event.key === "ArrowUp") nextIndex = currentIndex >= COLOR_HUE_NAMES.length ? currentIndex - COLOR_HUE_NAMES.length : currentIndex;
-    if (event.key === "ArrowDown") nextIndex = currentIndex + COLOR_HUE_NAMES.length < swatches.length ? currentIndex + COLOR_HUE_NAMES.length : currentIndex;
+    if (event.key === "ArrowUp") nextIndex = currentIndex >= COLOR_HUE_KEYS.length ? currentIndex - COLOR_HUE_KEYS.length : currentIndex;
+    if (event.key === "ArrowDown") nextIndex = currentIndex + COLOR_HUE_KEYS.length < swatches.length ? currentIndex + COLOR_HUE_KEYS.length : currentIndex;
     if (event.key === "Home") nextIndex = 0;
     if (event.key === "End") nextIndex = swatches.length - 1;
     if (nextIndex === null) return;
@@ -1658,7 +1701,15 @@ function renderMenu(): void {
   const s = payload.settings;
   app.innerHTML = `<main class="panel menu-panel">
     <div class="menu-brand">${metraLogo()}<div><strong>Metra</strong><small>${t("app.desktopBubbleSubtitle")}</small></div></div>
-    <button data-action="refresh"><span>${t("refresh.now")}</span></button>
+    <div class="menu-language-row">
+      <span>${t("menu.language")}</span>
+      <label class="language-select-control">
+        <select data-ui-language aria-label="${t("menu.language")}">
+          ${UI_LANGUAGE_OPTIONS.map(({ value, labelKey }) => `<option value="${value}" ${s.uiLanguage === value ? "selected" : ""}>${t(labelKey)}</option>`).join("")}
+        </select>
+        <i aria-hidden="true"></i>
+      </label>
+    </div>
     <div class="menu-label">${t("menu.refreshInterval")}</div>
     <div class="intervals">${[1, 5, 15, 30, 60].map((n) => `<button data-interval="${n}" class="${s.refreshMinutes === n ? "selected" : ""}">${n < 60 ? `${n}m` : "1h"}</button>`).join("")}</div>
     <div class="menu-label">${t("menu.bubblePercentage")}</div>
@@ -1669,6 +1720,31 @@ function renderMenu(): void {
     <button data-action="rescan"><span>${t("menu.rescanCli")}</span><kbd>↻</kbd></button>
     <button data-action="quit" class="danger"><span>${t("menu.quit")}</span></button>
   </main>`;
+  const languageSelect = app.querySelector<HTMLSelectElement>("[data-ui-language]");
+  if (languageSelect) languageSelect.onchange = () => {
+    void (async () => {
+      const language = languageSelect.value as UiLanguage;
+      if (language === payload!.settings.uiLanguage) return;
+      languageSelect.disabled = true;
+      showToast(t("menu.switchingLanguage"), "loading", 0);
+      try {
+        const settings = await invokeWithTimeout<AppSettings>(
+          "set_ui_language",
+          { language, locale: effectiveLocale(language) },
+          ACTION_TIMEOUT_MS,
+          t("menu.updateLanguageAction"),
+        );
+        payload!.settings = settings;
+        applyLanguagePreference(settings.uiLanguage);
+        renderMenu();
+        showToast(t("menu.languageUpdated"), "success");
+      } catch (reason) {
+        languageSelect.disabled = false;
+        languageSelect.value = payload!.settings.uiLanguage;
+        showToast(friendlyError(reason, t("action.failed", { action: t("menu.updateLanguageAction") })), "error", 4_500);
+      }
+    })();
+  };
   app.querySelectorAll<HTMLButtonElement>("[data-percent-mode]").forEach((button) => button.onclick = () => {
     void (async () => {
       const mode = button.dataset.percentMode as BubblePercentMode;
@@ -1697,8 +1773,8 @@ function renderMenu(): void {
   app.querySelectorAll<HTMLButtonElement>("[data-action]").forEach((button) => button.onclick = () => {
     void (async () => {
       const action = button.dataset.action;
-      if (action === "refresh" || action === "rescan") {
-        await refreshWithFeedback(action === "rescan" ? t("menu.rescan") : t("refresh.action"), action === "rescan" ? true : undefined);
+      if (action === "rescan") {
+        await refreshWithFeedback(t("menu.rescan"), true);
         return;
       }
       button.disabled = true;
@@ -1819,9 +1895,12 @@ void listen<{ side?: BubbleDockSide }>("bubble-reveal-requested", () => {
   if (view === "bubble") void bubbleController?.prepareForPanel();
 });
 void listen<AppSettings>("settings-updated", (event) => {
+  pendingSettings = event.payload;
+  applyLanguagePreference(event.payload.uiLanguage);
   if (!payload) return;
   payload.settings = event.payload;
-  if (view === "bubble") renderBubble();
+  pendingSettings = null;
+  render();
 });
 void listen<AppPayload>("usage-updated", (event) => applyUsageUpdate(event.payload));
 void listen<{ success: boolean; message: string }>("cursor-login-finished", (event) => {
@@ -1829,8 +1908,4 @@ void listen<{ success: boolean; message: string }>("cursor-login-finished", (eve
   cursorLoginPending = false;
   showToast(localizeProviderMessage(event.payload.message, "cursor", "not_logged_in") ?? t("cursor.loginNotDetected"), "error", 4_500);
 });
-if (view === "bubble") {
-  void invokeWithTimeout<void>("set_runtime_locale", { locale: i18n.locale })
-    .catch(() => undefined);
-}
 void loadPayload();

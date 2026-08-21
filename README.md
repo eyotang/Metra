@@ -1,6 +1,6 @@
 # Metra
 
-**English** · [简体中文](README.zh-CN.md)
+**English** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
 Metra is a lightweight cross-platform desktop bubble for checking Cursor, Codex, and Claude Code sign-in status, usage limits, reset times, token totals, and available spend.
 
@@ -13,9 +13,9 @@ Metra is a lightweight cross-platform desktop bubble for checking Cursor, Codex,
 - Opens Cursor's official sign-in flow when needed without silently enabling compatibility mode or installing a CLI. Reading exact personal usage still requires separate consent. Ultra shows Cursor Models, Other Models, Grok Bot weekly limits, and On-Demand separately; legacy plans such as Team keep the existing monetary layout.
 - Checks Claude Code sign-in through `claude auth status --json` and, when available, aggregates token counts from local sessions in read-only mode. If an API key or custom gateway does not expose subscription limits, Metra reports that no limit data is available instead of inventing a percentage.
 - Lets you show or hide each provider, reorder providers with the six-dot handle, and customize both bubble labels and marker colors. The built-in 55-color palette is stored in SQLite with the rest of the settings.
-- Opens details with a left click. Use the context menu to change the refresh interval, launch at startup, manage compatibility mode, rescan, or quit.
+- Opens details with a left click, where the refresh icon updates usage. The context menu starts with a direct language selector and also controls the refresh interval, launch at startup, compatibility mode, rescanning, and quitting; it does not duplicate the refresh action.
 - Keeps the last successful result after a refresh failure and clearly marks it as stale.
-- Automatically follows the OS/browser language. The current interface languages are English and Simplified Chinese (`zh-CN`).
+- Supports English, Simplified Chinese (`zh-CN`), Japanese, and Korean. **Auto detect** follows the OS/browser language; a manual choice takes effect immediately and is remembered after restart.
 
 <p align="center">
   <a href="docs/assets/readme/metra-readme-hero.png">
@@ -50,7 +50,7 @@ npm run build -- --target universal-apple-darwin
 
 ## Data and privacy
 
-- SQLite settings contain only the refresh interval, full bubble position, auto-dock toggle, provider order and visibility, custom labels and colors, launch-at-startup preference, and compatibility-mode consent. Temporary peek coordinates are not persisted.
+- SQLite settings contain only the refresh interval, interface-language preference, full bubble position, auto-dock toggle, provider order and visibility, custom labels and colors, launch-at-startup preference, and compatibility-mode consent. Temporary peek coordinates are not persisted.
 - Codex credentials remain managed by the installed Codex CLI/App Server. Metra does not read or store them directly.
 - Cursor personal compatibility mode is off by default. When enabled, Metra reads Cursor's `state.vscdb` without writing to it; the token exists only in memory for a single request and is cleared afterward.
 - Cursor network requests are restricted to HTTPS endpoints on `api2.cursor.sh` and `cursor.com`, with cross-origin redirects rejected.

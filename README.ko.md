@@ -1,0 +1,66 @@
+# Metra
+
+[English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · **한국어**
+
+Metra는 Cursor, Codex, Claude Code의 로그인 상태, 사용량 한도와 재설정 시각, 누적 토큰 및 사용 가능한 지출액을 확인할 수 있는 가벼운 크로스 플랫폼 데스크톱 버블입니다.
+
+## 주요 기능
+
+- Windows와 macOS에서 자유롭게 드래그할 수 있고 다중 모니터를 지원하며 항상 위에 표시되는 투명한 버블입니다. 컨텍스트 메뉴에서 선택적으로 화면 가장자리 자동 도킹을 켤 수 있으며, 기본값은 꺼짐입니다.
+- 자동 도킹을 켜고 처음으로 드래그해 화면 가장자리에 놓으면 즉시 32px 너비의 부분 숨김 상태로 전환되며, 드래그 후 유휴 시간을 기다리지 않습니다. 마우스 포인터를 올리거나 포커스하거나 클릭하면 전체 버블이 즉시 나타납니다. 다시 나타난 뒤에는 평소와 같이 유휴 시간이 지난 후 부분 숨김 상태로 돌아갑니다.
+- 로컬의 `cursor-agent` / `agent`, `codex`, `claude` CLI를 자동으로 찾습니다.
+- 공식 Codex App Server를 사용하여 여러 한도 구간과 누적 토큰을 불러옵니다.
+- 필요할 때 사용자 모르게 호환 모드를 켜거나 CLI를 설치하지 않고 Cursor의 공식 로그인 절차를 엽니다. 정확한 개인 사용량을 확인하려면 별도의 동의가 필요합니다. Ultra 요금제는 Cursor Models, Other Models, Grok Bot 주간 한도 및 On-Demand를 각각 표시하며, Team과 같은 기존 요금제는 현재의 금액 기반 레이아웃을 유지합니다.
+- `claude auth status --json`으로 Claude Code 로그인 상태를 확인하고, 가능한 경우 로컬 세션의 토큰 수를 읽기 전용으로 집계합니다. API 키 또는 사용자 지정 게이트웨이가 구독 한도를 제공하지 않으면 임의의 백분율을 만들지 않고 한도 데이터가 없다고 표시합니다.
+- 공급자별 표시 여부를 선택하고, 점 6개 핸들로 순서를 바꾸며, 버블 레이블과 마커 색상을 모두 사용자 지정할 수 있습니다. 기본 제공되는 55색 팔레트는 다른 설정과 함께 SQLite에 저장됩니다.
+- 왼쪽 클릭으로 세부 정보를 열고 패널의 새로고침 아이콘으로 사용량을 업데이트합니다. 컨텍스트 메뉴 상단에는 언어 선택기가 있으며 새로고침 간격, 시작 시 실행, 호환 모드, CLI 다시 감지 및 종료도 설정할 수 있습니다. 새로고침 동작은 중복해서 표시하지 않습니다.
+- 새로고침에 실패해도 마지막으로 성공한 결과를 유지하고 오래된 데이터임을 명확히 표시합니다.
+- 인터페이스는 영어, 중국어 간체(`zh-CN`), 일본어, 한국어를 지원합니다. “자동 감지”는 운영체제 또는 브라우저 언어를 따르며, 수동 선택은 즉시 적용되고 재시작 후에도 유지됩니다.
+
+<p align="center">
+  <a href="docs/assets/readme/metra-readme-hero.png">
+    <img src="docs/assets/readme/metra-readme-hero-1920.jpg" alt="AI 사용량 버블과 개인 정보가 가려진 Cursor, Codex 및 Claude Code 사용량 패널을 보여 주는 Metra 홍보 이미지" width="100%">
+  </a>
+</p>
+
+## 개발
+
+Rust stable, Node.js 22 이상, npm 및 현재 플랫폼용 Tauri 시스템 종속성이 필요합니다.
+
+```text
+npm install
+npm run check
+npm run verify:i18n
+npm test
+npm run dev
+```
+
+릴리스 빌드를 생성하려면 다음 명령을 실행합니다.
+
+```text
+npm run build
+```
+
+Windows 빌드 결과물은 `src-tauri/target/release`와 `src-tauri/target/release/bundle`에 생성됩니다. macOS Universal 빌드를 생성하려면 다음 명령을 실행합니다.
+
+```text
+rustup target add x86_64-apple-darwin aarch64-apple-darwin
+npm run build -- --target universal-apple-darwin
+```
+
+## 데이터 및 개인 정보 보호
+
+- SQLite 설정에는 새로고침 간격, 인터페이스 언어 설정, 전체 버블 위치, 자동 도킹 여부, 공급자 순서와 표시 여부, 사용자 지정 레이블과 색상, 시작 시 실행 설정 및 호환 모드 동의만 저장됩니다. 일부 숨김 상태의 임시 좌표는 저장되지 않습니다.
+- Codex 인증 정보는 설치된 Codex CLI/App Server에서 계속 관리합니다. Metra는 이를 직접 읽거나 저장하지 않습니다.
+- Cursor 개인 호환 모드는 기본적으로 꺼져 있습니다. 이 모드를 켜면 Metra는 Cursor의 `state.vscdb`를 수정하지 않고 읽기만 합니다. 토큰은 한 번의 요청 동안에만 메모리에 존재하며 이후 삭제됩니다.
+- Cursor 네트워크 요청은 `api2.cursor.sh`와 `cursor.com`의 HTTPS 엔드포인트로 제한되며, 교차 출처 리디렉션은 거부됩니다.
+- Claude Code 정보 수집은 로그인 상태 명령만 실행하며 `~/.claude/projects` 아래의 JSONL 파일에서 타임스탬프, 메시지 ID 및 사용량 수치를 역직렬화합니다. 메시지 본문, API 키 또는 기본 URL은 읽지 않습니다.
+- Metra는 이메일 주소, 토큰, 메시지 내용 또는 전체 API 응답을 로그에 기록하지 않습니다.
+
+## 릴리스 서명
+
+CI에서는 서명되지 않은 Windows x64 및 macOS Universal 결과물을 생성할 수 있습니다. 공식 배포 전에는 릴리스 환경에 Windows 코드 서명과 Apple Developer ID 서명 및 공증 자격 증명을 설정해야 합니다.
+
+## 라이선스
+
+MIT

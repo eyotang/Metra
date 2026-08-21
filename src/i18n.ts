@@ -1,6 +1,8 @@
 import type { ProviderName, ProviderStatus } from "./types";
+import { ja } from "./locales/ja.ts";
+import { ko } from "./locales/ko.ts";
 
-export const SUPPORTED_LOCALES = ["zh-CN", "en"] as const;
+export const SUPPORTED_LOCALES = ["zh-CN", "en", "ja", "ko"] as const;
 
 export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
 export type LocaleInput = string | readonly string[] | null | undefined;
@@ -43,7 +45,7 @@ const zhCN = {
   "refresh.readUsage": "读取用量",
   "refresh.readUsageFailed": "读取用量失败，请重新打开",
   "refresh.updating": "正在更新",
-  "refresh.now": "立即刷新",
+  "refresh.now": "立即更新",
   "refresh.nowUsage": "立即刷新用量",
   "refresh.refreshing": "正在刷新",
   "refresh.refreshingUsage": "正在刷新用量",
@@ -167,6 +169,15 @@ const zhCN = {
   "color.tone.deep": "深色",
   "color.tone.dark": "暗色",
   "menu.refreshInterval": "刷新间隔",
+  "menu.language": "语言",
+  "menu.languageSystem": "自动检测",
+  "menu.languageZhCn": "简体中文",
+  "menu.languageEnglish": "English",
+  "menu.languageJapanese": "日本語",
+  "menu.languageKorean": "한국어",
+  "menu.switchingLanguage": "正在切换语言…",
+  "menu.languageUpdated": "语言已更新",
+  "menu.updateLanguageAction": "更新语言",
   "menu.bubblePercentage": "气泡百分比",
   "menu.used": "已用",
   "menu.remaining": "剩余",
@@ -365,14 +376,23 @@ const en: Record<TranslationKey, string> = {
   "color.tone.deep": "deep",
   "color.tone.dark": "dark",
   "menu.refreshInterval": "Refresh interval",
+  "menu.language": "Language",
+  "menu.languageSystem": "Auto detect",
+  "menu.languageZhCn": "简体中文",
+  "menu.languageEnglish": "English",
+  "menu.languageJapanese": "日本語",
+  "menu.languageKorean": "한국어",
+  "menu.switchingLanguage": "Switching language…",
+  "menu.languageUpdated": "Language updated",
+  "menu.updateLanguageAction": "Update language",
   "menu.bubblePercentage": "Bubble percentage",
   "menu.used": "Used",
   "menu.remaining": "Remaining",
   "menu.autoSnap": "Auto-dock",
-  "menu.autoSnapHint": "Dock at the screen edge on release and immediately peek",
+  "menu.autoSnapHint": "Dock and peek immediately on release",
   "menu.autostart": "Launch at startup",
-  "menu.cursorCompat": "Cursor personal compatibility mode",
-  "menu.cursorCompatHint": "Reads the local token; contacts Cursor only",
+  "menu.cursorCompat": "Cursor compatibility",
+  "menu.cursorCompatHint": "Local token · Cursor only",
   "menu.rescanCli": "Rescan CLIs",
   "menu.quit": "Quit Metra",
   "menu.switchingPercent": "Switching to {mode} percentage…",
@@ -404,7 +424,7 @@ const en: Record<TranslationKey, string> = {
 
 export type TranslationCatalog = Readonly<Record<SupportedLocale, Readonly<Record<TranslationKey, string>>>>;
 
-export const translations: TranslationCatalog = { "zh-CN": zhCN, en };
+export const translations: TranslationCatalog = { "zh-CN": zhCN, en, ja, ko };
 
 function canonicalizeLocale(value: string): string | null {
   const normalized = value.trim().replaceAll("_", "-");
@@ -421,6 +441,8 @@ function matchLocale(value: string): SupportedLocale | null {
   if (!canonical) return null;
   if (canonical === "zh" || canonical.startsWith("zh-hans") || canonical.startsWith("zh-cn") || canonical.startsWith("zh-sg")) return "zh-CN";
   if (canonical === "en" || canonical.startsWith("en-")) return "en";
+  if (canonical === "ja" || canonical.startsWith("ja-")) return "ja";
+  if (canonical === "ko" || canonical.startsWith("ko-")) return "ko";
   return null;
 }
 

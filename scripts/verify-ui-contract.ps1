@@ -75,8 +75,12 @@ if ($appRust -notmatch 'include_cursor\.unwrap_or_else' -or $appRust -notmatch '
   $failures += "native refresh does not default Cursor selection to compatibility mode"
 }
 $directInvokes = [regex]::Matches($main, '\binvoke(?:<[^>]+>)?\(').Count
-if ($directInvokes -ne 1) { $failures += "some IPC operations bypass the timeout wrapper" }
-if ($main -notmatch 'const MENU_PANEL_HEIGHT = 432' -or $appRust -notmatch '"menu" => \(252\.0, 432\.0, PANEL_MODE_MENU\)') { $failures += "menu panel height is not fitted to its content" }
+if ($directInvokes -ne 3) { $failures += "unexpected IPC operations bypass the timeout wrapper" }
+if ($main -notmatch 'const MENU_PANEL_HEIGHT = 480' -or $appRust -notmatch '"menu" => \(252\.0, 480\.0, PANEL_MODE_MENU\)') { $failures += "menu panel height is not fitted to four-language content" }
+$menuRenderer = [regex]::Match($main, 'function renderMenu\(\): void \{[\s\S]*?\n\}').Value
+if ($menuRenderer -notmatch 'menu-language-row[\s\S]{0,500}data-ui-language' -or $menuRenderer -match 'data-action="refresh"' -or $main -notmatch 'set_ui_language' -or $types -notmatch 'uiLanguage:\s*UiLanguage' -or $settingsRust -notmatch 'pub ui_language:\s*UiLanguage') {
+  $failures += "the context menu must start with the persisted language selector without a duplicate refresh action"
+}
 if ($main -notmatch 'const PANEL_GAP = 3') { $failures += "panel gap is not the compact 3px contract" }
 if ($appRust -notmatch '\(56\.0 \* scale\)\.round\(\) as u32') { $failures += "native panel position does not scale the fixed bubble window size" }
 if ($main -match 'position\.x \+ 64') { $failures += "panel still uses the old hard-coded bubble offset" }
