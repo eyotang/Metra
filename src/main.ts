@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
-import { availableMonitors, getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
+import { availableMonitors, getCurrentWindow, type PhysicalPosition } from "@tauri-apps/api/window";
 import {
   bubbleReleaseVelocity,
   calculateBubbleDockTarget,
@@ -15,8 +15,11 @@ import {
 } from "./bubble-geometry";
 import type { AppPayload, AppSettings, BubblePercentMode, ProviderName, ProviderSnapshot, ProviderStatus, QuotaKind } from "./types";
 import { ProviderCardNavigator, shouldNavigateFromProviderRow } from "./provider-navigation";
+import { applyDocumentLocale, i18n, localizeProviderMessage, localizeQuotaLabel, t } from "./i18n";
 import metraWaterUrl from "./metra-water.svg";
 import "./styles.css";
+
+applyDocumentLocale(i18n.locale);
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const providerCardNavigator = new ProviderCardNavigator(document, {
@@ -53,8 +56,13 @@ function metraLogo(): string {
 }
 
 const statusText: Record<ProviderStatus, string> = {
-  available: "可用", desktop_installed: "桌面版已安装", not_installed: "未安装", not_logged_in: "未登录",
-  unsupported: "暂不可用", network_error: "网络错误", protocol_error: "协议不兼容",
+  available: t("status.available"),
+  desktop_installed: t("status.desktopInstalled"),
+  not_installed: t("status.notInstalled"),
+  not_logged_in: t("status.notLoggedIn"),
+  unsupported: t("status.unsupported"),
+  network_error: t("status.networkError"),
+  protocol_error: t("status.protocolError"),
 };
 const PROVIDER_ORDER = ["cursor", "codex", "claude"] as const satisfies readonly ProviderName[];
 const COLOR_PALETTE = [
@@ -65,8 +73,15 @@ const COLOR_PALETTE = [
   ["#cf332d", "#a84d08", "#8f6508", "#496600", "#208c2b", "#087164", "#0b6787", "#2456d9", "#98246e", "#6d2bd1", "#3f454d"],
 ] as const satisfies readonly (readonly string[])[];
 const COLOR_PALETTE_SET = new Set<string>(COLOR_PALETTE.flat());
-const COLOR_HUE_NAMES = ["红", "橙", "黄", "青柠", "绿", "青", "天蓝", "蓝", "粉", "紫", "灰"] as const;
-const COLOR_TONE_NAMES = ["标准", "浅色", "柔和", "深色", "暗色"] as const;
+const COLOR_HUE_NAMES = [
+  t("color.hue.red"), t("color.hue.orange"), t("color.hue.yellow"), t("color.hue.lime"),
+  t("color.hue.green"), t("color.hue.cyan"), t("color.hue.sky"), t("color.hue.blue"),
+  t("color.hue.pink"), t("color.hue.purple"), t("color.hue.gray"),
+] as const;
+const COLOR_TONE_NAMES = [
+  t("color.tone.standard"), t("color.tone.light"), t("color.tone.soft"), t("color.tone.deep"),
+  t("color.tone.dark"),
+] as const;
 const PROVIDER_META: Record<ProviderName, { name: string; fallbackLabel: string; fallbackColor: string }> = {
   cursor: { name: "Cursor", fallbackLabel: "C", fallbackColor: "#9c83ff" },
   codex: { name: "Codex", fallbackLabel: "X", fallbackColor: "#4bd8c0" },
@@ -126,9 +141,9 @@ function severity(value: number | null, mode: BubblePercentMode): string {
     ? value >= 95 ? "critical" : value >= 80 ? "warning" : "healthy"
     : value <= 5 ? "critical" : value <= 20 ? "warning" : "healthy";
 }
-function number(value?: number): string { return value === undefined ? "—" : new Intl.NumberFormat("zh-CN").format(value); }
+function number(value?: number): string { return i18n.formatNumber(value); }
 function planName(value?: string): string {
-  if (!value) return "套餐未知";
+  if (!value) return t("plan.unknown");
   const known: Record<string, string> = { free: "Free", hobby: "Hobby", plus: "Plus", pro: "Pro", ultra: "Ultra", team: "Team", business: "Business", enterprise: "Enterprise" };
   return known[value.toLowerCase()] ?? value;
 }
@@ -136,16 +151,16 @@ const CURSOR_PRO_INCLUDED_FALLBACK_CENTS = 2_000;
 const CURSOR_ON_DEMAND_FALLBACK_CENTS = 50_000;
 const CURSOR_ULTRA_QUOTA_KINDS = ["cursor_models", "other_models", "grok_bot"] as const satisfies readonly QuotaKind[];
 const CURSOR_ULTRA_QUOTA_META: Record<QuotaKind, { label: string; hint: string }> = {
-  cursor_models: { label: "Cursor Models", hint: "包含 Cursor Grok 和 Composer" },
-  other_models: { label: "Other Models", hint: "其他模型额度" },
-  grok_bot: { label: "Grok Bot", hint: "每周额度" },
+  cursor_models: { label: "Cursor Models", hint: t("quota.cursorModelsHint") },
+  other_models: { label: "Other Models", hint: t("quota.otherModelsHint") },
+  grok_bot: { label: "Grok Bot", hint: t("quota.grokBotHint") },
 };
 function money(cents?: number): string { return cents === undefined ? "—" : `$${(cents / 100).toFixed(2)}`; }
 function cursorIncludedLimit(provider: ProviderSnapshot): number {
   if (provider.cost?.includedLimitCents && provider.cost.includedLimitCents > 0) return provider.cost.includedLimitCents;
   return CURSOR_PRO_INCLUDED_FALLBACK_CENTS;
 }
-function dateTime(value?: string): string { return value ? new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value)) : "—"; }
+function dateTime(value?: string): string { return i18n.formatDateTime(value); }
 class ActionTimeoutError extends Error {}
 type ToastTone = "loading" | "success" | "error" | "info";
 let toastTimer: number | undefined;
@@ -188,7 +203,7 @@ function applyUsageUpdate(updated: AppPayload): void {
 
 function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = window.setTimeout(() => reject(new ActionTimeoutError(`${label}超时，请稍后重试`)), timeoutMs);
+    const timer = window.setTimeout(() => reject(new ActionTimeoutError(t("action.timeout", { action: label }))), timeoutMs);
     operation.then(
       (value) => { window.clearTimeout(timer); resolve(value); },
       (reason) => { window.clearTimeout(timer); reject(reason); },
@@ -196,14 +211,15 @@ function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string)
   });
 }
 
-function invokeWithTimeout<T>(command: string, args?: Record<string, unknown>, timeoutMs = ACTION_TIMEOUT_MS, label = "操作"): Promise<T> {
+function invokeWithTimeout<T>(command: string, args?: Record<string, unknown>, timeoutMs = ACTION_TIMEOUT_MS, label = t("common.operation")): Promise<T> {
   return withTimeout(invoke<T>(command, args), timeoutMs, label);
 }
 
 function friendlyError(reason: unknown, fallback: string): string {
   if (reason instanceof ActionTimeoutError) return reason.message;
   const message = String(reason ?? "").trim();
-  return message && message !== "[object Object]" ? message : fallback;
+  if (!message || message === "[object Object]") return fallback;
+  return i18n.locale === "en" && /[\p{Script=Han}]/u.test(message) ? fallback : message;
 }
 
 function showToast(message: string, tone: ToastTone = "info", durationMs = 2_800): void {
@@ -230,14 +246,14 @@ async function runUiAction<T>(pending: string, success: string, operation: () =>
     if (success) showToast(success, "success");
     return result;
   } catch (reason) {
-    showToast(friendlyError(reason, `${pending}失败，请稍后重试`), "error", 4_500);
+    showToast(friendlyError(reason, t("action.failed", { action: pending })), "error", 4_500);
     return undefined;
   }
 }
 
-async function refreshWithFeedback(label = "刷新", includeCursor?: boolean): Promise<void> {
+async function refreshWithFeedback(label = t("refresh.action"), includeCursor?: boolean): Promise<void> {
   if (refreshInFlight) {
-    showToast("正在刷新，请稍候", "loading", 0);
+    showToast(t("refresh.inProgress"), "loading", 0);
     return refreshInFlight;
   }
   const task = (async () => {
@@ -246,7 +262,7 @@ async function refreshWithFeedback(label = "刷新", includeCursor?: boolean): P
       window.clearTimeout(toastTimer);
       document.querySelector(".action-toast")?.remove();
     } else {
-      showToast(`${label}中，正在读取最新用量…`, "loading", 0);
+      showToast(t("refresh.reading", { action: label }), "loading", 0);
     }
     let unlisten: (() => void) | undefined;
     try {
@@ -255,23 +271,25 @@ async function refreshWithFeedback(label = "刷新", includeCursor?: boolean): P
       unlisten = await withTimeout(
         listen<AppPayload>("usage-updated", (event) => complete(event.payload)),
         ACTION_TIMEOUT_MS,
-        "建立刷新监听",
+        t("refresh.listen"),
       );
       if (payload) {
         payload.snapshot.refreshing = true;
         render();
       }
       const cursorWillRefresh = includeCursor ?? payload?.settings.cursorCompatEnabled ?? false;
-      await invokeWithTimeout<AppPayload>("refresh_now", { includeCursor }, ACTION_TIMEOUT_MS, "启动刷新");
+      await invokeWithTimeout<AppPayload>("refresh_now", { includeCursor }, ACTION_TIMEOUT_MS, t("refresh.start"));
       const updated = await withTimeout(completed, REFRESH_TIMEOUT_MS, label);
       applyUsageUpdate(updated);
-      showToast(cursorWillRefresh ? `${label}完成，数据已更新` : `${label}完成，Cursor 兼容模式未开启，已跳过`, "success");
+      showToast(cursorWillRefresh
+        ? t("refresh.success", { action: label })
+        : t("refresh.successCursorSkipped", { action: label }), "success");
     } catch (reason) {
       if (payload) {
         payload.snapshot.refreshing = false;
         render();
       }
-      showToast(friendlyError(reason, `${label}失败，请稍后重试`), "error", 4_500);
+      showToast(friendlyError(reason, t("action.failed", { action: label })), "error", 4_500);
     } finally {
       unlisten?.();
     }
@@ -283,17 +301,17 @@ async function loadPayload(): Promise<void> {
   if (view === "bubble") renderBubble();
   else renderLoadingPanel();
   try {
-    payload = await invokeWithTimeout<AppPayload>("get_app_payload", undefined, ACTION_TIMEOUT_MS, "读取用量");
+    payload = await invokeWithTimeout<AppPayload>("get_app_payload", undefined, ACTION_TIMEOUT_MS, t("refresh.readUsage"));
     render();
   } catch (reason) {
-    if (view === "panel") showToast(friendlyError(reason, "读取用量失败，请重新打开"), "error", 4_500);
+    if (view === "panel") showToast(friendlyError(reason, t("refresh.readUsageFailed")), "error", 4_500);
   }
 }
 
 function renderLoadingPanel(): void {
   app.innerHTML = `<main class="panel details-panel loading-panel">
-    <div class="panel-title"><div class="panel-brand">${metraLogo()}<div><strong>Metra</strong><small>额度与用量</small></div></div></div>
-    <div class="loading-state"><i></i><strong>界面已就绪</strong><small>正在读取 Cursor、Codex 和 Claude Code 用量…</small></div>
+    <div class="panel-title"><div class="panel-brand">${metraLogo()}<div><strong>Metra</strong><small>${t("app.usageSubtitle")}</small></div></div></div>
+    <div class="loading-state"><i></i><strong>${t("loading.ready")}</strong><small>${t("loading.usage")}</small></div>
   </main>`;
 }
 
@@ -310,6 +328,8 @@ function idleBubbleValue(provider: ProviderSnapshot, mode: BubblePercentMode): s
 }
 
 type BubbleWindowState = "visible" | "dragging" | "snapping" | "peek";
+type BubbleDockFollowup = "schedule-idle" | "peek-now" | "none";
+type PendingProgrammaticMove = BubblePoint & { expiresAt: number; token?: number };
 
 class BubbleWindowController {
   private readonly shell: HTMLElement;
@@ -346,20 +366,24 @@ class BubbleWindowController {
   private dragGeneration = 0;
   private finishInProgress = false;
   private snapToken = 0;
+  private nativeSession = 0;
+  private nativeSessionReady: Promise<void>;
   private snapCompletion: Promise<void> | null = null;
   private frameTransition: Promise<void> | null = null;
+  private dragStartCompletion: Promise<void> = Promise.resolve();
   private nativeQueue: Promise<unknown> = Promise.resolve();
   private positionSaveQueue: Promise<unknown> = Promise.resolve();
-  private pendingProgrammaticMoves: Array<BubblePoint & { expiresAt: number }> = [];
+  private pendingProgrammaticMoves: PendingProgrammaticMove[] = [];
 
   constructor(snapEnabled: boolean) {
     this.shell = document.querySelector<HTMLElement>(".bubble-shell")!;
     this.center = document.querySelector<HTMLElement>(".bubble-center")!;
     this.idleUsage = document.querySelector<HTMLElement>(".bubble-idle-usage")!;
     this.snapEnabled = snapEnabled;
+    this.nativeSessionReady = this.beginNativeWindowSession();
     this.bindEvents();
     this.initialization = this.initialize();
-    void this.initialization.catch((reason) => this.reportError(reason, "初始化悬浮球位置失败"));
+    void this.initialization.catch((reason) => this.reportError(reason, t("bubble.error.initializePosition")));
   }
 
   update(activeRows: string, idleValues: string, order: ProviderName[], mode: BubblePercentMode, busy: boolean, snapEnabled: boolean): void {
@@ -369,17 +393,17 @@ class BubbleWindowController {
     this.idleUsage.innerHTML = idleValues;
     const usage = order.map((provider) => {
       const snapshot = payload?.snapshot[provider];
-      return `${PROVIDER_META[provider].name} ${snapshot ? percent(bubblePercent(snapshot, mode)) : "加载中"}`;
-    }).join("，");
-    const dragHint = snapEnabled ? "拖动后吸附到屏幕边缘" : "可拖动到屏幕任意位置";
-    this.shell.setAttribute("aria-label", `Metra 用量悬浮球，${usage}；${dragHint}，按回车打开详情`);
+      return `${PROVIDER_META[provider].name} ${snapshot ? percent(bubblePercent(snapshot, mode)) : t("bubble.loading")}`;
+    }).join(t("bubble.usageSeparator"));
+    const dragHint = snapEnabled ? t("bubble.snapHint") : t("bubble.freeHint");
+    this.shell.setAttribute("aria-label", t("bubble.ariaLabel", { usage, dragHint }));
     this.setSnapEnabled(snapEnabled);
     const wasBusy = this.busy;
     this.busy = busy;
     this.applyVisualState();
     if (busy) {
       this.clearIdleTimer();
-      if (this.state === "peek") void this.reveal().catch((reason) => this.reportError(reason, "唤醒悬浮球失败"));
+      if (this.state === "peek") void this.reveal().catch((reason) => this.reportError(reason, t("bubble.error.wake")));
     } else if (wasBusy || this.state === "visible") {
       this.scheduleIdle();
     }
@@ -397,7 +421,7 @@ class BubbleWindowController {
     this.shell.setAttribute("aria-expanded", String(visible));
     if (visible) {
       this.clearIdleTimer();
-      void this.reveal().catch((reason) => this.reportError(reason, "唤醒悬浮球失败"));
+      void this.reveal().catch((reason) => this.reportError(reason, t("bubble.error.wake")));
     } else if (!this.maybeDockAfterPanelClose()) {
       this.scheduleIdle();
     }
@@ -416,13 +440,13 @@ class BubbleWindowController {
         this.applyVisualState();
       }
       if (this.state === "peek") {
-        void this.reveal().catch((reason) => this.reportError(reason, "关闭自动吸边失败"));
+        void this.reveal().catch((reason) => this.reportError(reason, t("bubble.error.disableSnap")));
       } else {
         void this.initialization.then(() => {
           if (!this.snapEnabled && !this.primaryPointerDown && !this.nativeDragging) {
             this.startDock({ x: 0, y: 0 }, false);
           }
-        }).catch((reason) => this.reportError(reason, "关闭自动吸边失败"));
+        }).catch((reason) => this.reportError(reason, t("bubble.error.disableSnap")));
       }
       return;
     }
@@ -434,7 +458,7 @@ class BubbleWindowController {
         return;
       }
       this.maybeDockAfterPanelClose();
-    }).catch((reason) => this.reportError(reason, "开启自动吸边失败"));
+    }).catch((reason) => this.reportError(reason, t("bubble.error.enableSnap")));
   }
 
   private maybeDockAfterPanelClose(): boolean {
@@ -449,7 +473,7 @@ class BubbleWindowController {
     this.shell.addEventListener("pointerenter", () => {
       this.hovering = true;
       this.clearIdleTimer();
-      void this.reveal().catch((reason) => this.reportError(reason, "唤醒悬浮球失败"));
+      void this.reveal().catch((reason) => this.reportError(reason, t("bubble.error.wake")));
     });
     this.shell.addEventListener("pointerleave", () => {
       this.hovering = false;
@@ -458,7 +482,7 @@ class BubbleWindowController {
     this.shell.addEventListener("focusin", () => {
       this.focused = true;
       this.clearIdleTimer();
-      void this.reveal().catch((reason) => this.reportError(reason, "唤醒悬浮球失败"));
+      void this.reveal().catch((reason) => this.reportError(reason, t("bubble.error.wake")));
     });
     this.shell.addEventListener("focusout", () => {
       this.focused = false;
@@ -468,7 +492,7 @@ class BubbleWindowController {
       if (document.activeElement !== this.shell) return;
       this.focused = true;
       this.clearIdleTimer();
-      void this.reveal().catch((reason) => this.reportError(reason, "唤醒悬浮球失败"));
+      void this.reveal().catch((reason) => this.reportError(reason, t("bubble.error.wake")));
     });
     window.addEventListener("blur", () => {
       this.focused = false;
@@ -497,8 +521,9 @@ class BubbleWindowController {
   }
 
   private async initialize(): Promise<void> {
+    await this.nativeSessionReady;
     void currentWindow.onMoved((event) => this.onWindowMoved(event.payload))
-      .catch((reason) => this.reportError(reason, "监听悬浮球移动失败"));
+      .catch((reason) => this.reportError(reason, t("bubble.error.watchMovement")));
     await this.dockCurrentPosition({ x: 0, y: 0 }, false);
     this.initialized = true;
     this.applyVisualState();
@@ -509,8 +534,10 @@ class BubbleWindowController {
     if (event.button !== 0) return;
     window.getSelection()?.removeAllRanges();
     this.clearIdleTimer();
+    const stateBeforeDrag = this.state;
+    const interruptedFrame = stateBeforeDrag === "peek" || this.frameTransition !== null;
     this.cancelSnap();
-    this.dragStartedFromPeek = this.state === "peek";
+    this.dragStartedFromPeek = stateBeforeDrag === "peek";
     this.dragStartPosition = this.lastObservedPosition
       ? { ...this.lastObservedPosition }
       : this.state === "peek" && this.anchor && this.fullSize && this.monitor
@@ -527,9 +554,68 @@ class BubbleWindowController {
     this.movementSamples = this.dragStartPosition
       ? [{ ...this.dragStartPosition, time: performance.now() }]
       : [];
+    const restorePosition = interruptedFrame && this.anchor && this.fullSize
+      ? { ...this.anchor }
+      : stateBeforeDrag === "snapping" && this.lastObservedPosition
+      ? { ...this.lastObservedPosition }
+      : undefined;
+    const restoreSize = interruptedFrame && restorePosition ? this.fullSize ?? undefined : undefined;
+    if (restorePosition) {
+      this.lastObservedPosition = { ...restorePosition };
+      this.dragStartPosition = { ...restorePosition };
+      this.movementSamples = [{ ...restorePosition, time: performance.now() }];
+      this.rememberProgrammaticMove(restorePosition, this.snapToken, true);
+    }
     this.state = "dragging";
     this.applyVisualState();
     this.scheduleDragFinish(BUBBLE_DRAG_FALLBACK_MS);
+    this.dragStartCompletion = this.beginNativeDrag(
+      this.dragGeneration,
+      this.snapToken,
+      restorePosition,
+      restoreSize,
+    );
+  }
+
+  private async beginNativeDrag(
+    generation: number,
+    token: number,
+    position?: BubblePoint,
+    size?: BubbleSize,
+  ): Promise<void> {
+    try {
+      await this.nativeSessionReady;
+      if (!this.isActiveDrag(generation) || token !== this.snapToken) return;
+      const started = await invoke<boolean>(
+        "start_bubble_drag",
+        {
+          session: this.nativeSession,
+          token,
+          x: position?.x,
+          y: position?.y,
+          width: size?.width,
+          height: size?.height,
+        },
+      );
+      if (!started && this.isActiveDrag(generation)) {
+        throw t("bubble.error.startDrag");
+      }
+    } catch (reason) {
+      if (!this.isActiveDrag(generation)) return;
+      const restorePeek = this.dragStartedFromPeek;
+      this.primaryPointerDown = false;
+      this.nativeDragging = false;
+      this.pendingClick = false;
+      this.state = "visible";
+      this.applyVisualState();
+      this.reportError(reason, t("bubble.error.startDrag"));
+      if (restorePeek && this.snapEnabled && this.docked) {
+        void this.transitionToPeek(this.snapToken)
+          .catch((error) => this.reportError(error, t("bubble.error.hide")));
+      } else {
+        this.scheduleIdle();
+      }
+    }
   }
 
   private onPointerUp(event: PointerEvent): void {
@@ -560,11 +646,14 @@ class BubbleWindowController {
   }
 
   private onWindowMoved(position: PhysicalPosition): void {
-    this.lastObservedPosition = { x: position.x, y: position.y };
-    if (this.consumeProgrammaticMove(position)) {
+    const programmaticMove = this.consumeProgrammaticMove(position);
+    if (programmaticMove) {
+      if (programmaticMove.token !== undefined && programmaticMove.token !== this.snapToken) return;
+      this.lastObservedPosition = { x: position.x, y: position.y };
       this.rebaseUnmovedGesture(position);
       return;
     }
+    this.lastObservedPosition = { x: position.x, y: position.y };
     if (!this.nativeDragging) return;
     const now = performance.now();
     if (!this.dragStartPosition) this.dragStartPosition = { x: position.x, y: position.y };
@@ -592,15 +681,11 @@ class BubbleWindowController {
     }
     this.finishInProgress = true;
     const generation = this.dragGeneration;
+    const dragStartCompletion = this.dragStartCompletion;
     try {
       if (!this.nativeReleaseConfirmed) {
         try {
-          const pressed = await invokeWithTimeout<boolean>(
-            "is_primary_mouse_button_pressed",
-            undefined,
-            ACTION_TIMEOUT_MS,
-            "检查拖动状态",
-          );
+          const pressed = await invoke<boolean>("is_primary_mouse_button_pressed");
           if (!this.isActiveDrag(generation)) return;
           if (pressed) {
             this.scheduleDragFinish(BUBBLE_DRAG_RELEASE_POLL_MS);
@@ -608,36 +693,36 @@ class BubbleWindowController {
           }
         } catch (reason) {
           if (!this.isActiveDrag(generation)) return;
-          this.reportError(reason, "无法确认拖动是否结束");
+          this.reportError(reason, t("bubble.error.confirmDragEnd"));
         }
         this.primaryPointerDown = false;
         this.nativeReleaseConfirmed = true;
       }
-      if (!this.dragMoved) {
-        const position = await this.afterNativeQueue(() => currentWindow.outerPosition());
-        if (!this.isActiveDrag(generation)) return;
-        this.lastObservedPosition = { x: position.x, y: position.y };
-        if (this.consumeProgrammaticMove(position)) {
-          this.rebaseUnmovedGesture(position);
-        } else if (!this.dragStartPosition) {
-          this.dragStartPosition = { x: position.x, y: position.y };
-        } else if (Math.hypot(position.x - this.dragStartPosition.x, position.y - this.dragStartPosition.y) >= 1) {
-          this.dragMoved = true;
-          this.dragged = true;
-          this.movementSamples.push({ x: position.x, y: position.y, time: performance.now() });
-        }
+      await dragStartCompletion;
+      if (!this.isActiveDrag(generation)) return;
+      const position = await this.afterNativeQueue(() => currentWindow.outerPosition());
+      if (!this.isActiveDrag(generation)) return;
+      this.lastObservedPosition = { x: position.x, y: position.y };
+      if (!this.dragStartPosition) {
+        this.dragStartPosition = { x: position.x, y: position.y };
+      } else if (Math.hypot(position.x - this.dragStartPosition.x, position.y - this.dragStartPosition.y) >= 1) {
+        this.dragMoved = true;
+        this.dragged = true;
       }
+      this.movementSamples.push({ x: position.x, y: position.y, time: performance.now() });
       if (!this.dragMoved) {
         this.finishNativeGestureWithoutMovement();
         return;
       }
+      const latest = this.movementSamples[this.movementSamples.length - 1] ?? this.dragStartPosition;
+      const releasePosition = latest ? { x: latest.x, y: latest.y } : undefined;
+      const velocity = bubbleReleaseVelocity(this.movementSamples);
       this.nativeDragging = false;
       this.dragMoved = false;
       this.pendingClick = false;
       this.dragStartedFromPeek = false;
       this.dragStartPosition = null;
-      const velocity = bubbleReleaseVelocity(this.movementSamples);
-      this.startDock(velocity, true);
+      this.startDock(velocity, true, "peek-now", releasePosition);
     } finally {
       this.finishInProgress = false;
     }
@@ -649,6 +734,7 @@ class BubbleWindowController {
 
   private finishNativeGestureWithoutMovement(): void {
     const shouldOpenPanel = this.pendingClick;
+    const restorePeek = this.dragStartedFromPeek && !shouldOpenPanel;
     this.pendingClick = false;
     this.nativeDragging = false;
     this.nativeReleaseConfirmed = true;
@@ -656,10 +742,15 @@ class BubbleWindowController {
     this.pointerStartScreen = null;
     this.dragStartPosition = null;
     this.movementSamples = [];
-    this.state = this.dragStartedFromPeek ? "peek" : "visible";
+    this.state = "visible";
     this.dragStartedFromPeek = false;
     this.applyVisualState();
-    if (!this.maybeDockAfterPanelClose()) this.scheduleIdle();
+    if (restorePeek && this.snapEnabled && this.docked) {
+      void this.transitionToPeek(this.snapToken)
+        .catch((reason) => this.reportError(reason, t("bubble.error.hide")));
+    } else if (!this.maybeDockAfterPanelClose()) {
+      this.scheduleIdle();
+    }
     if (shouldOpenPanel) void showPanel("details", true);
   }
 
@@ -669,12 +760,17 @@ class BubbleWindowController {
     this.movementSamples = [{ x: position.x, y: position.y, time: performance.now() }];
   }
 
-  private startDock(velocity: BubblePoint, animate: boolean): void {
+  private startDock(
+    velocity: BubblePoint,
+    animate: boolean,
+    followup: BubbleDockFollowup = "schedule-idle",
+    releasePosition?: BubblePoint,
+  ): void {
     let tracked: Promise<void>;
-    tracked = this.dockCurrentPosition(velocity, animate).catch((reason) => {
+    tracked = this.dockCurrentPosition(velocity, animate, followup, releasePosition).catch((reason) => {
       this.state = "visible";
       this.applyVisualState();
-      this.reportError(reason, "吸附悬浮球失败");
+      this.reportError(reason, t("bubble.error.snap"));
       this.scheduleIdle();
     }).finally(() => {
       if (this.snapCompletion === tracked) this.snapCompletion = null;
@@ -682,15 +778,21 @@ class BubbleWindowController {
     this.snapCompletion = tracked;
   }
 
-  private async dockCurrentPosition(velocity: BubblePoint, animate: boolean, scheduleIdleAfter = true): Promise<void> {
+  private async dockCurrentPosition(
+    velocity: BubblePoint,
+    animate: boolean,
+    followup: BubbleDockFollowup = "schedule-idle",
+    releasePosition?: BubblePoint,
+  ): Promise<void> {
     const token = ++this.snapToken;
     const snapEnabled = this.snapEnabled;
-    const [position, size, monitors] = await Promise.all([
+    const [windowPosition, size, monitors] = await Promise.all([
       this.afterNativeQueue(() => currentWindow.outerPosition()),
       this.afterNativeQueue(() => currentWindow.outerSize()),
       availableMonitors(),
     ]);
     if (token !== this.snapToken || snapEnabled !== this.snapEnabled) return;
+    const position = releasePosition ?? windowPosition;
     this.lastObservedPosition = { x: position.x, y: position.y };
     const geometries = monitors.map((monitor) => ({
       x: monitor.workArea.position.x,
@@ -699,7 +801,7 @@ class BubbleWindowController {
       height: monitor.workArea.size.height,
       scaleFactor: monitor.scaleFactor,
     }));
-    const monitor = selectBubbleMonitor(geometries, position, size);
+    const monitor = selectBubbleMonitor(geometries, position, releasePosition ? this.fullSize ?? size : size);
     if (!monitor) return;
     const target = snapEnabled
       ? calculateBubbleDockTarget(position, velocity, monitor)
@@ -710,7 +812,7 @@ class BubbleWindowController {
     await this.resizeWindow(target.size, token);
     if (token !== this.snapToken || snapEnabled !== this.snapEnabled) return;
     const completed = shouldAnimate
-      ? await this.animateTo(target.position, velocity, token)
+      ? await this.animateTo(target.position, velocity, token, releasePosition)
       : await this.moveWindow(target.position, token).then(() => token === this.snapToken);
     if (!completed) return;
     if (token !== this.snapToken || snapEnabled !== this.snapEnabled) return;
@@ -722,12 +824,21 @@ class BubbleWindowController {
     if (snapEnabled) this.dockAfterPanelClose = false;
     this.state = "visible";
     this.applyVisualState();
-    await this.saveAnchor(target.position);
-    if (token === this.snapToken && snapEnabled === this.snapEnabled && scheduleIdleAfter) this.scheduleIdle();
+    const anchorSave = this.saveAnchor(target.position);
+    if (snapEnabled && followup === "peek-now") await this.enterPeekAfterDock(token);
+    await anchorSave;
+    if (token === this.snapToken && snapEnabled === this.snapEnabled && followup === "schedule-idle") {
+      this.scheduleIdle();
+    }
   }
 
-  private async animateTo(target: BubblePoint, releaseVelocity: BubblePoint, token: number): Promise<boolean> {
-    const start = await this.afterNativeQueue(() => currentWindow.outerPosition());
+  private async animateTo(
+    target: BubblePoint,
+    releaseVelocity: BubblePoint,
+    token: number,
+    releasePosition?: BubblePoint,
+  ): Promise<boolean> {
+    const start = releasePosition ?? await this.afterNativeQueue(() => currentWindow.outerPosition());
     if (token !== this.snapToken) return false;
     if (this.reducedMotion) {
       await this.moveWindow(target, token);
@@ -778,7 +889,7 @@ class BubbleWindowController {
     if (!this.snapEnabled || !this.docked) return;
     if (!this.initialized || this.busy || this.panelVisible || this.hovering || this.focused || this.primaryPointerDown || this.nativeDragging || this.state !== "visible") return;
     this.idleTimer = window.setTimeout(() => {
-      void this.enterPeek().catch((reason) => this.reportError(reason, "隐藏悬浮球失败"));
+      void this.enterPeek().catch((reason) => this.reportError(reason, t("bubble.error.hide")));
     }, BUBBLE_IDLE_DELAY_MS);
   }
 
@@ -787,13 +898,29 @@ class BubbleWindowController {
     if (this.busy || this.panelVisible || this.hovering || this.focused || this.primaryPointerDown || this.nativeDragging || this.state !== "visible") return;
     await this.initialization;
     if (this.frameTransition) await this.frameTransition;
-    await this.dockCurrentPosition({ x: 0, y: 0 }, false, false);
+    await this.dockCurrentPosition({ x: 0, y: 0 }, false, "none");
     if (!this.snapEnabled || !this.docked || this.busy || this.panelVisible || this.hovering || this.focused || this.primaryPointerDown || this.nativeDragging || this.state !== "visible") return;
+    await this.transitionToPeek(this.snapToken);
+  }
+
+  private async enterPeekAfterDock(token: number): Promise<void> {
+    if (token !== this.snapToken || !this.snapEnabled || !this.docked) return;
+    if (this.panelVisible || this.primaryPointerDown || this.nativeDragging || this.state !== "visible") return;
+    await this.transitionToPeek(token);
+  }
+
+  private async transitionToPeek(token: number): Promise<void> {
+    if (token !== this.snapToken) return;
     if (!this.anchor || !this.fullSize || !this.monitor) return;
+    this.clearIdleTimer();
     this.state = "peek";
     this.applyVisualState();
     const frame = calculateBubblePeekFrame(this.anchor, this.fullSize, this.side, this.monitor.scaleFactor);
-    await this.runFrameTransition(frame.position, frame.size);
+    await this.runFrameTransition(frame.position, frame.size, token);
+    if (token !== this.snapToken && this.state === "peek") {
+      this.state = "visible";
+      this.applyVisualState();
+    }
   }
 
   private async reveal(): Promise<void> {
@@ -806,10 +933,12 @@ class BubbleWindowController {
       return;
     }
     if (!this.anchor || !this.fullSize) return;
+    const token = this.snapToken;
     this.state = "visible";
     this.applyVisualState();
-    await this.runFrameTransition(this.anchor, this.fullSize);
-    await this.dockCurrentPosition({ x: 0, y: 0 }, false, false);
+    await this.runFrameTransition(this.anchor, this.fullSize, token);
+    if (token !== this.snapToken) return;
+    await this.dockCurrentPosition({ x: 0, y: 0 }, false, "none");
   }
 
   private applyVisualState(): void {
@@ -818,56 +947,98 @@ class BubbleWindowController {
   }
 
   private resizeWindow(size: BubbleSize, token?: number): Promise<void> {
-    return this.queueNative(() => token !== undefined && token !== this.snapToken
-      ? Promise.resolve()
-      : currentWindow.setSize(new PhysicalSize(size.width, size.height)));
+    const operationToken = token ?? this.snapToken;
+    return this.queueNative(async () => {
+      await this.nativeSessionReady;
+      if (operationToken !== this.snapToken) return;
+      const accepted = await invokeWithTimeout<boolean>(
+        "set_bubble_window_frame",
+        { session: this.nativeSession, token: operationToken, width: size.width, height: size.height },
+        ACTION_TIMEOUT_MS,
+        t("bubble.action.updateFrame"),
+      );
+      this.requireAcceptedNativeOperation(accepted, operationToken);
+    });
   }
 
   private moveWindow(position: BubblePoint, token?: number): Promise<void> {
-    const rounded = { x: Math.round(position.x), y: Math.round(position.y) };
-    return this.queueNative(() => {
-      if (token !== undefined && token !== this.snapToken) return Promise.resolve();
-      this.rememberProgrammaticMove(rounded);
-      return currentWindow.setPosition(new PhysicalPosition(rounded.x, rounded.y));
-    });
-  }
-
-  private setWindowFrame(position: BubblePoint, size: BubbleSize): Promise<void> {
+    const operationToken = token ?? this.snapToken;
     const rounded = { x: Math.round(position.x), y: Math.round(position.y) };
     return this.queueNative(async () => {
-      this.rememberProgrammaticMove(rounded);
-      await Promise.all([
-        currentWindow.setSize(new PhysicalSize(size.width, size.height)),
-        currentWindow.setPosition(new PhysicalPosition(rounded.x, rounded.y)),
-      ]);
+      await this.nativeSessionReady;
+      if (operationToken !== this.snapToken) return;
+      this.rememberProgrammaticMove(rounded, operationToken);
+      const accepted = await invokeWithTimeout<boolean>(
+        "set_bubble_window_frame",
+        { session: this.nativeSession, token: operationToken, x: rounded.x, y: rounded.y },
+        ACTION_TIMEOUT_MS,
+        t("bubble.action.updateFrame"),
+      );
+      this.requireAcceptedNativeOperation(accepted, operationToken);
     });
   }
 
-  private rememberProgrammaticMove(position: BubblePoint): void {
-    const now = performance.now();
-    this.pendingProgrammaticMoves = this.pendingProgrammaticMoves
-      .filter((candidate) => candidate.expiresAt > now)
-      .slice(-63);
-    if (this.lastObservedPosition
-      && this.lastObservedPosition.x === position.x
-      && this.lastObservedPosition.y === position.y) return;
-    this.pendingProgrammaticMoves.push({ ...position, expiresAt: now + BUBBLE_PROGRAMMATIC_MOVE_TTL_MS });
+  private setWindowFrame(position: BubblePoint, size: BubbleSize, token?: number): Promise<void> {
+    const operationToken = token ?? this.snapToken;
+    const rounded = { x: Math.round(position.x), y: Math.round(position.y) };
+    return this.queueNative(async () => {
+      await this.nativeSessionReady;
+      if (operationToken !== this.snapToken) return;
+      this.rememberProgrammaticMove(rounded, operationToken);
+      const accepted = await invokeWithTimeout<boolean>(
+        "set_bubble_window_frame",
+        {
+          session: this.nativeSession,
+          token: operationToken,
+          x: rounded.x,
+          y: rounded.y,
+          width: size.width,
+          height: size.height,
+        },
+        ACTION_TIMEOUT_MS,
+        t("bubble.action.updateFrame"),
+      );
+      this.requireAcceptedNativeOperation(accepted, operationToken);
+    });
   }
 
-  private consumeProgrammaticMove(position: BubblePoint): boolean {
+  private async beginNativeWindowSession(): Promise<void> {
+    this.nativeSession = await invokeWithTimeout<number>(
+      "begin_bubble_window_session",
+      undefined,
+      ACTION_TIMEOUT_MS,
+      t("bubble.action.initializeWindow"),
+    );
+  }
+
+  private requireAcceptedNativeOperation(accepted: boolean, operationToken: number): void {
+    if (!accepted && operationToken === this.snapToken) throw t("bubble.error.updateFrame");
+  }
+
+  private rememberProgrammaticMove(position: BubblePoint, token?: number, force = false): void {
     const now = performance.now();
     this.pendingProgrammaticMoves = this.pendingProgrammaticMoves
-      .filter((candidate) => candidate.expiresAt > now);
+      .filter((candidate) => this.nativeDragging || candidate.expiresAt > now)
+      .slice(-63);
+    if (!force && this.lastObservedPosition
+      && this.lastObservedPosition.x === position.x
+      && this.lastObservedPosition.y === position.y) return;
+    this.pendingProgrammaticMoves.push({ ...position, token, expiresAt: now + BUBBLE_PROGRAMMATIC_MOVE_TTL_MS });
+  }
+
+  private consumeProgrammaticMove(position: BubblePoint): PendingProgrammaticMove | null {
+    const now = performance.now();
+    this.pendingProgrammaticMoves = this.pendingProgrammaticMoves
+      .filter((candidate) => this.nativeDragging || candidate.expiresAt > now);
     const index = this.pendingProgrammaticMoves.findIndex(
       (candidate) => candidate.x === position.x && candidate.y === position.y,
     );
-    if (index < 0) return false;
-    this.pendingProgrammaticMoves.splice(index, 1);
-    return true;
+    if (index < 0) return null;
+    return this.pendingProgrammaticMoves.splice(index, 1)[0] ?? null;
   }
 
-  private async runFrameTransition(position: BubblePoint, size: BubbleSize): Promise<void> {
-    const transition = this.setWindowFrame(position, size);
+  private async runFrameTransition(position: BubblePoint, size: BubbleSize, token?: number): Promise<void> {
+    const transition = this.setWindowFrame(position, size, token);
     this.frameTransition = transition;
     try {
       await transition;
@@ -892,13 +1063,13 @@ class BubbleWindowController {
       "save_window_position",
       { x: Math.round(position.x), y: Math.round(position.y) },
       ACTION_TIMEOUT_MS,
-      "保存气泡位置",
+      t("bubble.action.savePosition"),
     ));
     this.positionSaveQueue = task.catch(() => undefined);
     try {
       await task;
     } catch (reason) {
-      this.reportError(reason, "保存气泡位置失败");
+      this.reportError(reason, t("bubble.error.savePosition"));
     }
   }
 
@@ -921,7 +1092,7 @@ function renderBubble(): void {
     ? order.map((provider) => idleBubbleValue(snapshot[provider], mode)).join("")
     : order.map((provider) => `<span class="bubble-idle-value ${provider}" data-provider-accent="${provider}" style="${providerColorStyle(provider, payload?.settings)}">··</span>`).join("");
   if (!bubbleController) {
-    app.innerHTML = `<div class="bubble-shell" id="open-details" data-tauri-drag-region="deep" data-state="visible" data-side="right" role="button" tabindex="0" aria-haspopup="dialog" aria-expanded="false">
+    app.innerHTML = `<div class="bubble-shell" id="open-details" data-state="visible" data-side="right" role="button" tabindex="0" aria-haspopup="dialog" aria-expanded="false">
         <div class="bubble-glow" aria-hidden="true"></div>
         <div class="bubble-center provider-count-${order.length}" aria-hidden="true"></div>
         <span class="bubble-idle-usage provider-count-${order.length}" aria-hidden="true"></span>
@@ -933,11 +1104,12 @@ function renderBubble(): void {
 }
 
 function quotaRows(provider: ProviderSnapshot): string {
-  if (!provider.quotas.length) return `<p class="empty">${escapeHtml(provider.message ?? "当前数据源未提供额度")}</p>`;
+  const message = localizeProviderMessage(provider.message, provider.provider, provider.status);
+  if (!provider.quotas.length) return `<p class="empty">${escapeHtml(message ?? t("quota.noData"))}</p>`;
   return provider.quotas.map((quota) => `<div class="quota">
-    <div class="quota-head"><span>${escapeHtml(quota.label)}</span><strong>剩余 ${Math.round(quota.remainingPercent)}%</strong></div>
+    <div class="quota-head"><span>${escapeHtml(localizeQuotaLabel(quota.label))}</span><strong>${t("quota.remaining", { value: Math.round(quota.remainingPercent) })}</strong></div>
     <div class="track"><i style="width:${Math.max(0, Math.min(100, quota.remainingPercent))}%"></i></div>
-    <div class="quota-meta"><span>已用 ${Math.round(quota.usedPercent)}%</span><span>${quota.resetsAt ? `${dateTime(quota.resetsAt)} 重置` : ""}</span></div>
+    <div class="quota-meta"><span>${t("quota.used", { value: Math.round(quota.usedPercent) })}</span><span>${quota.resetsAt ? t("quota.resetsAt", { date: dateTime(quota.resetsAt) }) : ""}</span></div>
   </div>`).join("");
 }
 
@@ -952,15 +1124,15 @@ function cursorUltraQuotaBlock(provider: ProviderSnapshot, kind: QuotaKind): str
   const meta = CURSOR_ULTRA_QUOTA_META[kind];
   if (!quota) {
     return `<div class="cursor-ultra-quota unavailable" data-quota-kind="${kind}">
-      <div class="quota-head"><span>${meta.label}</span><strong>等待数据</strong></div>
+      <div class="quota-head"><span>${meta.label}</span><strong>${t("common.waitingForData")}</strong></div>
       <div class="track"><i style="width:0%"></i></div>
       <div class="quota-meta"><span>${meta.hint}</span><span>—</span></div>
     </div>`;
   }
   return `<div class="cursor-ultra-quota" data-quota-kind="${kind}">
-    <div class="quota-head"><span>${escapeHtml(quota.label || meta.label)}</span><strong>剩余 ${Math.round(quota.remainingPercent)}%</strong></div>
+    <div class="quota-head"><span>${escapeHtml(localizeQuotaLabel(quota.label || meta.label))}</span><strong>${t("quota.remaining", { value: Math.round(quota.remainingPercent) })}</strong></div>
     <div class="track"><i style="width:${Math.max(0, Math.min(100, quota.remainingPercent))}%"></i></div>
-    <div class="quota-meta"><span>已用 ${Math.round(quota.usedPercent)}%</span><span>${quota.resetsAt ? `${dateTime(quota.resetsAt)} 重置` : meta.hint}</span></div>
+    <div class="quota-meta"><span>${t("quota.used", { value: Math.round(quota.usedPercent) })}</span><span>${quota.resetsAt ? t("quota.resetsAt", { date: dateTime(quota.resetsAt) }) : meta.hint}</span></div>
   </div>`;
 }
 
@@ -968,9 +1140,9 @@ function cursorCostBlock(label: string, used: number | undefined, limit: number,
   const remaining = used === undefined ? undefined : Math.max(0, limit - used);
   const remainingPercent = remaining === undefined ? 0 : Math.max(0, Math.min(100, remaining * 100 / limit));
   return `<div class="cursor-cost-block ${extraClass}">
-    <div class="quota-head"><span>${label}</span><strong>${remaining === undefined ? "等待数据" : `剩余 ${money(remaining)}`}</strong></div>
+    <div class="quota-head"><span>${label}</span><strong>${remaining === undefined ? t("common.waitingForData") : t("quota.moneyRemaining", { value: money(remaining) })}</strong></div>
     <div class="track"><i style="width:${remainingPercent}%"></i></div>
-    <div class="quota-meta"><span>已用 ${money(used)}</span><span>限额 ${money(limit)}</span></div>
+    <div class="quota-meta"><span>${t("quota.moneyUsed", { value: money(used) })}</span><span>${t("quota.limit", { value: money(limit) })}</span></div>
   </div>`;
 }
 
@@ -978,8 +1150,8 @@ function cursorUltraOnDemandBlock(provider: ProviderSnapshot): string {
   const cost = provider.cost;
   if (cost?.onDemandEnabled === false) {
     return `<div class="cursor-ultra-on-demand disabled">
-      <div class="quota-head"><span>On-Demand</span><strong>未启用</strong></div>
-      <div class="quota-meta"><span>按量付费当前未启用</span><span>—</span></div>
+      <div class="quota-head"><span>${t("quota.onDemand")}</span><strong>${t("common.disabled")}</strong></div>
+      <div class="quota-meta"><span>${t("quota.onDemandDisabledHint")}</span><span>—</span></div>
     </div>`;
   }
   if (cost?.onDemandEnabled === true && cost.onDemandLimitCents !== undefined && cost.onDemandLimitCents > 0) {
@@ -987,13 +1159,13 @@ function cursorUltraOnDemandBlock(provider: ProviderSnapshot): string {
   }
   if (cost?.onDemandEnabled === true) {
     return `<div class="cursor-ultra-on-demand enabled">
-      <div class="quota-head"><span>On-Demand</span><strong>已启用</strong></div>
-      <div class="quota-meta"><span>已用 ${money(cost.onDemandUsedCents)}</span><span>限额等待数据</span></div>
+      <div class="quota-head"><span>${t("quota.onDemand")}</span><strong>${t("common.enabled")}</strong></div>
+      <div class="quota-meta"><span>${t("quota.moneyUsed", { value: money(cost.onDemandUsedCents) })}</span><span>${t("quota.limitWaiting")}</span></div>
     </div>`;
   }
   return `<div class="cursor-ultra-on-demand unknown">
-    <div class="quota-head"><span>On-Demand</span><strong>等待数据</strong></div>
-    <div class="quota-meta"><span>按量付费状态暂不可用</span><span>—</span></div>
+    <div class="quota-head"><span>${t("quota.onDemand")}</span><strong>${t("common.waitingForData")}</strong></div>
+    <div class="quota-meta"><span>${t("quota.onDemandUnavailableHint")}</span><span>—</span></div>
   </div>`;
 }
 
@@ -1001,7 +1173,7 @@ function cursorUltraBlocks(provider: ProviderSnapshot): string {
   return `<div class="cursor-ultra-blocks">
     ${CURSOR_ULTRA_QUOTA_KINDS.map((kind) => cursorUltraQuotaBlock(provider, kind)).join("")}
     ${cursorUltraOnDemandBlock(provider)}
-    ${provider.cost?.periodEnd ? `<div class="cursor-reset"><span>额度重置</span><strong>${dateTime(provider.cost.periodEnd)}</strong></div>` : ""}
+    ${provider.cost?.periodEnd ? `<div class="cursor-reset"><span>${t("quota.reset")}</span><strong>${dateTime(provider.cost.periodEnd)}</strong></div>` : ""}
   </div>`;
 }
 
@@ -1010,28 +1182,28 @@ function cursorCostBlocks(provider: ProviderSnapshot): string {
   const includedLimit = cursorIncludedLimit(provider);
   const onDemandLimit = cost?.onDemandLimitCents ?? CURSOR_ON_DEMAND_FALLBACK_CENTS;
   return `<div class="cursor-costs">
-    ${cursorCostBlock(`订阅额度 · ${money(includedLimit)}`, cost?.includedUsedCents, includedLimit)}
+    ${cursorCostBlock(t("quota.subscription", { value: money(includedLimit) }), cost?.includedUsedCents, includedLimit)}
     ${cursorCostBlock(`On-Demand · ${money(onDemandLimit)}`, cost?.onDemandUsedCents, onDemandLimit)}
-    ${cost?.periodEnd ? `<div class="cursor-reset"><span>额度重置</span><strong>${dateTime(cost.periodEnd)}</strong></div>` : ""}
+    ${cost?.periodEnd ? `<div class="cursor-reset"><span>${t("quota.reset")}</span><strong>${dateTime(cost.periodEnd)}</strong></div>` : ""}
   </div>`;
 }
 function providerLoading(name: string): string {
   return `<div class="provider-loading" role="status">
     <i aria-hidden="true"></i>
-    <div><strong>正在连接 ${escapeHtml(name)} CLI</strong><small>正在检查安装、登录与用量信息…</small></div>
+    <div><strong>${t("provider.connectingTitle", { provider: escapeHtml(name) })}</strong><small>${t("provider.connectingDescription")}</small></div>
   </div>`;
 }
 function cursorLoginPrompt(cursorCompat: boolean): string {
   return `<div class="cursor-login-prompt">
     <i aria-hidden="true">↗</i>
-    <div><strong>${cursorCompat ? "Cursor 登录已失效" : "登录后继续读取额度"}</strong><small>${cursorCompat ? "若 Cursor 仍显示已登录，请先退出后重新登录" : "浏览器授权完成后返回 Metra，将自动检测"}</small></div>
+    <div><strong>${cursorCompat ? t("cursor.loginExpired") : t("cursor.loginToContinue")}</strong><small>${cursorCompat ? t("cursor.loginExpiredHint") : t("cursor.loginAuthorizationHint")}</small></div>
   </div>`;
 }
 function providerCard(name: string, provider: ProviderSnapshot): string {
   const token = provider.provider === "codex" || provider.provider === "claude" ? provider.tokens : undefined;
   const cost = provider.cost;
-  const todayTokenLabel = "本机今日 token";
-  const lifetimeTokenLabel = provider.provider === "claude" ? "本机累计 token" : "官方累计 token";
+  const todayTokenLabel = t("provider.localTodayTokens");
+  const lifetimeTokenLabel = provider.provider === "claude" ? t("provider.localLifetimeTokens") : t("provider.officialLifetimeTokens");
   const cursorCompat = provider.provider === "cursor" && Boolean(payload?.settings.cursorCompatEnabled);
   const cursorNeedsLogin = provider.provider === "cursor" && provider.status === "not_logged_in";
   const cursorUsageAvailable = cursorCompat && provider.status === "available";
@@ -1039,16 +1211,17 @@ function providerCard(name: string, provider: ProviderSnapshot): string {
   const cursorUltra = cursorUsageAvailable && isCursorUltraUsage(provider);
   const loading = Boolean(payload?.snapshot.refreshing && !provider.quotas.length && !provider.cost && !provider.tokens);
   const usage = loading ? providerLoading(name) : cursorNeedsLogin ? cursorLoginPrompt(cursorCompat) : cursorUltra ? cursorUltraBlocks(provider) : cursorUsageAvailable ? cursorCostBlocks(provider) : quotaRows(provider);
-  const displayedStatus = loading ? "连接中" : provider.stale ? "数据已过期" : statusText[provider.status];
+  const localizedMessage = localizeProviderMessage(provider.message, provider.provider, provider.status);
+  const displayedStatus = loading ? t("status.connecting") : provider.stale ? t("status.stale") : statusText[provider.status];
   const statusTone = loading ? "pending" : provider.stale ? "stale" : provider.status === "available" ? "available" : provider.status === "desktop_installed" ? "pending" : "unavailable";
   return `<section id="provider-card-${provider.provider}" class="provider-card ${provider.stale ? "is-stale" : ""}" data-provider-card="${provider.provider}" data-provider-accent="${provider.provider}" style="${providerColorStyle(provider.provider, payload?.settings)}" tabindex="-1" aria-labelledby="provider-title-${provider.provider}">
     <header><div><span class="provider-dot ${provider.provider}" aria-hidden="true"></span><strong id="provider-title-${provider.provider}">${name}</strong></div><span class="status ${statusTone}">${displayedStatus}</span></header>
     <div class="plan">${escapeHtml(planName(provider.plan))} · ${dateTime(provider.capturedAt)}</div>
     ${usage}
-    ${cursorNeedsLogin && !loading ? `<button class="compat-cta cursor-login-cta" id="login-cursor">${cursorCompat ? "在 Cursor 中重新登录" : "登录 Cursor"}</button>` : cursorCanEnableUsage && !cursorCompat && !loading ? `<button class="compat-cta" id="enable-cursor-usage">读取 Cursor 精确用量</button>` : ""}
+    ${cursorNeedsLogin && !loading ? `<button class="compat-cta cursor-login-cta" id="login-cursor">${cursorCompat ? t("cursor.loginInCursor") : t("cursor.login")}</button>` : cursorCanEnableUsage && !cursorCompat && !loading ? `<button class="compat-cta" id="enable-cursor-usage">${t("cursor.readExactUsage")}</button>` : ""}
     ${token ? `<div class="metrics"><div><span>${todayTokenLabel}</span><strong>${number(token.today)}</strong></div><div><span>${lifetimeTokenLabel}</span><strong>${number(token.lifetime)}</strong></div></div>` : ""}
     ${cost && provider.provider !== "cursor" ? `<div class="metrics"><div><span>Included</span><strong>${money(cost.includedUsedCents)} / ${money(cost.includedLimitCents)}</strong></div><div><span>On-Demand</span><strong>${money(cost.onDemandUsedCents)} / ${money(cost.onDemandLimitCents)}</strong></div></div>` : ""}
-    ${provider.message && (provider.quotas.length || cursorCompat) ? `<p class="notice">${escapeHtml(provider.message)}</p>` : ""}
+    ${localizedMessage && (provider.quotas.length || cursorCompat) ? `<p class="notice">${escapeHtml(localizedMessage)}</p>` : ""}
   </section>`;
 }
 
@@ -1057,17 +1230,17 @@ function bubbleConfigItem(provider: ProviderName, settings: AppSettings): string
   const color = bubbleProviderColor(provider, settings);
   const visible = bubbleVisibleProviderOrder(settings).includes(provider);
   return `<div class="bubble-config-item ${visible ? "" : "is-hidden"}" data-bubble-provider="${provider}" data-bubble-color="${color}" data-bubble-visible="${visible}">
-    <button type="button" class="drag-handle" title="拖动调整顺序" aria-label="拖动调整 ${name} 的显示顺序">⠿</button>
-    <button type="button" class="bubble-config-dot color-trigger ${provider}" data-color-provider="${provider}" data-provider-accent="${provider}" style="--provider-color:${color}" aria-haspopup="dialog" aria-expanded="false" aria-controls="provider-color-palette" aria-label="选择 ${name} 标记颜色，当前 ${color}" title="选择 ${name} 标记颜色"></button>
-    <a class="bubble-config-name provider-nav" href="#provider-card-${provider}" aria-label="查看 ${name} 统计">${name}<span aria-hidden="true">›</span></a>
-    <input type="text" maxlength="3" value="${escapeHtml(bubbleProviderLabel(provider, settings))}" aria-label="${name} 在悬浮球上的显示字符" spellcheck="false">
-    <button type="button" class="visibility-toggle" role="switch" aria-checked="${visible}" aria-disabled="false" aria-label="${name} 在悬浮球中显示" title="${visible ? `隐藏 ${name}` : `显示 ${name}`}"><span aria-hidden="true"></span></button>
+    <button type="button" class="drag-handle" title="${t("config.dragOrder")}" aria-label="${t("config.dragProviderOrder", { provider: name })}">⠿</button>
+    <button type="button" class="bubble-config-dot color-trigger ${provider}" data-color-provider="${provider}" data-provider-accent="${provider}" style="--provider-color:${color}" aria-haspopup="dialog" aria-expanded="false" aria-controls="provider-color-palette" aria-label="${t("config.chooseCurrentColor", { provider: name, color })}" title="${t("config.chooseColor", { provider: name })}"></button>
+    <a class="bubble-config-name provider-nav" href="#provider-card-${provider}" aria-label="${t("config.viewStats", { provider: name })}">${name}<span aria-hidden="true">›</span></a>
+    <input type="text" maxlength="3" value="${escapeHtml(bubbleProviderLabel(provider, settings))}" aria-label="${t("config.bubbleLabel", { provider: name })}" spellcheck="false">
+    <button type="button" class="visibility-toggle" role="switch" aria-checked="${visible}" aria-disabled="false" aria-label="${t("config.providerVisible", { provider: name })}" title="${visible ? t("config.hideProvider", { provider: name }) : t("config.showProvider", { provider: name })}"><span aria-hidden="true"></span></button>
   </div>`;
 }
 
 function renderBubbleConfig(settings: AppSettings): string {
   return `<section class="bubble-config" aria-labelledby="bubble-config-title">
-    <div class="bubble-config-head"><strong id="bubble-config-title">悬浮球显示</strong><small>排序 · 显示 · 字符 · 颜色</small></div>
+    <div class="bubble-config-head"><strong id="bubble-config-title">${t("config.title")}</strong><small>${t("config.subtitle")}</small></div>
     <div class="bubble-config-list">${bubbleProviderOrder(settings).map((provider) => bubbleConfigItem(provider, settings)).join("")}</div>
   </section>`;
 }
@@ -1124,9 +1297,9 @@ function openColorPalette(provider: ProviderName, item: HTMLElement, trigger: HT
   popover.dataset.colorPalette = provider;
   popover.setAttribute("role", "dialog");
   popover.setAttribute("aria-modal", "false");
-  popover.setAttribute("aria-label", `选择 ${PROVIDER_META[provider].name} 标记颜色`);
-  popover.innerHTML = COLOR_PALETTE.map((row, rowIndex) => `<div class="color-palette-row" role="group" aria-label="${COLOR_TONE_NAMES[rowIndex]}色">
-    ${row.map((color, columnIndex) => `<button type="button" class="color-swatch ${color === selectedColor ? "selected" : ""}" data-color-value="${color}" style="--swatch-color:${color}" aria-label="${COLOR_TONE_NAMES[rowIndex]}${COLOR_HUE_NAMES[columnIndex]}色 ${color}" aria-pressed="${color === selectedColor}" tabindex="${color === selectedColor ? "0" : "-1"}"></button>`).join("")}
+  popover.setAttribute("aria-label", t("config.chooseColor", { provider: PROVIDER_META[provider].name }));
+  popover.innerHTML = COLOR_PALETTE.map((row, rowIndex) => `<div class="color-palette-row" role="group" aria-label="${t("color.group", { tone: COLOR_TONE_NAMES[rowIndex] })}">
+    ${row.map((color, columnIndex) => `<button type="button" class="color-swatch ${color === selectedColor ? "selected" : ""}" data-color-value="${color}" style="--swatch-color:${color}" aria-label="${t("color.swatch", { tone: COLOR_TONE_NAMES[rowIndex], hue: COLOR_HUE_NAMES[columnIndex], color })}" aria-pressed="${color === selectedColor}" tabindex="${color === selectedColor ? "0" : "-1"}"></button>`).join("")}
   </div>`).join("");
   document.body.append(popover);
   activeColorPopover = popover;
@@ -1140,7 +1313,7 @@ function openColorPalette(provider: ProviderName, item: HTMLElement, trigger: HT
     const color = normalizeProviderColor(provider, swatch.dataset.colorValue);
     item.dataset.bubbleColor = color;
     trigger.style.setProperty("--provider-color", color);
-    trigger.setAttribute("aria-label", `选择 ${PROVIDER_META[provider].name} 标记颜色，当前 ${color}`);
+    trigger.setAttribute("aria-label", t("config.chooseCurrentColor", { provider: PROVIDER_META[provider].name, color }));
     applyProviderColor(provider, color);
     closeColorPalette(true);
     saveBubbleDisplayConfig(editor);
@@ -1203,11 +1376,11 @@ function saveBubbleDisplayConfig(editor: HTMLElement): void {
         "set_bubble_display_config",
         { order, visibleProviders, cursorLabel, codexLabel, claudeLabel, cursorColor, codexColor, claudeColor },
         ACTION_TIMEOUT_MS,
-        "保存悬浮球显示设置",
+        t("config.save"),
       );
       if (payload) payload.settings = settings;
     } catch (reason) {
-      showToast(friendlyError(reason, "保存悬浮球显示设置失败"), "error", 4_500);
+      showToast(friendlyError(reason, t("config.saveFailed")), "error", 4_500);
       void loadPayload();
     }
   });
@@ -1219,8 +1392,8 @@ function updateVisibilityControl(item: HTMLElement, toggle: HTMLButtonElement, v
   item.dataset.bubbleVisible = String(visible);
   item.classList.toggle("is-hidden", !visible);
   toggle.setAttribute("aria-checked", String(visible));
-  toggle.setAttribute("aria-label", `${name} 在悬浮球中显示`);
-  toggle.title = visible ? `隐藏 ${name}` : `显示 ${name}`;
+  toggle.setAttribute("aria-label", t("config.providerVisible", { provider: name }));
+  toggle.title = visible ? t("config.hideProvider", { provider: name }) : t("config.showProvider", { provider: name });
 }
 
 function syncVisibilityToggleAvailability(editor: HTMLElement): void {
@@ -1233,7 +1406,9 @@ function syncVisibilityToggleAvailability(editor: HTMLElement): void {
     const visible = item.dataset.bubbleVisible !== "false";
     const locked = visibleItems.length === 1 && item === visibleItems[0];
     toggle.setAttribute("aria-disabled", String(locked));
-    toggle.title = locked ? "悬浮球至少保留一个显示项" : visible ? `隐藏 ${name}` : `显示 ${name}`;
+    toggle.title = locked
+      ? t("config.keepOne")
+      : visible ? t("config.hideProvider", { provider: name }) : t("config.showProvider", { provider: name });
   });
 }
 
@@ -1262,13 +1437,15 @@ function bindBubbleConfigEditor(): void {
       const visible = item.dataset.bubbleVisible !== "false";
       const visibleCount = editor.querySelectorAll('[data-bubble-visible="true"]').length;
       if (visible && visibleCount === 1) {
-        showToast("悬浮球至少保留一个显示项", "info", 2_200);
+        showToast(t("config.keepOne"), "info", 2_200);
         return;
       }
       updateVisibilityControl(item, visibilityToggle, !visible);
       syncVisibilityToggleAvailability(editor);
       saveBubbleDisplayConfig(editor);
-      showToast(`${visible ? "已从悬浮球隐藏" : "已在悬浮球显示"} ${PROVIDER_META[provider].name}`, "info", 1_600);
+      showToast(visible
+        ? t("config.providerHidden", { provider: PROVIDER_META[provider].name })
+        : t("config.providerShown", { provider: PROVIDER_META[provider].name }), "info", 1_600);
     });
     let activePointer: number | null = null;
     let startY = 0;
@@ -1373,13 +1550,15 @@ function renderDetails(): void {
   closeColorPalette(false);
   app.innerHTML = `<main class="panel details-panel ${payload.snapshot.refreshing ? "is-refreshing" : ""}">
     <div class="panel-title">
-      <div class="panel-brand">${metraLogo()}<div><strong>Metra</strong><small>额度与用量</small></div></div>
-      ${payload.snapshot.refreshing ? `<div class="refresh-status" role="status"><i></i><span>正在更新</span></div>` : ""}
-      <button id="refresh" class="icon-btn" title="${payload.snapshot.refreshing ? "正在刷新" : "立即刷新"}" aria-label="${payload.snapshot.refreshing ? "正在刷新用量" : "立即刷新用量"}"><span aria-hidden="true">↻</span></button>
+      <div class="panel-brand">${metraLogo()}<div><strong>Metra</strong><small>${t("app.usageSubtitle")}</small></div></div>
+      ${payload.snapshot.refreshing ? `<div class="refresh-status" role="status"><i></i><span>${t("refresh.updating")}</span></div>` : ""}
+      <button id="refresh" class="icon-btn" title="${payload.snapshot.refreshing ? t("refresh.refreshing") : t("refresh.now")}" aria-label="${payload.snapshot.refreshing ? t("refresh.refreshingUsage") : t("refresh.nowUsage")}"><span aria-hidden="true">↻</span></button>
     </div>
     ${renderBubbleConfig(payload.settings)}
     <div class="provider-list">${providerCard("Cursor", payload.snapshot.cursor)}${providerCard("Codex", payload.snapshot.codex)}${providerCard("Claude Code", payload.snapshot.claude)}</div>
-    <footer>每 ${payload.settings.refreshMinutes} 分钟刷新${payload.snapshot.refreshing ? " · 正在刷新…" : ""}</footer>
+    <footer>${payload.snapshot.refreshing
+      ? t("refresh.everyMinutesActive", { minutes: payload.settings.refreshMinutes })
+      : t("refresh.everyMinutes", { minutes: payload.settings.refreshMinutes })}</footer>
   </main>`;
   document.querySelector("#refresh")?.addEventListener("click", () => { void refreshWithFeedback(); });
   document.querySelector("#login-cursor")?.addEventListener("click", () => { void loginCursor(); });
@@ -1396,22 +1575,22 @@ async function loginCursor(): Promise<void> {
   if (button) {
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
-    button.textContent = "正在打开…";
+    button.textContent = t("cursor.opening");
   }
   try {
-    const started = await invokeWithTimeout<CursorLoginStart>("start_cursor_login", undefined, ACTION_TIMEOUT_MS, "打开 Cursor 登录");
+    const started = await invokeWithTimeout<CursorLoginStart>("start_cursor_login", undefined, ACTION_TIMEOUT_MS, t("cursor.openLogin"));
     const message = started.method === "agent"
-      ? started.alreadyRunning ? "Cursor 登录流程已在进行，请在浏览器中完成授权" : "已打开 Cursor 官方登录，请在浏览器中完成授权"
-      : "已打开 Cursor 账户设置；若仍显示已登录，请先退出后重新登录";
+      ? started.alreadyRunning ? t("cursor.loginAlreadyRunning") : t("cursor.loginOpened")
+      : t("cursor.settingsOpened");
     showToast(message, "success", 4_500);
   } catch (reason) {
     cursorLoginPending = false;
     if (button) {
       button.disabled = false;
       button.removeAttribute("aria-busy");
-      button.textContent = "重试登录 Cursor";
+      button.textContent = t("cursor.retryLogin");
     }
-    showToast(friendlyError(reason, "无法打开 Cursor 登录，请稍后重试"), "error", 4_500);
+    showToast(friendlyError(reason, t("cursor.openLoginFailed")), "error", 4_500);
   }
 }
 
@@ -1419,16 +1598,16 @@ async function recheckCursorLogin(): Promise<void> {
   if (!cursorLoginPending || cursorLoginRecheckInFlight) return cursorLoginRecheckInFlight ?? undefined;
   const task = (async () => {
     try {
-      showToast("正在检测 Cursor 登录状态…", "loading", 0);
-      const updated = await invokeWithTimeout<AppPayload>("recheck_cursor_login", undefined, REFRESH_TIMEOUT_MS, "检测 Cursor 登录");
+      showToast(t("cursor.checkingLogin"), "loading", 0);
+      const updated = await invokeWithTimeout<AppPayload>("recheck_cursor_login", undefined, REFRESH_TIMEOUT_MS, t("cursor.checkLogin"));
       applyUsageUpdate(updated);
       const loggedIn = updated.snapshot.cursor.status === "available";
       cursorLoginPending = false;
-      showToast(loggedIn ? "Cursor 登录成功，数据已更新" : "尚未检测到登录，请在 Cursor 中完成后再返回", loggedIn ? "success" : "info", 4_500);
+      showToast(loggedIn ? t("cursor.loginSuccess") : t("cursor.loginNotDetected"), loggedIn ? "success" : "info", 4_500);
       if (!loggedIn) requestAnimationFrame(() => document.querySelector<HTMLButtonElement>("#login-cursor")?.focus());
     } catch (reason) {
       cursorLoginPending = false;
-      showToast(friendlyError(reason, "检测 Cursor 登录失败，请点击刷新重试"), "error", 4_500);
+      showToast(friendlyError(reason, t("cursor.checkLoginFailed")), "error", 4_500);
     }
   })();
   cursorLoginRecheckInFlight = task.finally(() => { cursorLoginRecheckInFlight = null; });
@@ -1440,11 +1619,11 @@ function enableCursorUsage(): void {
   consent.className = "cursor-consent";
   consent.innerHTML = `<section role="dialog" aria-modal="true" aria-labelledby="consent-title">
     <span class="provider-dot cursor" style="${providerColorStyle("cursor", payload.settings)}" aria-hidden="true"></span>
-    <h2 id="consent-title">开启 Cursor 个人兼容模式？</h2>
-    <p>Metra 将只读 Cursor 本地状态库中的现有登录令牌，仅向 <b>api2.cursor.sh</b> 和 <b>cursor.com</b> 请求用量。</p>
-    <p>令牌仅在本次请求的内存中存在，不会保存或写入日志。</p>
+    <h2 id="consent-title">${t("consent.cursorTitle")}</h2>
+    <p>${t("consent.cursorReadOnly")}</p>
+    <p>${t("consent.cursorMemoryOnly")}</p>
     <div class="consent-error" aria-live="polite"></div>
-    <div class="consent-actions"><button id="consent-cancel">取消</button><button id="consent-confirm" class="primary">确认开启</button></div>
+    <div class="consent-actions"><button id="consent-cancel">${t("common.cancel")}</button><button id="consent-confirm" class="primary">${t("consent.enable")}</button></div>
   </section>`;
   app.append(consent);
   const cancelButton = consent.querySelector<HTMLButtonElement>("#consent-cancel")!;
@@ -1454,19 +1633,21 @@ function enableCursorUsage(): void {
   confirmButton.onclick = async () => {
     confirmButton.disabled = true;
     cancelButton.disabled = true;
-    confirmButton.textContent = "正在开启…";
-    error.textContent = "正在读取 Cursor 用量，请稍候";
+    confirmButton.textContent = t("consent.enabling");
+    error.textContent = t("consent.reading");
     try {
-      payload!.settings = await invokeWithTimeout<AppSettings>("set_cursor_compat", { enabled: true }, ACTION_TIMEOUT_MS, "开启 Cursor 兼容模式");
+      payload!.settings = await invokeWithTimeout<AppSettings>("set_cursor_compat", { enabled: true }, ACTION_TIMEOUT_MS, t("consent.enableAction"));
       payload!.snapshot.refreshing = true;
       panelMode = "details";
       renderDetails();
-      showToast("兼容模式已开启，正在读取 Cursor 用量", "success");
+      showToast(t("consent.enabledReading"), "success");
     } catch (reason) {
-      error.textContent = `开启失败：${String(reason)}`;
+      error.textContent = t("consent.enableFailed", {
+        reason: friendlyError(reason, t("consent.enableFailureReason")),
+      });
       confirmButton.disabled = false;
       cancelButton.disabled = false;
-      confirmButton.textContent = "重试";
+      confirmButton.textContent = t("common.retry");
     }
   };
 }
@@ -1476,28 +1657,28 @@ function renderMenu(): void {
   closeColorPalette(false);
   const s = payload.settings;
   app.innerHTML = `<main class="panel menu-panel">
-    <div class="menu-brand">${metraLogo()}<div><strong>Metra</strong><small>桌面用量气泡</small></div></div>
-    <button data-action="refresh"><span>立即刷新</span></button>
-    <div class="menu-label">刷新间隔</div>
+    <div class="menu-brand">${metraLogo()}<div><strong>Metra</strong><small>${t("app.desktopBubbleSubtitle")}</small></div></div>
+    <button data-action="refresh"><span>${t("refresh.now")}</span></button>
+    <div class="menu-label">${t("menu.refreshInterval")}</div>
     <div class="intervals">${[1, 5, 15, 30, 60].map((n) => `<button data-interval="${n}" class="${s.refreshMinutes === n ? "selected" : ""}">${n < 60 ? `${n}m` : "1h"}</button>`).join("")}</div>
-    <div class="menu-label">气泡百分比</div>
-    <div class="percent-modes"><button data-percent-mode="used" class="${s.bubblePercentMode === "used" ? "selected" : ""}">已用</button><button data-percent-mode="remaining" class="${s.bubblePercentMode === "remaining" ? "selected" : ""}">剩余</button></div>
-    <button data-action="snap" role="switch" aria-checked="${s.bubbleSnapEnabled}"><span><b>自动吸边</b><small>松手吸附屏幕边缘，闲置时半隐藏</small></span><i class="switch ${s.bubbleSnapEnabled ? "on" : ""}" aria-hidden="true"></i></button>
-    <button data-action="autostart"><span>开机启动</span><i class="switch ${s.autostart ? "on" : ""}"></i></button>
-    <button data-action="compat"><span><b>Cursor 个人兼容模式</b><small>只读本地令牌，仅访问 Cursor</small></span><i class="switch ${s.cursorCompatEnabled ? "on" : ""}"></i></button>
-    <button data-action="rescan"><span>重新检测 CLI</span><kbd>↻</kbd></button>
-    <button data-action="quit" class="danger"><span>退出 Metra</span></button>
+    <div class="menu-label">${t("menu.bubblePercentage")}</div>
+    <div class="percent-modes"><button data-percent-mode="used" class="${s.bubblePercentMode === "used" ? "selected" : ""}">${t("menu.used")}</button><button data-percent-mode="remaining" class="${s.bubblePercentMode === "remaining" ? "selected" : ""}">${t("menu.remaining")}</button></div>
+    <button data-action="snap" role="switch" aria-checked="${s.bubbleSnapEnabled}"><span><b>${t("menu.autoSnap")}</b><small>${t("menu.autoSnapHint")}</small></span><i class="switch ${s.bubbleSnapEnabled ? "on" : ""}" aria-hidden="true"></i></button>
+    <button data-action="autostart"><span>${t("menu.autostart")}</span><i class="switch ${s.autostart ? "on" : ""}"></i></button>
+    <button data-action="compat"><span><b>${t("menu.cursorCompat")}</b><small>${t("menu.cursorCompatHint")}</small></span><i class="switch ${s.cursorCompatEnabled ? "on" : ""}"></i></button>
+    <button data-action="rescan"><span>${t("menu.rescanCli")}</span><kbd>↻</kbd></button>
+    <button data-action="quit" class="danger"><span>${t("menu.quit")}</span></button>
   </main>`;
   app.querySelectorAll<HTMLButtonElement>("[data-percent-mode]").forEach((button) => button.onclick = () => {
     void (async () => {
       const mode = button.dataset.percentMode as BubblePercentMode;
       if (mode === payload!.settings.bubblePercentMode) return;
       button.disabled = true;
-      const label = mode === "used" ? "已用" : "剩余";
+      const label = mode === "used" ? t("menu.used") : t("menu.remaining");
       const settings = await runUiAction<AppSettings>(
-        `正在切换为${label}百分比…`,
-        `气泡已显示${label}百分比`,
-        () => invokeWithTimeout<AppSettings>("set_bubble_percent_mode", { mode }, ACTION_TIMEOUT_MS, "切换气泡百分比"),
+        t("menu.switchingPercent", { mode: label }),
+        t("menu.percentSwitched", { mode: label }),
+        () => invokeWithTimeout<AppSettings>("set_bubble_percent_mode", { mode }, ACTION_TIMEOUT_MS, t("menu.switchPercentAction")),
       );
       if (settings) { payload!.settings = settings; renderMenu(); } else { button.disabled = false; }
     })();
@@ -1506,9 +1687,9 @@ function renderMenu(): void {
     void (async () => {
       button.disabled = true;
       const settings = await runUiAction<AppSettings>(
-        "正在更新刷新间隔…",
-        "刷新间隔已更新",
-        () => invokeWithTimeout<AppSettings>("set_refresh_interval", { minutes: Number(button.dataset.interval) }, ACTION_TIMEOUT_MS, "更新刷新间隔"),
+        t("menu.updatingInterval"),
+        t("menu.intervalUpdated"),
+        () => invokeWithTimeout<AppSettings>("set_refresh_interval", { minutes: Number(button.dataset.interval) }, ACTION_TIMEOUT_MS, t("menu.updateIntervalAction")),
       );
       if (settings) { payload!.settings = settings; renderMenu(); } else { button.disabled = false; }
     })();
@@ -1517,25 +1698,25 @@ function renderMenu(): void {
     void (async () => {
       const action = button.dataset.action;
       if (action === "refresh" || action === "rescan") {
-        await refreshWithFeedback(action === "rescan" ? "重新检测" : "刷新", action === "rescan" ? true : undefined);
+        await refreshWithFeedback(action === "rescan" ? t("menu.rescan") : t("refresh.action"), action === "rescan" ? true : undefined);
         return;
       }
       button.disabled = true;
       if (action === "snap") {
         const enabled = !payload!.settings.bubbleSnapEnabled;
         const settings = await runUiAction<AppSettings>(
-          enabled ? "正在开启自动吸边…" : "正在关闭自动吸边…",
-          enabled ? "自动吸边已开启" : "自动吸边已关闭，可自由放置悬浮球",
-          () => invokeWithTimeout<AppSettings>("set_bubble_snap_enabled", { enabled }, ACTION_TIMEOUT_MS, "更新自动吸边"),
+          enabled ? t("menu.enablingSnap") : t("menu.disablingSnap"),
+          enabled ? t("menu.snapEnabled") : t("menu.snapDisabled"),
+          () => invokeWithTimeout<AppSettings>("set_bubble_snap_enabled", { enabled }, ACTION_TIMEOUT_MS, t("menu.updateSnapAction")),
         );
         if (settings) { payload!.settings = settings; renderMenu(); } else { button.disabled = false; }
         return;
       }
       if (action === "autostart") {
         const settings = await runUiAction<AppSettings>(
-          "正在更新开机启动…",
-          "开机启动设置已更新",
-          () => invokeWithTimeout<AppSettings>("set_autostart", { enabled: !payload!.settings.autostart }, ACTION_TIMEOUT_MS, "更新开机启动"),
+          t("menu.updatingAutostart"),
+          t("menu.autostartUpdated"),
+          () => invokeWithTimeout<AppSettings>("set_autostart", { enabled: !payload!.settings.autostart }, ACTION_TIMEOUT_MS, t("menu.updateAutostartAction")),
         );
         if (settings) { payload!.settings = settings; renderMenu(); } else { button.disabled = false; }
         return;
@@ -1549,20 +1730,21 @@ function renderMenu(): void {
         }
         if (enable && payload!.snapshot.cursor.status !== "available" && payload!.snapshot.cursor.status !== "desktop_installed") {
           button.disabled = false;
-          showToast(payload!.snapshot.cursor.message ?? "当前无法读取 Cursor 账号或额度", "info", 4_500);
+          const cursor = payload!.snapshot.cursor;
+          showToast(localizeProviderMessage(cursor.message, cursor.provider, cursor.status) ?? t("cursor.accountUnavailable"), "info", 4_500);
           return;
         }
         if (enable) { button.disabled = false; enableCursorUsage(); return; }
         const settings = await runUiAction<AppSettings>(
-          "正在关闭兼容模式…",
-          "Cursor 兼容模式已关闭",
-          () => invokeWithTimeout<AppSettings>("set_cursor_compat", { enabled: false }, ACTION_TIMEOUT_MS, "关闭 Cursor 兼容模式"),
+          t("menu.disablingCompat"),
+          t("menu.compatDisabled"),
+          () => invokeWithTimeout<AppSettings>("set_cursor_compat", { enabled: false }, ACTION_TIMEOUT_MS, t("menu.disableCompatAction")),
         );
         if (settings) { payload!.settings = settings; renderMenu(); } else { button.disabled = false; }
         return;
       }
       if (action === "quit") {
-        await runUiAction<void>("正在退出…", "", () => invokeWithTimeout<void>("quit_app", undefined, ACTION_TIMEOUT_MS, "退出 Metra"));
+        await runUiAction<void>(t("menu.quitting"), "", () => invokeWithTimeout<void>("quit_app", undefined, ACTION_TIMEOUT_MS, t("menu.quit")));
       }
     })();
   });
@@ -1583,18 +1765,18 @@ async function showPanel(mode: "details" | "menu", toggle = false): Promise<void
       "show_panel",
       { mode, toggle, requestId },
       PANEL_SHOW_TIMEOUT_MS,
-      "显示弹窗",
+      t("panel.show"),
     );
   } catch (reason) {
     if (requestId === panelRequestSequence) {
-      showToast(friendlyError(reason, "打开弹窗失败，请重试"), "error", 4_500);
+      showToast(friendlyError(reason, t("panel.openFailed")), "error", 4_500);
     }
   }
 }
 
 async function hidePanelWindow(): Promise<void> {
-  await withTimeout(currentWindow.hide(), ACTION_TIMEOUT_MS, "收起弹窗");
-  await withTimeout(emit("panel-visibility-changed", { visible: false }), ACTION_TIMEOUT_MS, "同步弹窗状态");
+  await withTimeout(currentWindow.hide(), ACTION_TIMEOUT_MS, t("panel.hide"));
+  await withTimeout(emit("panel-visibility-changed", { visible: false }), ACTION_TIMEOUT_MS, t("panel.syncVisibility"));
 }
 
 if (view !== "bubble") {
@@ -1611,10 +1793,10 @@ if (view !== "bubble") {
     window.setTimeout(() => {
       void (async () => {
         try {
-          const stillFocused = await withTimeout(currentWindow.isFocused(), ACTION_TIMEOUT_MS, "检查弹窗焦点");
+          const stillFocused = await withTimeout(currentWindow.isFocused(), ACTION_TIMEOUT_MS, t("panel.checkFocus"));
           if (!stillFocused) await hidePanelWindow();
         } catch (reason) {
-          showToast(friendlyError(reason, "收起弹窗失败"), "error", 4_500);
+          showToast(friendlyError(reason, t("panel.hideFailed")), "error", 4_500);
         }
       })();
     }, 120);
@@ -1626,7 +1808,7 @@ if (view !== "bubble") {
         return;
       }
       void hidePanelWindow()
-        .catch((reason) => showToast(friendlyError(reason, "收起弹窗失败"), "error", 4_500));
+        .catch((reason) => showToast(friendlyError(reason, t("panel.hideFailed")), "error", 4_500));
     }
   });
 }
@@ -1645,6 +1827,10 @@ void listen<AppPayload>("usage-updated", (event) => applyUsageUpdate(event.paylo
 void listen<{ success: boolean; message: string }>("cursor-login-finished", (event) => {
   if (event.payload.success) return;
   cursorLoginPending = false;
-  showToast(event.payload.message, "error", 4_500);
+  showToast(localizeProviderMessage(event.payload.message, "cursor", "not_logged_in") ?? t("cursor.loginNotDetected"), "error", 4_500);
 });
+if (view === "bubble") {
+  void invokeWithTimeout<void>("set_runtime_locale", { locale: i18n.locale })
+    .catch(() => undefined);
+}
 void loadPayload();

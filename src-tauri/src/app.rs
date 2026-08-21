@@ -1,16 +1,23 @@
 use std::{
     process::{Child, Command, Stdio},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State};
+use tauri::{
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, State,
+    WebviewWindow,
+};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-use tauri::{menu::MenuBuilder, tray::TrayIconBuilder};
+use tauri::{
+    Runtime,
+    menu::{Menu, MenuBuilder},
+    tray::TrayIconBuilder,
+};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
 use crate::{
@@ -56,11 +63,218 @@ const TRAY_TOGGLE_BUBBLE_ID: &str = "tray-toggle-bubble";
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 const TRAY_QUIT_ID: &str = "tray-quit";
 
+#[derive(Clone, Copy)]
+struct NativeCopy {
+    panel_title: &'static str,
+    details: &'static str,
+    settings: &'static str,
+    refresh: &'static str,
+    toggle_bubble: &'static str,
+    quit: &'static str,
+    tooltip: &'static str,
+}
+
+fn native_copy(locale: &str) -> NativeCopy {
+    if locale.trim().to_ascii_lowercase().starts_with("zh") {
+        NativeCopy {
+            panel_title: "Metra 详情",
+            details: "打开详情",
+            settings: "设置",
+            refresh: "立即刷新",
+            toggle_bubble: "显示/隐藏悬浮球",
+            quit: "退出 Metra",
+            tooltip: "Metra · AI 用量",
+        }
+    } else {
+        NativeCopy {
+            panel_title: "Metra Details",
+            details: "Open details",
+            settings: "Settings",
+            refresh: "Refresh now",
+            toggle_bubble: "Show/hide bubble",
+            quit: "Quit Metra",
+            tooltip: "Metra · AI usage",
+        }
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn build_status_menu<R: Runtime, M: Manager<R>>(
+    manager: &M,
+    copy: NativeCopy,
+) -> tauri::Result<Menu<R>> {
+    MenuBuilder::new(manager)
+        .text(TRAY_DETAILS_ID, copy.details)
+        .text(TRAY_SETTINGS_ID, copy.settings)
+        .separator()
+        .text(TRAY_REFRESH_ID, copy.refresh)
+        .text(TRAY_TOGGLE_BUBBLE_ID, copy.toggle_bubble)
+        .separator()
+        .text(TRAY_QUIT_ID, copy.quit)
+        .build()
+}
+
 #[derive(Default)]
 struct PanelRequestState {
     latest_request: AtomicU64,
     latest_bubble_request: AtomicU64,
     visible_mode: AtomicU8,
+}
+
+#[derive(Default)]
+struct BubbleWindowOperationState {
+    sequence: Mutex<BubbleWindowOperationSequence>,
+}
+
+#[derive(Default)]
+struct BubbleWindowOperationSequence {
+    session: u64,
+    latest_token: u64,
+}
+
+fn next_bubble_operation_session(
+    sequence: &mut BubbleWindowOperationSequence,
+) -> Option<u64> {
+    sequence.session = sequence.session.checked_add(1)?;
+    sequence.latest_token = 0;
+    Some(sequence.session)
+}
+
+fn accept_bubble_operation(
+    sequence: &mut BubbleWindowOperationSequence,
+    session: u64,
+    token: u64,
+) -> bool {
+    if session != sequence.session || token < sequence.latest_token {
+        return false;
+    }
+    sequence.latest_token = token;
+    true
+}
+
+fn apply_bubble_window_frame(
+    window: &WebviewWindow,
+    x: Option<i32>,
+    y: Option<i32>,
+    width: Option<u32>,
+    height: Option<u32>,
+    position_first: bool,
+) -> Result<(), String> {
+    if window.label() != "bubble" {
+        return Err("悬浮球窗口操作不能从其他窗口调用".to_string());
+    }
+    let apply_size = || match (width, height) {
+        (Some(width), Some(height)) => window
+            .set_size(PhysicalSize::new(width, height))
+            .map_err(|_| "无法调整悬浮球尺寸".to_string()),
+        (None, None) => Ok(()),
+        _ => Err("悬浮球窗口尺寸参数不完整".to_string()),
+    };
+    let apply_position = || match (x, y) {
+        (Some(x), Some(y)) => window
+            .set_position(PhysicalPosition::new(x, y))
+            .map_err(|_| "无法移动悬浮球窗口".to_string()),
+        (None, None) => Ok(()),
+        _ => Err("悬浮球窗口位置参数不完整".to_string()),
+    };
+    if position_first {
+        apply_position()?;
+        apply_size()?;
+    } else {
+        apply_size()?;
+        apply_position()?;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn start_bubble_window_drag(window: &WebviewWindow) -> Result<(), String> {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let drag_window = window.clone();
+    // Tao applies frame changes through the main GCD queue. Enqueueing the drag from a
+    // main-thread task and then onto that same queue guarantees position/size land first.
+    window
+        .run_on_main_thread(move || {
+            dispatch2::DispatchQueue::main().exec_async(move || {
+                let result = drag_window
+                    .start_dragging()
+                    .map_err(|_| "无法开始拖动悬浮球".to_string());
+                let _ = sender.send(result);
+            });
+        })
+        .map_err(|_| "无法安排悬浮球拖动".to_string())?;
+    receiver
+        .recv()
+        .map_err(|_| "悬浮球拖动意外中断".to_string())?
+}
+
+#[cfg(not(target_os = "macos"))]
+fn start_bubble_window_drag(window: &WebviewWindow) -> Result<(), String> {
+    window
+        .start_dragging()
+        .map_err(|_| "无法开始拖动悬浮球".to_string())
+}
+
+#[tauri::command]
+fn begin_bubble_window_session(
+    window: WebviewWindow,
+    operations: State<'_, BubbleWindowOperationState>,
+) -> Result<u64, String> {
+    if window.label() != "bubble" {
+        return Err("悬浮球窗口操作不能从其他窗口调用".to_string());
+    }
+    let mut sequence = operations
+        .sequence
+        .lock()
+        .map_err(|_| "悬浮球窗口操作暂时不可用".to_string())?;
+    next_bubble_operation_session(&mut sequence)
+        .ok_or_else(|| "悬浮球窗口操作序列已耗尽".to_string())
+}
+
+#[tauri::command]
+fn set_bubble_window_frame(
+    window: WebviewWindow,
+    operations: State<'_, BubbleWindowOperationState>,
+    session: u64,
+    token: u64,
+    x: Option<i32>,
+    y: Option<i32>,
+    width: Option<u32>,
+    height: Option<u32>,
+) -> Result<bool, String> {
+    let mut sequence = operations
+        .sequence
+        .lock()
+        .map_err(|_| "悬浮球窗口操作暂时不可用".to_string())?;
+    if !accept_bubble_operation(&mut sequence, session, token) {
+        return Ok(false);
+    }
+    apply_bubble_window_frame(&window, x, y, width, height, false)?;
+    Ok(true)
+}
+
+#[tauri::command]
+async fn start_bubble_drag(
+    window: WebviewWindow,
+    operations: State<'_, BubbleWindowOperationState>,
+    session: u64,
+    token: u64,
+    x: Option<i32>,
+    y: Option<i32>,
+    width: Option<u32>,
+    height: Option<u32>,
+) -> Result<bool, String> {
+    let mut sequence = operations
+        .sequence
+        .lock()
+        .map_err(|_| "悬浮球窗口操作暂时不可用".to_string())?;
+    if !accept_bubble_operation(&mut sequence, session, token) {
+        return Ok(false);
+    }
+    apply_bubble_window_frame(&window, x, y, width, height, true)?;
+    drop(sequence);
+    start_bubble_window_drag(&window)?;
+    Ok(true)
 }
 
 #[derive(Default)]
@@ -549,6 +763,26 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+fn set_runtime_locale(locale: String, app: AppHandle) -> Result<(), String> {
+    let copy = native_copy(&locale);
+    if let Some(panel) = app.get_webview_window("panel") {
+        panel
+            .set_title(copy.panel_title)
+            .map_err(|_| "Unable to localize the panel title".to_string())?;
+    }
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    if let Some(tray) = app.tray_by_id("metra-status") {
+        let menu = build_status_menu(&app, copy)
+            .map_err(|_| "Unable to localize the status menu".to_string())?;
+        tray.set_menu(Some(menu))
+            .map_err(|_| "Unable to update the status menu".to_string())?;
+        tray.set_tooltip(Some(copy.tooltip))
+            .map_err(|_| "Unable to localize the status tooltip".to_string())?;
+    }
+    Ok(())
+}
+
 fn spawn_refresh(app: AppHandle, service: Arc<RefreshService>, include_cursor: bool) {
     if service
         .refreshing
@@ -586,15 +820,8 @@ fn queue_refresh(app: AppHandle, service: Arc<RefreshService>) {
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn setup_status_item(app: &mut tauri::App) -> tauri::Result<()> {
-    let menu = MenuBuilder::new(app)
-        .text(TRAY_DETAILS_ID, "打开详情")
-        .text(TRAY_SETTINGS_ID, "设置")
-        .separator()
-        .text(TRAY_REFRESH_ID, "立即刷新")
-        .text(TRAY_TOGGLE_BUBBLE_ID, "显示/隐藏悬浮球")
-        .separator()
-        .text(TRAY_QUIT_ID, "退出 Metra")
-        .build()?;
+    let copy = native_copy("en");
+    let menu = build_status_menu(app, copy)?;
 
     let tray = TrayIconBuilder::with_id("metra-status")
         .icon({
@@ -607,7 +834,7 @@ fn setup_status_item(app: &mut tauri::App) -> tauri::Result<()> {
                 tauri::include_image!("./icons/trayColor.png")
             }
         })
-        .tooltip("Metra · AI 用量")
+        .tooltip(copy.tooltip)
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -681,6 +908,7 @@ pub fn run() {
     let _ = diagnostics::init();
     tauri::Builder::default()
         .manage(PanelRequestState::default())
+        .manage(BubbleWindowOperationState::default())
         .manage(Arc::new(CursorLoginState::default()))
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window("bubble") {
@@ -695,6 +923,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             show_panel,
             is_primary_mouse_button_pressed,
+            begin_bubble_window_session,
+            set_bubble_window_frame,
+            start_bubble_drag,
             get_app_payload,
             refresh_now,
             start_cursor_login,
@@ -706,6 +937,7 @@ pub fn run() {
             set_cursor_compat,
             set_autostart,
             save_window_position,
+            set_runtime_locale,
             quit_app
         ])
         .setup(|app| {
@@ -772,9 +1004,33 @@ pub fn run() {
 #[cfg(test)]
 mod panel_geometry_tests {
     use super::{
-        PANEL_MODE_DETAILS, PANEL_MODE_MENU, PanelRequestState, calculate_panel_position,
-        claim_bubble_panel_request, next_panel_request, panel_bubble_x, should_hide_panel,
+        BubbleWindowOperationSequence, PANEL_MODE_DETAILS, PANEL_MODE_MENU, PanelRequestState,
+        accept_bubble_operation, calculate_panel_position, claim_bubble_panel_request, native_copy,
+        next_bubble_operation_session, next_panel_request, panel_bubble_x, should_hide_panel,
     };
+
+    #[test]
+    fn native_copy_supports_chinese_and_defaults_other_locales_to_english() {
+        assert_eq!(native_copy("zh-CN").details, "打开详情");
+        assert_eq!(native_copy("zh_Hans_CN").tooltip, "Metra · AI 用量");
+        assert_eq!(native_copy("en-US").details, "Open details");
+        assert_eq!(native_copy("fr-FR").panel_title, "Metra Details");
+    }
+
+    #[test]
+    fn newer_bubble_operations_make_delayed_frames_stale() {
+        let mut sequence = BubbleWindowOperationSequence::default();
+        let first_session = next_bubble_operation_session(&mut sequence).unwrap();
+        assert!(accept_bubble_operation(&mut sequence, first_session, 5));
+        assert_eq!(sequence.latest_token, 5);
+        assert!(!accept_bubble_operation(&mut sequence, first_session, 4));
+        assert!(accept_bubble_operation(&mut sequence, first_session, 5));
+
+        let second_session = next_bubble_operation_session(&mut sequence).unwrap();
+        assert_ne!(first_session, second_session);
+        assert!(!accept_bubble_operation(&mut sequence, first_session, 99));
+        assert!(accept_bubble_operation(&mut sequence, second_session, 1));
+    }
 
     #[test]
     fn every_panel_entry_point_can_share_one_monotonic_sequence() {

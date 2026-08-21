@@ -34,7 +34,7 @@
       },
       {
         "label": "panel",
-        "title": "Metra 详情",
+        "title": "Metra Details",
         "url": "index.html?view=panel",
         "width": 340,
         "height": 480,
@@ -57,6 +57,6 @@
     "targets": "all",
     "copyright": "Copyright © 2026 sophon",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
-    "shortDescription": "Cursor、Codex 与 Claude Code 用量气泡"
+    "shortDescription": "Cursor、Codex 与 Claude Code 用量气泡 / usage bubble"
   }
 }

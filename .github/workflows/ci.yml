@@ -24,6 +24,12 @@ jobs:
         run: npm ci
       - name: Type check
         run: npm run check
+      - name: Localization contract
+        run: npm run verify:i18n
+      - name: Windows UI contract
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/verify-ui-contract.ps1
       - name: Provider color contract
         run: npm run verify:color
       - name: Bubble visibility contract
