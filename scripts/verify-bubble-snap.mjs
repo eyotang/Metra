@@ -4,6 +4,7 @@ import {
   bubblePhysicalSize,
   bubbleReleaseVelocity,
   calculateBubbleDockTarget,
+  calculateBubbleFreeTarget,
   calculateBubblePeekFrame,
   projectedDistance,
   selectBubbleMonitor,
@@ -38,6 +39,27 @@ assert.equal(flickRight.side, "right", "release velocity should be able to carry
 assert.deepEqual(flickRight.position, { x: 1144, y: 736 }, "the target must respect the work-area bottom inset");
 
 assert.deepEqual(
+  calculateBubbleFreeTarget({ x: 500, y: 300 }, primary),
+  { side: "left", position: { x: 500, y: 300 }, size: { width: 56, height: 56 } },
+  "snap-disabled placement must preserve a visible release position",
+);
+assert.deepEqual(
+  calculateBubbleFreeTarget({ x: 2_000, y: -100 }, primary),
+  { side: "right", position: { x: 1144, y: 24 }, size: { width: 56, height: 56 } },
+  "snap-disabled placement must keep the full bubble inside the selected work area",
+);
+assert.deepEqual(
+  calculateBubbleFreeTarget({ x: 100, y: 1_000 }, leftDisplay),
+  { side: "right", position: { x: -84, y: 696 }, size: { width: 84, height: 84 } },
+  "free placement must clamp negative-coordinate, scaled displays in physical pixels",
+);
+assert.deepEqual(
+  calculateBubbleFreeTarget({ x: 500, y: 500 }, { x: -20, y: 10, width: 40, height: 30, scaleFactor: 1 }),
+  { side: "right", position: { x: -20, y: 10 }, size: { width: 56, height: 56 } },
+  "a work area smaller than the bubble must fall back to its origin",
+);
+
+assert.deepEqual(
   calculateBubblePeekFrame({ x: 1144, y: 300 }, { width: 56, height: 56 }, "right", 1),
   { position: { x: 1168, y: 300 }, size: { width: 32, height: 56 } },
   "right peek must preserve the screen-edge anchor",
@@ -61,6 +83,8 @@ const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
 const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const config = readFileSync(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8");
 const appRust = readFileSync(new URL("../src-tauri/src/app.rs", import.meta.url), "utf8");
+const settingsRust = readFileSync(new URL("../src-tauri/src/settings.rs", import.meta.url), "utf8");
+const types = readFileSync(new URL("../src/types.ts", import.meta.url), "utf8");
 
 assert.match(main, /const BUBBLE_IDLE_DELAY_MS = 3_000/, "idle peek must wait three seconds");
 assert.match(main, /function idleBubbleValue\(/, "idle mode needs a percentage-only renderer");
@@ -76,6 +100,19 @@ assert.match(main, /if \(this\.nativeDragging\) \{\s*this\.pendingClick = true;/
 assert.match(main, /currentWindow\.outerPosition\(\)[\s\S]{0,520}this\.dragMoved = true;/, "gesture classification must reconcile the final native window position");
 assert.match(main, /if \(this\.finishInProgress\)[\s\S]{0,180}this\.finishInProgress = true;/, "native drag completion must be serialized");
 assert.match(main, /is_primary_mouse_button_pressed/, "native drag fallback must confirm the real pointer release");
+assert.match(main, /calculateBubbleFreeTarget\(/, "snap-disabled dragging must preserve a free position");
+assert.match(main, /if \(!this\.snapEnabled/, "idle half-hide must be disabled with edge snapping");
+assert.match(main, /window\.addEventListener\("blur"[\s\S]{0,120}this\.focused = false;[\s\S]{0,80}this\.scheduleIdle\(\)/, "losing native window focus must allow idle peek even when the button retains DOM focus");
+assert.match(main, /data-action="snap"[\s\S]{0,220}bubbleSnapEnabled/, "the context menu must expose the edge-snap switch");
+assert.match(main, /data-action="snap" role="switch" aria-checked="\$\{s\.bubbleSnapEnabled\}"/, "the edge-snap switch must expose its state to assistive technology");
+assert.match(main, /set_bubble_snap_enabled/, "the edge-snap switch must persist through the native settings service");
+assert.match(types, /bubbleSnapEnabled:\s*boolean/, "frontend settings must expose the edge-snap preference");
+assert.match(settingsRust, /bubble_snap_enabled:\s*false/, "edge snapping must default to disabled");
+assert.match(appRust, /fn set_bubble_snap_enabled\(/, "the native edge-snap settings command is missing");
+const snapSettingsCommand = appRust.match(/fn set_bubble_snap_enabled\([\s\S]*?\n}\n/)?.[0] ?? "";
+assert.match(snapSettingsCommand, /bubble_snap_enabled = enabled/, "the native edge-snap command must persist the requested value");
+assert.match(snapSettingsCommand, /app\.emit\("settings-updated"/, "the native edge-snap command must notify the bubble immediately");
+assert.match(appRust, /generate_handler!\[[\s\S]*?set_bubble_snap_enabled/, "the native edge-snap command must be registered");
 assert.match(main, /if \(requestId !== panelRequestSequence\) return;/, "older panel requests must not overtake newer interactions");
 assert.doesNotMatch(main, /function clampAndSave\(/, "the previous full-window clamp must not fight snap or peek moves");
 assert.match(css, /data-state="idle"/, "the idle visual state is missing");

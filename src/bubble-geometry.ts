@@ -114,6 +114,23 @@ export function calculateBubbleDockTarget(
   };
 }
 
+export function calculateBubbleFreeTarget(
+  position: BubblePoint,
+  monitor: BubbleMonitorGeometry,
+): BubbleDockTarget {
+  const size = bubblePhysicalSize(monitor.scaleFactor);
+  const maximumX = Math.max(monitor.x, monitor.x + monitor.width - size.width);
+  const maximumY = Math.max(monitor.y, monitor.y + monitor.height - size.height);
+  const clampedPosition = {
+    x: Math.round(clamp(position.x, monitor.x, maximumX)),
+    y: Math.round(clamp(position.y, monitor.y, maximumY)),
+  };
+  const side: BubbleDockSide = clampedPosition.x + size.width / 2 < monitor.x + monitor.width / 2
+    ? "left"
+    : "right";
+  return { side, position: clampedPosition, size };
+}
+
 export function calculateBubblePeekFrame(
   anchor: BubblePoint,
   fullSize: BubbleSize,

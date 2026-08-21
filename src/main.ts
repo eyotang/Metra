@@ -4,6 +4,7 @@ import { availableMonitors, getCurrentWindow, PhysicalPosition, PhysicalSize } f
 import {
   bubbleReleaseVelocity,
   calculateBubbleDockTarget,
+  calculateBubbleFreeTarget,
   calculateBubblePeekFrame,
   selectBubbleMonitor,
   type BubbleDockSide,
@@ -29,7 +30,7 @@ let payload: AppPayload | null = null;
 let panelMode: "details" | "menu" = "details";
 let panelDockSide: BubbleDockSide = "right";
 let panelRequestSequence = 0;
-const MENU_PANEL_HEIGHT = 390;
+const MENU_PANEL_HEIGHT = 432;
 const PANEL_GAP = 3;
 const ACTION_TIMEOUT_MS = 8_000;
 const PANEL_SHOW_TIMEOUT_MS = 1_000;
@@ -326,6 +327,9 @@ class BubbleWindowController {
   private hovering = false;
   private focused = false;
   private initialized = false;
+  private snapEnabled: boolean;
+  private docked = false;
+  private dockAfterPanelClose = false;
   private dragged = false;
   private dragMoved = false;
   private primaryPointerDown = false;
@@ -345,18 +349,20 @@ class BubbleWindowController {
   private snapCompletion: Promise<void> | null = null;
   private frameTransition: Promise<void> | null = null;
   private nativeQueue: Promise<unknown> = Promise.resolve();
+  private positionSaveQueue: Promise<unknown> = Promise.resolve();
   private pendingProgrammaticMoves: Array<BubblePoint & { expiresAt: number }> = [];
 
-  constructor() {
+  constructor(snapEnabled: boolean) {
     this.shell = document.querySelector<HTMLElement>(".bubble-shell")!;
     this.center = document.querySelector<HTMLElement>(".bubble-center")!;
     this.idleUsage = document.querySelector<HTMLElement>(".bubble-idle-usage")!;
+    this.snapEnabled = snapEnabled;
     this.bindEvents();
     this.initialization = this.initialize();
     void this.initialization.catch((reason) => this.reportError(reason, "初始化悬浮球位置失败"));
   }
 
-  update(activeRows: string, idleValues: string, order: ProviderName[], mode: BubblePercentMode, busy: boolean): void {
+  update(activeRows: string, idleValues: string, order: ProviderName[], mode: BubblePercentMode, busy: boolean, snapEnabled: boolean): void {
     this.center.className = `bubble-center provider-count-${order.length}`;
     this.center.innerHTML = activeRows;
     this.idleUsage.className = `bubble-idle-usage provider-count-${order.length}`;
@@ -365,7 +371,9 @@ class BubbleWindowController {
       const snapshot = payload?.snapshot[provider];
       return `${PROVIDER_META[provider].name} ${snapshot ? percent(bubblePercent(snapshot, mode)) : "加载中"}`;
     }).join("，");
-    this.shell.setAttribute("aria-label", `Metra 用量悬浮球，${usage}；拖动可吸附到屏幕边缘，按回车打开详情`);
+    const dragHint = snapEnabled ? "拖动后吸附到屏幕边缘" : "可拖动到屏幕任意位置";
+    this.shell.setAttribute("aria-label", `Metra 用量悬浮球，${usage}；${dragHint}，按回车打开详情`);
+    this.setSnapEnabled(snapEnabled);
     const wasBusy = this.busy;
     this.busy = busy;
     this.applyVisualState();
@@ -390,9 +398,50 @@ class BubbleWindowController {
     if (visible) {
       this.clearIdleTimer();
       void this.reveal().catch((reason) => this.reportError(reason, "唤醒悬浮球失败"));
-    } else {
+    } else if (!this.maybeDockAfterPanelClose()) {
       this.scheduleIdle();
     }
+  }
+
+  private setSnapEnabled(enabled: boolean): void {
+    if (this.snapEnabled === enabled) return;
+    this.snapEnabled = enabled;
+    this.clearIdleTimer();
+    this.cancelSnap();
+    if (!enabled) {
+      this.docked = false;
+      this.dockAfterPanelClose = false;
+      if (this.state === "snapping") {
+        this.state = "visible";
+        this.applyVisualState();
+      }
+      if (this.state === "peek") {
+        void this.reveal().catch((reason) => this.reportError(reason, "关闭自动吸边失败"));
+      } else {
+        void this.initialization.then(() => {
+          if (!this.snapEnabled && !this.primaryPointerDown && !this.nativeDragging) {
+            this.startDock({ x: 0, y: 0 }, false);
+          }
+        }).catch((reason) => this.reportError(reason, "关闭自动吸边失败"));
+      }
+      return;
+    }
+    this.dockAfterPanelClose = true;
+    void this.initialization.then(() => {
+      if (!this.snapEnabled || this.docked) {
+        this.dockAfterPanelClose = false;
+        this.scheduleIdle();
+        return;
+      }
+      this.maybeDockAfterPanelClose();
+    }).catch((reason) => this.reportError(reason, "开启自动吸边失败"));
+  }
+
+  private maybeDockAfterPanelClose(): boolean {
+    if (!this.snapEnabled || !this.dockAfterPanelClose) return false;
+    if (this.panelVisible || this.primaryPointerDown || this.nativeDragging) return true;
+    this.startDock({ x: 0, y: 0 }, true);
+    return true;
   }
 
   private bindEvents(): void {
@@ -412,6 +461,16 @@ class BubbleWindowController {
       void this.reveal().catch((reason) => this.reportError(reason, "唤醒悬浮球失败"));
     });
     this.shell.addEventListener("focusout", () => {
+      this.focused = false;
+      this.scheduleIdle();
+    });
+    window.addEventListener("focus", () => {
+      if (document.activeElement !== this.shell) return;
+      this.focused = true;
+      this.clearIdleTimer();
+      void this.reveal().catch((reason) => this.reportError(reason, "唤醒悬浮球失败"));
+    });
+    window.addEventListener("blur", () => {
       this.focused = false;
       this.scheduleIdle();
     });
@@ -600,7 +659,7 @@ class BubbleWindowController {
     this.state = this.dragStartedFromPeek ? "peek" : "visible";
     this.dragStartedFromPeek = false;
     this.applyVisualState();
-    this.scheduleIdle();
+    if (!this.maybeDockAfterPanelClose()) this.scheduleIdle();
     if (shouldOpenPanel) void showPanel("details", true);
   }
 
@@ -624,11 +683,14 @@ class BubbleWindowController {
   }
 
   private async dockCurrentPosition(velocity: BubblePoint, animate: boolean, scheduleIdleAfter = true): Promise<void> {
+    const token = ++this.snapToken;
+    const snapEnabled = this.snapEnabled;
     const [position, size, monitors] = await Promise.all([
       this.afterNativeQueue(() => currentWindow.outerPosition()),
       this.afterNativeQueue(() => currentWindow.outerSize()),
       availableMonitors(),
     ]);
+    if (token !== this.snapToken || snapEnabled !== this.snapEnabled) return;
     this.lastObservedPosition = { x: position.x, y: position.y };
     const geometries = monitors.map((monitor) => ({
       x: monitor.workArea.position.x,
@@ -639,29 +701,36 @@ class BubbleWindowController {
     }));
     const monitor = selectBubbleMonitor(geometries, position, size);
     if (!monitor) return;
-    const target = calculateBubbleDockTarget(position, velocity, monitor);
-    this.state = animate ? "snapping" : "visible";
+    const target = snapEnabled
+      ? calculateBubbleDockTarget(position, velocity, monitor)
+      : calculateBubbleFreeTarget(position, monitor);
+    const shouldAnimate = animate && snapEnabled;
+    this.state = shouldAnimate ? "snapping" : "visible";
     this.applyVisualState();
-    await this.resizeWindow(target.size);
-    const completed = animate
-      ? await this.animateTo(target.position, velocity)
-      : await this.moveWindow(target.position).then(() => true);
+    await this.resizeWindow(target.size, token);
+    if (token !== this.snapToken || snapEnabled !== this.snapEnabled) return;
+    const completed = shouldAnimate
+      ? await this.animateTo(target.position, velocity, token)
+      : await this.moveWindow(target.position, token).then(() => token === this.snapToken);
     if (!completed) return;
+    if (token !== this.snapToken || snapEnabled !== this.snapEnabled) return;
     this.side = target.side;
     this.monitor = monitor;
     this.fullSize = target.size;
     this.anchor = target.position;
+    this.docked = snapEnabled;
+    if (snapEnabled) this.dockAfterPanelClose = false;
     this.state = "visible";
     this.applyVisualState();
-    await this.saveAnchor();
-    if (scheduleIdleAfter) this.scheduleIdle();
+    await this.saveAnchor(target.position);
+    if (token === this.snapToken && snapEnabled === this.snapEnabled && scheduleIdleAfter) this.scheduleIdle();
   }
 
-  private async animateTo(target: BubblePoint, releaseVelocity: BubblePoint): Promise<boolean> {
-    const token = ++this.snapToken;
+  private async animateTo(target: BubblePoint, releaseVelocity: BubblePoint, token: number): Promise<boolean> {
     const start = await this.afterNativeQueue(() => currentWindow.outerPosition());
+    if (token !== this.snapToken) return false;
     if (this.reducedMotion) {
-      await this.moveWindow(target);
+      await this.moveWindow(target, token);
       return token === this.snapToken;
     }
     let x = start.x;
@@ -676,6 +745,7 @@ class BubbleWindowController {
     const damping = 2 * omega;
     while (token === this.snapToken) {
       const now = await new Promise<number>((resolve) => requestAnimationFrame(resolve));
+      if (token !== this.snapToken) return false;
       const elapsed = now - started;
       const delta = Math.min((now - previous) / 1_000, 0.032);
       previous = now;
@@ -683,14 +753,15 @@ class BubbleWindowController {
       velocityY += (-stiffness * (y - target.y) - damping * velocityY) * delta;
       x += velocityX * delta;
       y += velocityY * delta;
-      await this.moveWindow({ x: Math.round(x), y: Math.round(y) });
+      await this.moveWindow({ x: Math.round(x), y: Math.round(y) }, token);
+      if (token !== this.snapToken) return false;
       const settled = Math.hypot(x - target.x, y - target.y) < 0.75
         && Math.hypot(velocityX, velocityY) < 5;
       if (settled || elapsed > 720) break;
     }
     if (token !== this.snapToken) return false;
-    await this.moveWindow(target);
-    return true;
+    await this.moveWindow(target, token);
+    return token === this.snapToken;
   }
 
   private cancelSnap(): void {
@@ -704,6 +775,7 @@ class BubbleWindowController {
 
   private scheduleIdle(): void {
     this.clearIdleTimer();
+    if (!this.snapEnabled || !this.docked) return;
     if (!this.initialized || this.busy || this.panelVisible || this.hovering || this.focused || this.primaryPointerDown || this.nativeDragging || this.state !== "visible") return;
     this.idleTimer = window.setTimeout(() => {
       void this.enterPeek().catch((reason) => this.reportError(reason, "隐藏悬浮球失败"));
@@ -711,11 +783,12 @@ class BubbleWindowController {
   }
 
   private async enterPeek(): Promise<void> {
+    if (!this.snapEnabled || !this.docked) return;
     if (this.busy || this.panelVisible || this.hovering || this.focused || this.primaryPointerDown || this.nativeDragging || this.state !== "visible") return;
     await this.initialization;
     if (this.frameTransition) await this.frameTransition;
     await this.dockCurrentPosition({ x: 0, y: 0 }, false, false);
-    if (this.busy || this.panelVisible || this.hovering || this.focused || this.primaryPointerDown || this.nativeDragging || this.state !== "visible") return;
+    if (!this.snapEnabled || !this.docked || this.busy || this.panelVisible || this.hovering || this.focused || this.primaryPointerDown || this.nativeDragging || this.state !== "visible") return;
     if (!this.anchor || !this.fullSize || !this.monitor) return;
     this.state = "peek";
     this.applyVisualState();
@@ -744,13 +817,16 @@ class BubbleWindowController {
     this.shell.dataset.side = this.side;
   }
 
-  private resizeWindow(size: BubbleSize): Promise<void> {
-    return this.queueNative(() => currentWindow.setSize(new PhysicalSize(size.width, size.height)));
+  private resizeWindow(size: BubbleSize, token?: number): Promise<void> {
+    return this.queueNative(() => token !== undefined && token !== this.snapToken
+      ? Promise.resolve()
+      : currentWindow.setSize(new PhysicalSize(size.width, size.height)));
   }
 
-  private moveWindow(position: BubblePoint): Promise<void> {
+  private moveWindow(position: BubblePoint, token?: number): Promise<void> {
     const rounded = { x: Math.round(position.x), y: Math.round(position.y) };
     return this.queueNative(() => {
+      if (token !== undefined && token !== this.snapToken) return Promise.resolve();
       this.rememberProgrammaticMove(rounded);
       return currentWindow.setPosition(new PhysicalPosition(rounded.x, rounded.y));
     });
@@ -811,15 +887,16 @@ class BubbleWindowController {
     return operation();
   }
 
-  private async saveAnchor(): Promise<void> {
-    if (!this.anchor) return;
+  private async saveAnchor(position: BubblePoint): Promise<void> {
+    const task = this.positionSaveQueue.then(() => invokeWithTimeout<AppSettings>(
+      "save_window_position",
+      { x: Math.round(position.x), y: Math.round(position.y) },
+      ACTION_TIMEOUT_MS,
+      "保存气泡位置",
+    ));
+    this.positionSaveQueue = task.catch(() => undefined);
     try {
-      await invokeWithTimeout<AppSettings>(
-        "save_window_position",
-        { x: Math.round(this.anchor.x), y: Math.round(this.anchor.y) },
-        ACTION_TIMEOUT_MS,
-        "保存气泡位置",
-      );
+      await task;
     } catch (reason) {
       this.reportError(reason, "保存气泡位置失败");
     }
@@ -835,6 +912,7 @@ let bubbleController: BubbleWindowController | null = null;
 function renderBubble(): void {
   const snapshot = payload?.snapshot;
   const mode = payload?.settings.bubblePercentMode ?? "remaining";
+  const snapEnabled = payload?.settings.bubbleSnapEnabled ?? false;
   const order = bubbleVisibleProviderOrder(payload?.settings);
   const rows = snapshot
     ? order.map((provider) => bubbleRow(bubbleProviderLabel(provider, payload?.settings), snapshot[provider], mode, tokenGains[provider])).join("")
@@ -848,10 +926,10 @@ function renderBubble(): void {
         <div class="bubble-center provider-count-${order.length}" aria-hidden="true"></div>
         <span class="bubble-idle-usage provider-count-${order.length}" aria-hidden="true"></span>
       </div>`;
-    bubbleController = new BubbleWindowController();
+    bubbleController = new BubbleWindowController(snapEnabled);
   }
   const busy = !snapshot || snapshot.refreshing || Object.keys(tokenGains).length > 0;
-  bubbleController.update(rows, idleValues, order, mode, busy);
+  bubbleController.update(rows, idleValues, order, mode, busy, snapEnabled);
 }
 
 function quotaRows(provider: ProviderSnapshot): string {
@@ -1404,6 +1482,7 @@ function renderMenu(): void {
     <div class="intervals">${[1, 5, 15, 30, 60].map((n) => `<button data-interval="${n}" class="${s.refreshMinutes === n ? "selected" : ""}">${n < 60 ? `${n}m` : "1h"}</button>`).join("")}</div>
     <div class="menu-label">气泡百分比</div>
     <div class="percent-modes"><button data-percent-mode="used" class="${s.bubblePercentMode === "used" ? "selected" : ""}">已用</button><button data-percent-mode="remaining" class="${s.bubblePercentMode === "remaining" ? "selected" : ""}">剩余</button></div>
+    <button data-action="snap" role="switch" aria-checked="${s.bubbleSnapEnabled}"><span><b>自动吸边</b><small>松手吸附屏幕边缘，闲置时半隐藏</small></span><i class="switch ${s.bubbleSnapEnabled ? "on" : ""}" aria-hidden="true"></i></button>
     <button data-action="autostart"><span>开机启动</span><i class="switch ${s.autostart ? "on" : ""}"></i></button>
     <button data-action="compat"><span><b>Cursor 个人兼容模式</b><small>只读本地令牌，仅访问 Cursor</small></span><i class="switch ${s.cursorCompatEnabled ? "on" : ""}"></i></button>
     <button data-action="rescan"><span>重新检测 CLI</span><kbd>↻</kbd></button>
@@ -1442,6 +1521,16 @@ function renderMenu(): void {
         return;
       }
       button.disabled = true;
+      if (action === "snap") {
+        const enabled = !payload!.settings.bubbleSnapEnabled;
+        const settings = await runUiAction<AppSettings>(
+          enabled ? "正在开启自动吸边…" : "正在关闭自动吸边…",
+          enabled ? "自动吸边已开启" : "自动吸边已关闭，可自由放置悬浮球",
+          () => invokeWithTimeout<AppSettings>("set_bubble_snap_enabled", { enabled }, ACTION_TIMEOUT_MS, "更新自动吸边"),
+        );
+        if (settings) { payload!.settings = settings; renderMenu(); } else { button.disabled = false; }
+        return;
+      }
       if (action === "autostart") {
         const settings = await runUiAction<AppSettings>(
           "正在更新开机启动…",

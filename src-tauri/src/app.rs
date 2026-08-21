@@ -243,7 +243,7 @@ fn show_panel_window(
     let started = Instant::now();
     let (width, height, mode_code) = match mode {
         "details" => (340.0, 480.0, PANEL_MODE_DETAILS),
-        "menu" => (252.0, 390.0, PANEL_MODE_MENU),
+        "menu" => (252.0, 432.0, PANEL_MODE_MENU),
         _ => return Err("未知弹窗模式".into()),
     };
     let bubble = app
@@ -460,6 +460,18 @@ fn set_bubble_percent_mode(
     let settings = service.update_settings(|settings| settings.bubble_percent_mode = mode)?;
     app.emit("settings-updated", settings.clone())
         .map_err(|_| "无法同步气泡百分比设置".to_string())?;
+    Ok(settings)
+}
+
+#[tauri::command]
+fn set_bubble_snap_enabled(
+    enabled: bool,
+    app: AppHandle,
+    service: State<'_, Arc<RefreshService>>,
+) -> Result<AppSettings, String> {
+    let settings = service.update_settings(|settings| settings.bubble_snap_enabled = enabled)?;
+    app.emit("settings-updated", settings.clone())
+        .map_err(|_| "无法同步自动吸边设置".to_string())?;
     Ok(settings)
 }
 
@@ -689,6 +701,7 @@ pub fn run() {
             recheck_cursor_login,
             set_refresh_interval,
             set_bubble_percent_mode,
+            set_bubble_snap_enabled,
             set_bubble_display_config,
             set_cursor_compat,
             set_autostart,

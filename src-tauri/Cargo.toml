@@ -1,6 +1,6 @@
 [package]
 name = "metra"
-version = "0.1.36"
+version = "0.1.37"
 description = "Cursor, Codex, and Claude Code usage bubble"
 authors = ["sophon"]
 edition = "2024"
