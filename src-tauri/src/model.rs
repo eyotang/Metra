@@ -81,6 +81,8 @@ pub struct TokenUsage {
 #[serde(rename_all = "camelCase")]
 pub struct CostUsage {
     pub currency: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub today_used_cents: Option<u64>,
     pub included_used_cents: Option<u64>,
     pub included_limit_cents: Option<u64>,
     pub on_demand_used_cents: Option<u64>,

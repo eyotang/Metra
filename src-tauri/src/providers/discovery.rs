@@ -14,6 +14,8 @@ use std::{
 
 use crate::diagnostics;
 
+use super::scrub_sensitive_child_environment;
+
 #[cfg(not(windows))]
 const SHELL_CACHE_TTL: Duration = Duration::from_secs(30 * 60);
 #[cfg(not(windows))]
@@ -377,14 +379,15 @@ fn resolve_standard_commands_via_shell(
     const SCRIPT: &str =
         r#"exec /bin/sh -c 'printf "__METRA_SHELL_PATH__=%s\n" "$PATH"'"#;
     let started = Instant::now();
-    let mut child = match std::process::Command::new(shell)
+    let mut command = std::process::Command::new(shell);
+    command
         .args(["-l", "-i", "-c", SCRIPT])
         .envs(environment.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    {
+        .stderr(Stdio::null());
+    scrub_sensitive_child_environment(&mut command);
+    let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
             diagnostics::warn(
@@ -509,12 +512,13 @@ fn resolve_standard_commands_via_login_shell() -> Option<HashMap<String, Resolve
 
     let shell = env::var_os("SHELL").unwrap_or_else(|| "/bin/sh".into());
     let script = r#"for n in cursor-agent agent codex claude; do p=$(command -v "$n" 2>/dev/null) && printf '%s\t%s\n' "$n" "$p"; done"#;
-    let mut child = match std::process::Command::new(shell)
+    let mut command = std::process::Command::new(shell);
+    command
         .args(["-lc", script])
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    {
+        .stderr(Stdio::null());
+    scrub_sensitive_child_environment(&mut command);
+    let mut child = match command.spawn() {
         Ok(child) => child,
         Err(_) => return None,
     };
@@ -566,6 +570,7 @@ pub fn command_for(
                 .arg("/C")
                 .arg(path)
                 .args(args);
+            scrub_sensitive_child_environment(&mut command);
             return command;
         }
         if extension.eq_ignore_ascii_case("ps1") {
@@ -581,6 +586,7 @@ pub fn command_for(
                 ])
                 .arg(path)
                 .args(args);
+            scrub_sensitive_child_environment(&mut command);
             return command;
         }
     }
@@ -588,7 +594,28 @@ pub fn command_for(
     command.args(args);
     #[cfg(target_os = "macos")]
     command.env("PATH", &executable.execution_path);
+    scrub_sensitive_child_environment(&mut command);
     command
+}
+
+#[cfg(test)]
+mod command_security_tests {
+    use super::{ResolvedExecutable, command_for};
+    use crate::providers::{ANTHROPIC_ADMIN_KEY_ENV, CLAUDE_API_KEY_NAME_ENV};
+    use std::{ffi::OsStr, path::PathBuf};
+
+    #[test]
+    fn every_provider_command_scrubs_claude_usage_credentials() {
+        let executable = ResolvedExecutable::from_path(PathBuf::from("provider-cli"));
+        let command = command_for(&executable, &[]);
+        let removed = command
+            .get_envs()
+            .filter_map(|(name, value)| value.is_none().then_some(name))
+            .collect::<Vec<_>>();
+
+        assert!(removed.contains(&OsStr::new(ANTHROPIC_ADMIN_KEY_ENV)));
+        assert!(removed.contains(&OsStr::new(CLAUDE_API_KEY_NAME_ENV)));
+    }
 }
 
 #[cfg(all(test, windows))]

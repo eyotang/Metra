@@ -3,7 +3,7 @@ export type ProviderStatus = "available" | "desktop_installed" | "not_installed"
 export type QuotaKind = "cursor_models" | "other_models" | "grok_bot";
 export interface QuotaWindow { kind?: QuotaKind; label: string; usedPercent: number; remainingPercent: number; windowDurationMins?: number; resetsAt?: string; }
 export interface TokenUsage { today?: number; lifetime?: number; peakDaily?: number; }
-export interface CostUsage { currency: string; includedUsedCents?: number; includedLimitCents?: number; onDemandUsedCents?: number; onDemandLimitCents?: number; onDemandEnabled?: boolean; periodEnd?: string; }
+export interface CostUsage { currency: string; todayUsedCents?: number; includedUsedCents?: number; includedLimitCents?: number; onDemandUsedCents?: number; onDemandLimitCents?: number; onDemandEnabled?: boolean; periodEnd?: string; }
 export interface ProviderSnapshot { provider: ProviderName; status: ProviderStatus; plan?: string; capturedAt: string; quotas: QuotaWindow[]; tokens?: TokenUsage; cost?: CostUsage; stale: boolean; message?: string; }
 export interface DashboardSnapshot { cursor: ProviderSnapshot; codex: ProviderSnapshot; claude: ProviderSnapshot; refreshing: boolean; }
 export type BubblePercentMode = "used" | "remaining";
