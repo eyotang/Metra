@@ -191,7 +191,7 @@ button { font: inherit; color: inherit; }
 
 .menu-panel { padding: 14px; }
 .menu-brand { justify-content: flex-start; margin: 2px 4px 12px; }
-.menu-language-row { height: 36px; display: grid; grid-template-columns: minmax(0, 1fr) 116px; align-items: center; gap: 8px; margin-bottom: 2px; padding-left: 10px; color: #c7cede; }
+.menu-language-row { height: 36px; display: grid; grid-template-columns: max-content 100px; align-items: center; justify-content: end; gap: 7px; margin-bottom: 2px; color: #c7cede; }
 .menu-language-row > span { font-size: 11px; }
 .language-select-control { position: relative; min-width: 0; height: 36px; }
 .language-select-control select { width: 100%; height: 100%; padding: 0 27px 0 10px; appearance: none; border: 1px solid #ffffff12; border-radius: 10px; outline: 0; background: #ffffff09; color: #c7cede; color-scheme: dark; cursor: pointer; font-family: inherit; font-size: 10px; }
