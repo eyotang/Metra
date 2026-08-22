@@ -19,6 +19,7 @@
     "verify:cursor-login": "node scripts/verify-cursor-login.mjs",
     "verify:cursor-ultra": "node scripts/verify-cursor-ultra.mjs",
     "verify:provider-navigation": "node --experimental-strip-types scripts/verify-provider-navigation.mjs",
+    "verify:bubble-click": "node --experimental-strip-types scripts/verify-bubble-click.mjs",
     "verify:bubble-snap": "node --experimental-strip-types scripts/verify-bubble-snap.mjs",
     "verify:i18n": "node --experimental-strip-types scripts/verify-i18n.mjs",
     "verify:macos-build": "node scripts/verify-macos-universal-build.mjs",
