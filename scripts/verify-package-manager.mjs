@@ -51,6 +51,28 @@ assert.match(
   "the portable smoke test must wait for the bubble DOM before taking a screenshot",
 );
 assert.match(renderedBubbleCheck, /requestAnimationFrame/, "the portable smoke test must wait for a painted frame");
+assert.match(renderedBubbleCheck, /GetWindowThreadProcessId/, "the Windows click smoke test must only inspect windows owned by Metra");
+assert.match(
+  renderedBubbleCheck,
+  /GetPhysicalCursorPos[\s\S]*SetPhysicalCursorPos[\s\S]*WindowFromPhysicalPoint/,
+  "the Windows click smoke test must use one physical coordinate space on mixed-DPI desktops",
+);
+assert.match(renderedBubbleCheck, /SendInput/, "the Windows click smoke test must send native mouse input instead of a synthetic DOM click");
+assert.match(
+  renderedBubbleCheck,
+  /MouseEventLeftDown[\s\S]*MouseEventLeftUp/,
+  "the Windows click smoke test must send a complete left-button gesture",
+);
+assert.match(
+  renderedBubbleCheck,
+  /\$panelWindow[\s\S]*\.Handle\s+-ne\s+\$bubbleWindow\.Handle[\s\S]*\.Width\s+-ge\s+\$minimumPanelWidth/,
+  "the Windows click smoke test must wait for a distinct, visible panel-sized window",
+);
+assert.match(
+  renderedBubbleCheck,
+  /Start-Sleep\s+-Milliseconds\s+400[\s\S]*\.Handle\s+-eq\s+\$panelWindow\.Handle[\s\S]*\$stablePanelWindow/,
+  "the Windows click smoke test must reject a panel that is immediately toggled closed again",
+);
 assert.match(
   renderedBubbleCheck,
   /Stop-Process[^\r\n]*-ErrorAction\s+SilentlyContinue/,

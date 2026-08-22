@@ -13,6 +13,7 @@ import {
   type BubblePoint,
   type BubbleSize,
 } from "./bubble-geometry";
+import { decideBubbleGestureCompletion, probeBubbleRelease } from "./bubble-gesture";
 import type { AppPayload, AppSettings, BubblePercentMode, ProviderName, ProviderSnapshot, ProviderStatus, QuotaKind, UiLanguage } from "./types";
 import { ProviderCardNavigator, shouldNavigateFromProviderRow } from "./provider-navigation";
 import {
@@ -50,8 +51,8 @@ const ACTION_TIMEOUT_MS = 8_000;
 const PANEL_SHOW_TIMEOUT_MS = 1_000;
 const REFRESH_TIMEOUT_MS = 22_000;
 const BUBBLE_IDLE_DELAY_MS = 3_000;
-const BUBBLE_DRAG_FALLBACK_MS = 800;
 const BUBBLE_DRAG_RELEASE_POLL_MS = 120;
+const BUBBLE_DRAG_RELEASE_PROBE_MAX_FAILURES = 3;
 const BUBBLE_DRAG_CLICK_SETTLE_MS = 80;
 const BUBBLE_POINTER_DRAG_THRESHOLD_PX = 4;
 const BUBBLE_SAMPLE_WINDOW_MS = 140;
@@ -398,6 +399,9 @@ class BubbleWindowController {
   private nativeDragging = false;
   private nativeReleaseConfirmed = false;
   private pendingClick = false;
+  private suppressLateClick = false;
+  private releaseProbeFailures = 0;
+  private awaitingGestureRecovery = false;
   private dragStartedFromPeek = false;
   private pointerStartScreen: BubblePoint | null = null;
   private dragStartPosition: BubblePoint | null = null;
@@ -505,7 +509,7 @@ class BubbleWindowController {
 
   private maybeDockAfterPanelClose(): boolean {
     if (!this.snapEnabled || !this.dockAfterPanelClose) return false;
-    if (this.panelVisible || this.primaryPointerDown || this.nativeDragging) return true;
+    if (this.panelVisible || this.primaryPointerDown || this.nativeDragging || this.awaitingGestureRecovery) return true;
     this.startDock({ x: 0, y: 0 }, true);
     return true;
   }
@@ -544,6 +548,12 @@ class BubbleWindowController {
     window.addEventListener("pointerup", (event) => this.onPointerUp(event));
     window.addEventListener("pointercancel", () => this.onPointerCancel());
     this.shell.addEventListener("click", () => {
+      if (this.suppressLateClick) {
+        this.suppressLateClick = false;
+        this.awaitingGestureRecovery = false;
+        this.scheduleIdle();
+        return;
+      }
       if (this.dragged) return;
       if (this.nativeDragging) {
         this.pendingClick = true;
@@ -574,6 +584,8 @@ class BubbleWindowController {
 
   private onPointerDown(event: PointerEvent): void {
     if (event.button !== 0) return;
+    this.suppressLateClick = false;
+    this.awaitingGestureRecovery = false;
     window.getSelection()?.removeAllRanges();
     this.clearIdleTimer();
     const stateBeforeDrag = this.state;
@@ -588,6 +600,7 @@ class BubbleWindowController {
     this.primaryPointerDown = true;
     this.nativeDragging = true;
     this.nativeReleaseConfirmed = false;
+    this.releaseProbeFailures = 0;
     this.dragged = false;
     this.dragMoved = false;
     this.pendingClick = false;
@@ -610,7 +623,7 @@ class BubbleWindowController {
     }
     this.state = "dragging";
     this.applyVisualState();
-    this.scheduleDragFinish(BUBBLE_DRAG_FALLBACK_MS);
+    this.scheduleDragFinish(BUBBLE_DRAG_RELEASE_POLL_MS);
     this.dragStartCompletion = this.beginNativeDrag(
       this.dragGeneration,
       this.snapToken,
@@ -670,6 +683,7 @@ class BubbleWindowController {
     }
     this.pointerStartScreen = null;
     this.primaryPointerDown = false;
+    this.awaitingGestureRecovery = false;
     this.nativeReleaseConfirmed = true;
     if (this.nativeDragging) this.scheduleDragFinish(BUBBLE_DRAG_CLICK_SETTLE_MS);
     else this.scheduleIdle();
@@ -705,7 +719,7 @@ class BubbleWindowController {
     }
     this.movementSamples.push({ x: position.x, y: position.y, time: now });
     this.movementSamples = this.movementSamples.filter((sample) => now - sample.time <= BUBBLE_SAMPLE_WINDOW_MS);
-    this.scheduleDragFinish(this.nativeReleaseConfirmed ? 24 : BUBBLE_DRAG_FALLBACK_MS);
+    this.scheduleDragFinish(this.nativeReleaseConfirmed ? 24 : BUBBLE_DRAG_RELEASE_POLL_MS);
   }
 
   private scheduleDragFinish(delay: number): void {
@@ -726,19 +740,29 @@ class BubbleWindowController {
     const dragStartCompletion = this.dragStartCompletion;
     try {
       if (!this.nativeReleaseConfirmed) {
-        try {
-          const pressed = await invoke<boolean>("is_primary_mouse_button_pressed");
-          if (!this.isActiveDrag(generation)) return;
-          if (pressed) {
-            this.scheduleDragFinish(BUBBLE_DRAG_RELEASE_POLL_MS);
-            return;
-          }
-        } catch (reason) {
-          if (!this.isActiveDrag(generation)) return;
-          this.reportError(reason, t("bubble.error.confirmDragEnd"));
+        const releaseProbe = await probeBubbleRelease(
+          () => invoke<boolean>("is_primary_mouse_button_pressed"),
+        );
+        if (!this.isActiveDrag(generation)) return;
+        if (releaseProbe.status === "pressed") {
+          this.scheduleDragFinish(BUBBLE_DRAG_RELEASE_POLL_MS);
+          return;
         }
-        this.primaryPointerDown = false;
+        if (releaseProbe.status === "unavailable") {
+          this.releaseProbeFailures += 1;
+          if (this.releaseProbeFailures === 1) {
+            this.reportError(releaseProbe.reason, t("bubble.error.confirmDragEnd"));
+          }
+          if (this.releaseProbeFailures < BUBBLE_DRAG_RELEASE_PROBE_MAX_FAILURES) {
+            this.scheduleDragFinish(BUBBLE_DRAG_RELEASE_POLL_MS);
+          } else {
+            this.cancelNativeGestureAfterReleaseProbeFailure();
+          }
+          return;
+        }
+        this.releaseProbeFailures = 0;
         this.nativeReleaseConfirmed = true;
+        this.primaryPointerDown = false;
       }
       await dragStartCompletion;
       if (!this.isActiveDrag(generation)) return;
@@ -774,12 +798,36 @@ class BubbleWindowController {
     return this.nativeDragging && this.dragGeneration === generation;
   }
 
+  private cancelNativeGestureAfterReleaseProbeFailure(): void {
+    this.pendingClick = false;
+    this.suppressLateClick = true;
+    this.awaitingGestureRecovery = true;
+    this.primaryPointerDown = false;
+    this.nativeDragging = false;
+    this.nativeReleaseConfirmed = false;
+    this.releaseProbeFailures = 0;
+    this.dragMoved = false;
+    this.dragged = false;
+    this.pointerStartScreen = null;
+    this.dragStartPosition = null;
+    this.movementSamples = [];
+    this.state = "visible";
+    this.dragStartedFromPeek = false;
+    this.applyVisualState();
+  }
+
   private finishNativeGestureWithoutMovement(): void {
-    const shouldOpenPanel = this.pendingClick;
-    const restorePeek = this.dragStartedFromPeek && !shouldOpenPanel;
+    const decision = decideBubbleGestureCompletion({
+      dragMoved: this.dragMoved,
+      clickObserved: this.pendingClick,
+      releaseConfirmed: this.nativeReleaseConfirmed,
+    });
+    const restorePeek = this.dragStartedFromPeek && !decision.openPanel;
+    this.suppressLateClick = decision.suppressLateClick;
     this.pendingClick = false;
     this.nativeDragging = false;
-    this.nativeReleaseConfirmed = true;
+    this.nativeReleaseConfirmed = false;
+    this.releaseProbeFailures = 0;
     this.dragMoved = false;
     this.pointerStartScreen = null;
     this.dragStartPosition = null;
@@ -793,7 +841,7 @@ class BubbleWindowController {
     } else if (!this.maybeDockAfterPanelClose()) {
       this.scheduleIdle();
     }
-    if (shouldOpenPanel) void showPanel("details", true);
+    if (decision.openPanel) void showPanel("details", true);
   }
 
   private rebaseUnmovedGesture(position: BubblePoint): void {
@@ -929,7 +977,7 @@ class BubbleWindowController {
   private scheduleIdle(): void {
     this.clearIdleTimer();
     if (!this.snapEnabled || !this.docked) return;
-    if (!this.initialized || this.busy || this.panelVisible || this.hovering || this.focused || this.primaryPointerDown || this.nativeDragging || this.state !== "visible") return;
+    if (!this.initialized || this.busy || this.panelVisible || this.hovering || this.focused || this.primaryPointerDown || this.nativeDragging || this.awaitingGestureRecovery || this.state !== "visible") return;
     this.idleTimer = window.setTimeout(() => {
       void this.enterPeek().catch((reason) => this.reportError(reason, t("bubble.error.hide")));
     }, BUBBLE_IDLE_DELAY_MS);

@@ -3,6 +3,9 @@
 /src-tauri/target/
 /.idea/
 /.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
 *.log
 
 *.p12
