@@ -9,8 +9,7 @@ use std::{
 
 use serde::Serialize;
 use tauri::{
-    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, State,
-    WebviewWindow,
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow,
 };
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use tauri::{
@@ -24,15 +23,15 @@ use crate::{
     diagnostics,
     model::Provider,
     providers::{
-        scrub_sensitive_child_environment,
         cursor::cursor_login_executable,
         discovery::{ResolvedExecutable, command_for, invalidate_shell_cache},
+        scrub_sensitive_child_environment,
     },
     service::{AppPayload, RefreshService},
     settings::{
-        AppSettings, BubblePercentMode, REFRESH_INTERVALS, SavedPosition, SettingsStore,
-        UiLanguage,
+        AppSettings, BubblePercentMode, REFRESH_INTERVALS, SavedPosition, SettingsStore, UiLanguage,
     },
+    updater::{AppUpdaterState, current_distribution_update_mode, start_update_scheduler},
 };
 
 #[cfg(target_os = "macos")]
@@ -51,8 +50,7 @@ unsafe extern "system" {
 
 const PANEL_MODE_DETAILS: u8 = 1;
 const PANEL_MODE_MENU: u8 = 2;
-const CURSOR_SETTINGS_DEEP_LINK: &str =
-    "cursor://anysphere.cursor-deeplink/settings/plan-usage";
+const CURSOR_SETTINGS_DEEP_LINK: &str = "cursor://anysphere.cursor-deeplink/settings/plan-usage";
 const CURSOR_LOGIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const CURSOR_AGENT_LOGIN_ARGS: &[&str] = &["login"];
 
@@ -157,9 +155,7 @@ struct BubbleWindowOperationSequence {
     latest_token: u64,
 }
 
-fn next_bubble_operation_session(
-    sequence: &mut BubbleWindowOperationSequence,
-) -> Option<u64> {
+fn next_bubble_operation_session(sequence: &mut BubbleWindowOperationSequence) -> Option<u64> {
     sequence.session = sequence.session.checked_add(1)?;
     sequence.latest_token = 0;
     Some(sequence.session)
@@ -345,22 +341,24 @@ fn configure_login_command(command: &mut Command) {
 }
 
 fn open_cursor_settings() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        return crate::platform::open_url(CURSOR_SETTINGS_DEEP_LINK).map_err(|error| {
+            diagnostics::warn("cursor.login.editor_open_failed", error);
+            "无法打开 Cursor 登录页面".to_string()
+        });
+    }
+
     #[cfg(target_os = "macos")]
     let mut command = {
         let mut command = Command::new("open");
         command.arg(CURSOR_SETTINGS_DEEP_LINK);
         command
     };
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        let mut command = Command::new("rundll32.exe");
-        command.args(["url.dll,FileProtocolHandler", CURSOR_SETTINGS_DEEP_LINK]);
-        command
-    };
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     return Err("当前系统暂不支持打开 Cursor 登录".into());
 
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
         configure_login_command(&mut command);
         let mut child = command.spawn().map_err(|error| {
@@ -426,12 +424,7 @@ fn claim_bubble_panel_request(requests: &PanelRequestState, request_id: u64) -> 
         < request_id
 }
 
-fn panel_bubble_x(
-    bubble_x: i32,
-    bubble_width: u32,
-    full_width: u32,
-    docked_right: bool,
-) -> i32 {
+fn panel_bubble_x(bubble_x: i32, bubble_width: u32, full_width: u32, docked_right: bool) -> i32 {
     if !docked_right || bubble_width >= full_width {
         return bubble_x;
     }
@@ -500,7 +493,10 @@ fn show_panel_window(
         panel_visible,
     ) {
         panel.hide().map_err(|_| "无法收起详情窗口".to_string())?;
-        let _ = app.emit("panel-visibility-changed", serde_json::json!({ "visible": false }));
+        let _ = app.emit(
+            "panel-visibility-changed",
+            serde_json::json!({ "visible": false }),
+        );
         return Ok(started.elapsed().as_millis() as u64);
     }
     panel
@@ -568,7 +564,10 @@ fn show_panel_window(
         )
         .map_err(|_| "无法切换弹窗内容".to_string())?;
     panel.show().map_err(|_| "无法显示弹窗".to_string())?;
-    let _ = app.emit("panel-visibility-changed", serde_json::json!({ "visible": true }));
+    let _ = app.emit(
+        "panel-visibility-changed",
+        serde_json::json!({ "visible": true }),
+    );
     requests.visible_mode.store(mode_code, Ordering::Release);
     panel.set_focus().map_err(|_| "无法聚焦弹窗".to_string())?;
     Ok(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64)
@@ -954,6 +953,9 @@ pub fn run() {
         .manage(PanelRequestState::default())
         .manage(BubbleWindowOperationState::default())
         .manage(Arc::new(CursorLoginState::default()))
+        .manage(Arc::new(AppUpdaterState::new(
+            current_distribution_update_mode(),
+        )))
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window("bubble") {
                 let _ = window.show();
@@ -964,6 +966,7 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             Some(vec!["--autostart"]),
         ))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             show_panel,
             is_primary_mouse_button_pressed,
@@ -983,6 +986,9 @@ pub fn run() {
             save_window_position,
             set_ui_language,
             set_runtime_locale,
+            crate::updater::get_app_update_status,
+            crate::updater::install_app_update,
+            crate::updater::open_app_update_download_page,
             quit_app
         ])
         .setup(|app| {
@@ -1039,11 +1045,12 @@ pub fn run() {
             });
             app.manage(service.clone());
             #[cfg(any(target_os = "macos", target_os = "windows"))]
-            setup_status_item(
-                app,
-                settings.ui_language.explicit_locale().unwrap_or("en"),
-            )?;
+            setup_status_item(app, settings.ui_language.explicit_locale().unwrap_or("en"))?;
             start_scheduler(app.handle().clone(), service);
+            start_update_scheduler(
+                app.handle().clone(),
+                app.state::<Arc<AppUpdaterState>>().inner().clone(),
+            );
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -1178,8 +1185,7 @@ mod cursor_login_tests {
         configure_login_command, cursor_login_launch,
     };
     use crate::providers::{
-        ANTHROPIC_ADMIN_KEY_ENV, CLAUDE_API_KEY_NAME_ENV,
-        discovery::ResolvedExecutable,
+        ANTHROPIC_ADMIN_KEY_ENV, CLAUDE_API_KEY_NAME_ENV, discovery::ResolvedExecutable,
     };
     use std::{ffi::OsStr, path::PathBuf, process::Command};
 

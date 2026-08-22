@@ -15,6 +15,7 @@ Metra is a lightweight cross-platform desktop bubble for checking Cursor, Codex,
 - Lets you show or hide each provider, reorder providers with the six-dot handle, and customize both bubble labels and marker colors. The built-in 55-color palette is stored in SQLite with the rest of the settings.
 - Opens details with a left click, where the refresh icon updates usage. The context menu starts with a direct language selector and also controls the refresh interval, launch at startup, compatibility mode, rescanning, and quitting; it does not duplicate the refresh action.
 - Keeps the last successful result after a refresh failure and clearly marks it as stale.
+- Starting with v0.1.39, supported distributions—including Windows Portable—check GitHub Releases for signed updates shortly after launch and every 24 hours while running. Windows installer builds update in-app after confirmation; macOS and Windows Portable open the detected version's Release page for manual download.
 - Supports English, Simplified Chinese (`zh-CN`), Japanese, and Korean. **Auto detect** follows the OS/browser language; a manual choice takes effect immediately and is remembered after restart.
 
 <p align="center">
@@ -61,6 +62,14 @@ npm run build:macos-universal
 
 This command pins Cargo and rustc to the same rustup `stable` toolchain, installs both macOS targets, disables `sccache`, and invokes Tauri for `universal-apple-darwin`. Running `pnpm run build -- --target universal-apple-darwin` manually adds an extra `--`; it can reach Cargo/rustc and make the universal target be parsed as a Rust target specification. A build can also fail when Homebrew Rust shadows rustup and Cargo and rustc come from different toolchains. The dedicated command avoids both problems.
 
+## Update checks and installation (v0.1.39 and later)
+
+Supported distributions, including Windows Portable, read `latest.json` from the latest GitHub Release shortly after launch and every 24 hours while running. If GitHub cannot be reached, Metra stays quiet and waits for the next scheduled check instead of displaying a connection error or retrying repeatedly. When an update is available, Metra shows the new version and an update prompt; the selected update action begins only after the user explicitly confirms.
+
+Because v0.1.38 does not contain the updater, existing installed and Portable users must move to v0.1.39 manually once. After that bootstrap update, all supported distributions can detect subsequent releases automatically: Windows NSIS installations can update in-app, while macOS and Windows Portable continue with manual downloads.
+
+Windows NSIS installations verify the Tauri updater signature, download the installer, and update in-app. On macOS, Metra still detects new versions through `latest.json`, but the action opens the detected version's GitHub Release page so the user can download the signed and notarized DMG manually. In-place macOS installation is temporarily disabled while the upstream [Tauri updater safety issue #3505](https://github.com/tauri-apps/plugins-workspace/issues/3505) remains unresolved. Windows Portable also detects new versions automatically, but it never downloads or replaces the running executable; its action opens the detected version's Release page so the user can download the new Portable EXE manually.
+
 ## Optional official Claude Code API usage
 
 Anthropic's Claude Code Analytics API accepts only an organization-level Admin API key (`sk-ant-admin...`). A regular Claude API key (`sk-ant-api...`) cannot query historical usage, and individual accounts cannot use the Admin API. See the [Claude Code Analytics API documentation](https://platform.claude.com/docs/en/manage-claude/claude-code-analytics-api).
@@ -90,7 +99,11 @@ The API aggregates usage by UTC calendar day, data may lag by up to about one ho
 
 Pushing a `v*` tag triggers the release-artifact workflow. Official macOS distribution requires `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_PASSWORD`, and `APPLE_TEAM_ID` in the release environment.
 
+Updater artifacts require a matching signing-key pair. Never commit the private key: upload it to the `TAURI_SIGNING_PRIVATE_KEY` GitHub Actions secret and keep a separate secure offline backup. When the key is encrypted, store its password in `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`; keep the public key in `src-tauri/tauri.conf.json`. Clients cannot accept future updates if the private key is lost. The release build signs the Windows NSIS updater and macOS `.app.tar.gz` bundle, while the DMG and Windows portable executable remain manual-download artifacts.
+
 The workflow rejects macOS artifacts unless the bundle is Universal for both `arm64` and `x86_64`, signed with `Developer ID Application`, contains the hardened runtime flag, passes Gatekeeper assessment, and validates its notarization ticket for both the `.app` and `.dmg`.
+
+CI creates the GitHub Release as a draft first, uploads the installers, signatures, manual-download packages, and `latest.json`, then verifies that the manifest, URLs, versions, signatures, and required assets agree. Only after every validation passes does CI publish the draft and mark it as the latest release, so clients never discover a partially assembled update.
 
 Local ad-hoc macOS builds remain useful for architecture and packaging checks, but they are for testing only and are not suitable for public release.
 

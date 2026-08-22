@@ -14,7 +14,7 @@ import {
   type BubbleSize,
 } from "./bubble-geometry";
 import { decideBubbleGestureCompletion, probeBubbleRelease } from "./bubble-gesture";
-import type { AppPayload, AppSettings, BubblePercentMode, ProviderName, ProviderSnapshot, ProviderStatus, QuotaKind, UiLanguage } from "./types";
+import type { AppPayload, AppSettings, AppUpdateStatus, BubblePercentMode, ProviderName, ProviderSnapshot, ProviderStatus, QuotaKind, UiLanguage } from "./types";
 import { ProviderCardNavigator, shouldNavigateFromProviderRow } from "./provider-navigation";
 import {
   applyDocumentLocale,
@@ -187,6 +187,9 @@ let toastTimer: number | undefined;
 let refreshInFlight: Promise<void> | null = null;
 let cursorLoginPending = false;
 let cursorLoginRecheckInFlight: Promise<void> | null = null;
+let appUpdateStatus: AppUpdateStatus | null = null;
+let appUpdateInstallInFlight: Promise<void> | null = null;
+let appUpdateRenderFrame: number | undefined;
 type TokenProvider = ProviderName;
 const TOKEN_GAIN_VISIBLE_MS = 4_800;
 let tokenGains: Partial<Record<TokenProvider, number>> = {};
@@ -275,6 +278,155 @@ function showToast(message: string, tone: ToastTone = "info", durationMs = 2_800
       toast.classList.remove("visible");
       window.setTimeout(() => toast.remove(), 180);
     }, durationMs);
+  }
+}
+
+function boundedUpdateText(value: string | null, maxLength: number): string {
+  if (!value) return "";
+  return [...value.replace(/\s+/g, " ").trim()].slice(0, maxLength).join("");
+}
+
+function formatUpdateBytes(value: number): string {
+  const bytes = Number.isFinite(value) ? Math.max(0, value) : 0;
+  if (bytes < 1_024) return `${Math.round(bytes)} B`;
+  const units = ["KB", "MB", "GB"];
+  let amount = bytes / 1_024;
+  let unit = units[0];
+  for (let index = 1; index < units.length && amount >= 1_024; index += 1) {
+    amount /= 1_024;
+    unit = units[index];
+  }
+  return `${amount >= 100 ? amount.toFixed(0) : amount.toFixed(1)} ${unit}`;
+}
+
+function renderAppUpdateStatus(): string {
+  const status = appUpdateStatus;
+  if (!status?.supported || status.phase === "idle") return "";
+  const version = boundedUpdateText(status.version, 64) || t("update.unknownVersion");
+  const titleId = "app-update-title";
+
+  if (status.phase === "available") {
+    const manualDownload = status.mode === "manual_download";
+    const notes = boundedUpdateText(status.notes, 320)
+      || (manualDownload ? t("update.manualDescription") : "");
+    const buttonLabel = appUpdateInstallInFlight
+      ? t(manualDownload ? "update.opening" : "update.starting")
+      : t(manualDownload ? "update.download" : "update.install");
+    const buttonAriaLabel = t(
+      manualDownload ? "update.downloadAriaLabel" : "update.installAriaLabel",
+      { version },
+    );
+    return `<section class="app-update-card available" role="status" aria-live="polite" aria-labelledby="${titleId}">
+      <span class="app-update-mark" aria-hidden="true">↑</span>
+      <div class="app-update-copy">
+        <strong id="${titleId}">${escapeHtml(t("update.availableTitle", { version }))}</strong>
+        <small>${escapeHtml(t("update.versionPath", { current: boundedUpdateText(status.currentVersion, 64), next: version }))}</small>
+        ${notes ? `<p title="${escapeHtml(notes)}">${escapeHtml(notes)}</p>` : ""}
+      </div>
+      <button id="install-app-update" type="button" ${appUpdateInstallInFlight ? 'disabled aria-busy="true"' : ""} aria-label="${escapeHtml(buttonAriaLabel)}">${escapeHtml(buttonLabel)}</button>
+    </section>`;
+  }
+
+  if (status.phase === "downloading") {
+    const downloaded = Math.max(0, Number.isFinite(status.downloadedBytes) ? status.downloadedBytes : 0);
+    const total = status.totalBytes !== null && Number.isFinite(status.totalBytes) && status.totalBytes > 0
+      ? status.totalBytes
+      : null;
+    const percent = total === null ? null : Math.min(100, Math.round((downloaded / total) * 100));
+    const progress = total === null
+      ? t("update.downloadingBytes", { downloaded: formatUpdateBytes(downloaded) })
+      : t("update.downloadingProgress", {
+        percent: percent ?? 0,
+        downloaded: formatUpdateBytes(downloaded),
+        total: formatUpdateBytes(total),
+      });
+    return `<section class="app-update-card downloading" role="status" aria-live="polite" aria-labelledby="${titleId}">
+      <span class="app-update-mark is-busy" aria-hidden="true"></span>
+      <div class="app-update-copy">
+        <strong id="${titleId}">${escapeHtml(t("update.downloadingTitle", { version }))}</strong>
+        <small>${escapeHtml(progress)}</small>
+        <div class="app-update-progress ${percent === null ? "indeterminate" : ""}" role="progressbar" aria-label="${escapeHtml(progress)}" aria-valuemin="0" aria-valuemax="100" ${percent === null ? "" : `aria-valuenow="${percent}"`}><i style="width:${percent ?? 36}%"></i></div>
+      </div>
+    </section>`;
+  }
+
+  if (status.phase === "installing") {
+    return `<section class="app-update-card installing" role="status" aria-live="polite" aria-labelledby="${titleId}">
+      <span class="app-update-mark is-busy" aria-hidden="true"></span>
+      <div class="app-update-copy">
+        <strong id="${titleId}">${escapeHtml(t("update.installingTitle", { version }))}</strong>
+        <small>${escapeHtml(t("update.installingDescription"))}</small>
+      </div>
+    </section>`;
+  }
+
+  if (status.phase === "deferred") {
+    return `<section class="app-update-card deferred" role="status" aria-live="polite" aria-labelledby="${titleId}">
+      <span class="app-update-mark" aria-hidden="true">…</span>
+      <div class="app-update-copy">
+        <strong id="${titleId}">${escapeHtml(t("update.deferredTitle"))}</strong>
+        <small>${escapeHtml(t("update.deferredDescription"))}</small>
+      </div>
+    </section>`;
+  }
+
+  return "";
+}
+
+function bindAppUpdateAction(root: ParentNode = document): void {
+  const button = root.querySelector<HTMLButtonElement>("#install-app-update");
+  if (!button) return;
+  button.addEventListener("click", () => {
+    if (appUpdateInstallInFlight || appUpdateStatus?.phase !== "available") return;
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    const manualDownload = appUpdateStatus.mode === "manual_download";
+    button.textContent = t(manualDownload ? "update.opening" : "update.starting");
+    const task = (async () => {
+      try {
+        if (manualDownload) {
+          await invoke("open_app_update_download_page");
+        } else {
+          applyAppUpdateStatus(await invoke<AppUpdateStatus>("install_app_update"));
+        }
+      } catch {
+        // Update transport failures are deferred by the backend and must stay unobtrusive.
+      }
+    })();
+    appUpdateInstallInFlight = task;
+    void task.finally(() => {
+      if (appUpdateInstallInFlight === task) appUpdateInstallInFlight = null;
+      scheduleAppUpdateRegionSync();
+    });
+  });
+}
+
+function syncAppUpdateRegion(): void {
+  const region = document.querySelector<HTMLElement>("#app-update-region");
+  if (!region || view === "bubble" || panelMode !== "details") return;
+  region.innerHTML = renderAppUpdateStatus();
+  bindAppUpdateAction(region);
+}
+
+function scheduleAppUpdateRegionSync(): void {
+  if (view === "bubble" || panelMode !== "details" || appUpdateRenderFrame !== undefined) return;
+  appUpdateRenderFrame = window.requestAnimationFrame(() => {
+    appUpdateRenderFrame = undefined;
+    syncAppUpdateRegion();
+  });
+}
+
+function applyAppUpdateStatus(updated: AppUpdateStatus): void {
+  if (appUpdateStatus && updated.revision < appUpdateStatus.revision) return;
+  appUpdateStatus = updated;
+  scheduleAppUpdateRegionSync();
+}
+
+async function loadAppUpdateStatus(): Promise<void> {
+  try {
+    applyAppUpdateStatus(await invoke<AppUpdateStatus>("get_app_update_status"));
+  } catch {
+    // This status is optional UI; updater/network failures must never interrupt usage data.
   }
 }
 
@@ -1646,6 +1798,7 @@ function renderDetails(): void {
       ${payload.snapshot.refreshing ? `<div class="refresh-status" role="status"><i></i><span>${t("refresh.updating")}</span></div>` : ""}
       <button id="refresh" class="icon-btn" title="${payload.snapshot.refreshing ? t("refresh.refreshing") : t("refresh.now")}" aria-label="${payload.snapshot.refreshing ? t("refresh.refreshingUsage") : t("refresh.nowUsage")}"><span aria-hidden="true">↻</span></button>
     </div>
+    <div id="app-update-region" class="app-update-region">${renderAppUpdateStatus()}</div>
     ${renderBubbleConfig(payload.settings)}
     <div class="provider-list">${providerCard("Cursor", payload.snapshot.cursor)}${providerCard("Codex", payload.snapshot.codex)}${providerCard("Claude Code", payload.snapshot.claude)}</div>
     <footer>${payload.snapshot.refreshing
@@ -1653,6 +1806,7 @@ function renderDetails(): void {
       : t("refresh.everyMinutes", { minutes: payload.settings.refreshMinutes })}</footer>
   </main>`;
   document.querySelector("#refresh")?.addEventListener("click", () => { void refreshWithFeedback(); });
+  bindAppUpdateAction();
   document.querySelector("#login-cursor")?.addEventListener("click", () => { void loginCursor(); });
   document.querySelector("#enable-cursor-usage")?.addEventListener("click", () => enableCursorUsage());
   bindBubbleConfigEditor();
@@ -1905,6 +2059,9 @@ async function hidePanelWindow(): Promise<void> {
 }
 
 if (view !== "bubble") {
+  void listen<AppUpdateStatus>("app-update-status", (event) => applyAppUpdateStatus(event.payload))
+    .catch(() => undefined);
+  void loadAppUpdateStatus();
   void listen<{ mode: "details" | "menu"; dockSide?: BubbleDockSide }>("panel-mode", (event) => {
     panelMode = event.payload.mode;
     panelDockSide = event.payload.dockSide ?? panelDockSide;

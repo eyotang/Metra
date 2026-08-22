@@ -57,6 +57,10 @@ for (const locale of SUPPORTED_LOCALES) {
     `${locale} catalog keys must match zh-CN`,
   );
 }
+assert.match(translations["zh-CN"]["update.manualDescription"], /自动检测.*不会自动下载或安装.*手动下载/);
+assert.match(translations.en["update.manualDescription"], /detected automatically.*not be downloaded or installed automatically.*manually/i);
+assert.match(translations.ja["update.manualDescription"], /自動検出.*自動でダウンロードまたはインストール.*手動/u);
+assert.match(translations.ko["update.manualDescription"], /자동으로 감지.*자동으로 다운로드하거나 설치하지 않.*직접 다운로드/u);
 
 const english = createI18n({ locale: "en-GB" });
 assert.equal(english.locale, "en");
@@ -146,6 +150,26 @@ assert.match(readme, /context menu starts with a direct language selector[\s\S]*
 assert.match(chineseReadme, /自动检测[\s\S]*立即生效/, "Chinese docs must describe the context-menu language preference");
 assert.match(japaneseReadme, /自動検出[\s\S]*すぐに反映/u, "Japanese docs must describe the context-menu language preference");
 assert.match(koreanReadme, /자동 감지[\s\S]*즉시 적용/u, "Korean docs must describe the context-menu language preference");
+assert.match(
+  readme,
+  /Windows Portable also detects new versions automatically[\s\S]*never downloads or replaces/,
+  "English docs must distinguish automatic Portable detection from manual download",
+);
+assert.match(
+  chineseReadme,
+  /Windows 便携版也会自动检测新版本[\s\S]*绝不会自动下载或覆盖/,
+  "Chinese docs must distinguish automatic Portable detection from manual download",
+);
+assert.match(
+  japaneseReadme,
+  /Windows ポータブル版も新バージョンを自動検出[\s\S]*自動でダウンロードまたは置換/u,
+  "Japanese docs must distinguish automatic Portable detection from manual download",
+);
+assert.match(
+  koreanReadme,
+  /Windows 포터블 버전도 새 버전을 자동으로 감지[\s\S]*자동으로 내려받거나 교체/u,
+  "Korean docs must distinguish automatic Portable detection from manual download",
+);
 const languageSelectRule = styles.match(/\.language-select-control select \{([^}]*)\}/)?.[1] ?? "";
 const hoveredLanguageSelectRule = styles.match(/\.language-select-control select:hover,[^{]+\{([^}]*)\}/)?.[1] ?? "";
 const languageOptionRule = styles.match(/\.language-select-control select option \{([^}]*)\}/)?.[1] ?? "";

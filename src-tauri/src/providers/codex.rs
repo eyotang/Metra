@@ -132,6 +132,8 @@ use super::{
         find_executable_with_override,
     },
 };
+#[cfg(windows)]
+use std::path::Path;
 use std::{
     fs::File,
     io::{BufRead, BufReader, Write},
@@ -141,8 +143,6 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-#[cfg(windows)]
-use std::path::Path;
 
 #[derive(Debug)]
 pub struct CodexProvider {
@@ -385,13 +385,11 @@ impl UsageProvider for CodexProvider {
             Err(message) if message == CODEX_NOT_LOGGED_IN => {
                 ProviderSnapshot::unavailable(Provider::Codex, ProviderStatus::NotLoggedIn, message)
             }
-            Err(message) if message == CODEX_NETWORK_UNAVAILABLE => {
-                ProviderSnapshot::unavailable(
-                    Provider::Codex,
-                    ProviderStatus::NetworkError,
-                    message,
-                )
-            }
+            Err(message) if message == CODEX_NETWORK_UNAVAILABLE => ProviderSnapshot::unavailable(
+                Provider::Codex,
+                ProviderStatus::NetworkError,
+                message,
+            ),
             Err(message) => ProviderSnapshot::unavailable(
                 Provider::Codex,
                 ProviderStatus::ProtocolError,
@@ -455,10 +453,7 @@ fn codex_known_paths() -> Vec<PathBuf> {
 }
 
 #[cfg(target_os = "macos")]
-fn push_macos_app_bundle_candidates(
-    paths: &mut Vec<PathBuf>,
-    applications: &std::path::Path,
-) {
+fn push_macos_app_bundle_candidates(paths: &mut Vec<PathBuf>, applications: &std::path::Path) {
     paths.push(applications.join("Codex.app/Contents/Resources/codex"));
     paths.push(applications.join("ChatGPT.app/Contents/Resources/codex"));
 }
@@ -591,10 +586,8 @@ mod boundary_tests {
         let mut known_paths = Vec::new();
         push_macos_app_bundle_candidates(&mut known_paths, &applications);
 
-        let discovered = find_executable_prefer_known(
-            &["__metra_missing_codex_cli__"],
-            &known_paths,
-        );
+        let discovered =
+            find_executable_prefer_known(&["__metra_missing_codex_cli__"], &known_paths);
 
         assert_eq!(
             discovered.map(|value| value.path().to_path_buf()),
@@ -765,9 +758,7 @@ printf '%s\n' {final_rate_response}
     #[test]
     fn an_explicitly_empty_account_is_still_treated_as_logout() {
         let logged_out = [serde_json::json!({"id": 1, "result": {"account": null}})];
-        let logged_in = [
-            serde_json::json!({"id": 1, "result": {"account": {"type": "chatgpt"}}}),
-        ];
+        let logged_in = [serde_json::json!({"id": 1, "result": {"account": {"type": "chatgpt"}}})];
 
         assert!(account_is_explicitly_logged_out(&logged_out));
         assert!(!account_is_explicitly_logged_out(&logged_in));

@@ -479,10 +479,7 @@ fn validate_official_usage_status(status: reqwest::StatusCode) -> Result<(), Str
         return Err("Claude 官方用量接口请求过于频繁".into());
     }
     if !status.is_success() {
-        return Err(format!(
-            "Claude 官方用量接口返回 HTTP {}",
-            status.as_u16()
-        ));
+        return Err(format!("Claude 官方用量接口返回 HTTP {}", status.as_u16()));
     }
     Ok(())
 }
@@ -1396,12 +1393,9 @@ exit 1"#,
             .unwrap();
 
         let stale = provider
-            .official_usage_with(
-                "sk-ant-admin01-test",
-                date,
-                Some("Selected"),
-                |_, _, _| Err("network unavailable".into()),
-            )
+            .official_usage_with("sk-ant-admin01-test", date, Some("Selected"), |_, _, _| {
+                Err("network unavailable".into())
+            })
             .unwrap();
 
         assert_eq!(stale.usage, expected);

@@ -1,7 +1,7 @@
 {
   "name": "metra",
   "private": true,
-  "version": "0.1.38",
+  "version": "0.1.39",
   "packageManager": "pnpm@11.22.0",
   "engines": {
     "node": ">=22.13.0"
@@ -15,6 +15,7 @@
     "build:macos-universal": "node scripts/build-macos-universal.mjs",
     "build:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1",
     "check": "tsc --noEmit",
+    "generate:updater-manifest": "node scripts/generate-latest-json.mjs",
     "verify:color": "node scripts/verify-color-picker.mjs",
     "verify:cursor-login": "node scripts/verify-cursor-login.mjs",
     "verify:cursor-ultra": "node scripts/verify-cursor-ultra.mjs",
@@ -24,6 +25,7 @@
     "verify:i18n": "node --experimental-strip-types scripts/verify-i18n.mjs",
     "verify:macos-build": "node scripts/verify-macos-universal-build.mjs",
     "verify:package-manager": "node scripts/verify-package-manager.mjs",
+    "verify:updater-release": "node scripts/verify-updater-release.mjs",
     "verify:visibility": "node scripts/verify-bubble-visibility.mjs",
     "test": "cargo test --manifest-path src-tauri/Cargo.toml"
   },

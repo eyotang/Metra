@@ -38,13 +38,7 @@ pub fn snapshot_from_payloads_with_ultra_details(
     plan: Option<String>,
 ) -> Result<ProviderSnapshot, String> {
     snapshot_from_payloads_with_on_demand(
-        auth_usage,
-        summary,
-        dashboard,
-        sand,
-        hard_limit,
-        plan,
-        None,
+        auth_usage, summary, dashboard, sand, hard_limit, plan, None,
     )
 }
 
@@ -110,10 +104,7 @@ fn snapshot_from_payloads_with_on_demand(
     if is_ultra
         && let Some(sand) = sand
         && sand.get("includedLimitZero").and_then(Value::as_bool) != Some(true)
-        && sand
-            .get("hasNonZeroIncludedLimit")
-            .and_then(Value::as_bool)
-            != Some(false)
+        && sand.get("hasNonZeroIncludedLimit").and_then(Value::as_bool) != Some(false)
         && let Some(used_percent) = number(sand.get("usagePercent"))
     {
         quotas.push(
@@ -159,8 +150,7 @@ fn snapshot_from_payloads_with_on_demand(
         .map(as_cents)
         .filter(|limit| *limit > 0);
     let (on_demand_used, on_demand_limit) = on_demand(summary, dashboard);
-    let on_demand_enabled =
-        ultra_on_demand_enabled(is_ultra, summary, dashboard, hard_limit);
+    let on_demand_enabled = ultra_on_demand_enabled(is_ultra, summary, dashboard, hard_limit);
     let on_demand_used_cents = on_demand_events_cents.or_else(|| on_demand_used.map(as_cents));
     let on_demand_limit_cents = on_demand_limit.map(as_cents).filter(|limit| *limit > 0);
     if !is_ultra && (included_used.is_some() || on_demand_used_cents.is_some()) {
@@ -357,9 +347,7 @@ fn timestamp_value(raw: Option<&Value>) -> Option<DateTime<Utc>> {
         .or_else(|| raw.as_str()?.parse().ok())
         .or_else(|| {
             let seconds = raw.get("seconds")?;
-            seconds
-                .as_i64()
-                .or_else(|| seconds.as_str()?.parse().ok())
+            seconds.as_i64().or_else(|| seconds.as_str()?.parse().ok())
         })?;
     let seconds = if timestamp > 10_000_000_000 {
         timestamp / 1000
@@ -649,9 +637,8 @@ impl CursorProvider {
         );
         let dashboard_error = dashboard_result.as_ref().err().cloned();
         let dashboard = dashboard_result.ok();
-        let session_cookie =
-            extract_cursor_user_id(&token)
-                .map(|user_id| Zeroizing::new(cursor_session_cookie(&user_id, &token)));
+        let session_cookie = extract_cursor_user_id(&token)
+            .map(|user_id| Zeroizing::new(cursor_session_cookie(&user_id, &token)));
         let summary_result = session_cookie.as_deref().map(|cookie| {
             request_json(
                 &client,
@@ -1264,12 +1251,12 @@ fn hide_cursor_window(command: &mut Command) {
 
 #[cfg(test)]
 mod security_tests {
+    #[cfg(windows)]
+    use super::cursor_known_paths;
     use super::{
         allowed_cursor_url, cursor_session_cookie, extract_cursor_user_id,
         snapshot_from_payloads_with_on_demand,
     };
-    #[cfg(windows)]
-    use super::cursor_known_paths;
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     use serde_json::json;
     #[cfg(windows)]
@@ -1501,7 +1488,9 @@ mod login_executable_tests {
     #[test]
     fn login_side_effect_is_limited_to_the_named_cursor_agent_launcher() {
         assert!(is_cursor_login_executable(Path::new("/tmp/cursor-agent")));
-        assert!(is_cursor_login_executable(Path::new("/tmp/cursor-agent.cmd")));
+        assert!(is_cursor_login_executable(Path::new(
+            "/tmp/cursor-agent.cmd"
+        )));
         assert!(!is_cursor_login_executable(Path::new("/tmp/agent")));
         assert!(!is_cursor_login_executable(Path::new("/tmp/cursor")));
     }
@@ -1509,9 +1498,9 @@ mod login_executable_tests {
 
 #[cfg(test)]
 mod desktop_detection_tests {
-    use super::{cursor_agent_missing_state, cursor_desktop_installed_from};
     #[cfg(target_os = "macos")]
     use super::cursor_known_paths;
+    use super::{cursor_agent_missing_state, cursor_desktop_installed_from};
     use crate::model::ProviderStatus;
 
     #[test]
