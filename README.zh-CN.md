@@ -25,7 +25,7 @@ Metra 是一个轻量的跨平台桌面气泡，用来查看 Cursor、Codex 和 
 
 ## 开发
 
-需要 Rust stable、Node.js 22+、npm 或 pnpm，以及 Tauri 对应平台的系统依赖。
+需要 Rust stable、Node.js 22.13+、npm 或 pnpm，以及 Tauri 对应平台的系统依赖。
 
 ```text
 npm install
@@ -41,7 +41,17 @@ npm run dev
 npm run build
 ```
 
-Windows 产物位于 `src-tauri/target/release` 和 `src-tauri/target/release/bundle`。构建 macOS 通用包请使用专用命令：
+在 Windows 上，请先完全退出所有正在运行的 Metra 实例，再从仓库根目录打开 PowerShell 并执行。检测到 Metra 仍在运行时，脚本会给出明确提示并停止，避免产物文件被占用：
+
+```powershell
+npm install --global pnpm@11.22.0
+pnpm install --frozen-lockfile
+pnpm run build:portable
+```
+
+项目已在 `package.json` 中锁定 `pnpm@11.22.0`，第一条命令会直接安装这个版本，不依赖 Corepack。仓库中的 `pnpm-workspace.yaml` 已显式包含根包，避免 pnpm 报出 `packages field missing or empty`。项目级 Cargo 配置也禁用了用户级 rustc wrapper，因此不会再调用全局 `sccache`。便携版产物位于 `src-tauri/target/release/Metra-<version>-portable.exe`。如需生成 Windows 安装包，请改用 `pnpm run build`，产物位于 `src-tauri/target/release/bundle`。
+
+构建 macOS 通用包请使用专用命令：
 
 ```text
 pnpm run build:macos-universal

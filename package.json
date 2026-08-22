@@ -2,6 +2,10 @@
   "name": "metra",
   "private": true,
   "version": "0.1.38",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "author": "eyotang",
   "type": "module",
   "scripts": {
@@ -18,6 +22,7 @@
     "verify:bubble-snap": "node --experimental-strip-types scripts/verify-bubble-snap.mjs",
     "verify:i18n": "node --experimental-strip-types scripts/verify-i18n.mjs",
     "verify:macos-build": "node scripts/verify-macos-universal-build.mjs",
+    "verify:package-manager": "node scripts/verify-package-manager.mjs",
     "verify:visibility": "node scripts/verify-bubble-visibility.mjs",
     "test": "cargo test --manifest-path src-tauri/Cargo.toml"
   },
