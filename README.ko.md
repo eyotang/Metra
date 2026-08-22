@@ -25,7 +25,7 @@ Metra는 Cursor, Codex, Claude Code의 로그인 상태, 사용량 한도와 재
 
 ## 개발
 
-Rust stable, Node.js 22 이상, npm 및 현재 플랫폼용 Tauri 시스템 종속성이 필요합니다.
+Rust stable, Node.js 22.13 이상, npm 및 현재 플랫폼용 Tauri 시스템 종속성이 필요합니다.
 
 ```text
 npm install
@@ -35,13 +35,21 @@ npm test
 npm run dev
 ```
 
-릴리스 빌드를 생성하려면 다음 명령을 실행합니다.
+### Windows
 
-```text
-npm run build
+Windows PowerShell에서는 `package.json`에 고정된 pnpm 11.22.0을 사용하여 다음 순서로 포터블 버전을 빌드하세요. 첫 번째 명령이 고정된 버전을 직접 설치하므로 Corepack은 필요하지 않습니다. 빌드하기 전에 실행 중인 모든 Metra 인스턴스를 완전히 종료하세요. Metra가 실행 중이면 결과물 파일 잠금을 방지하기 위해 스크립트가 명확한 메시지를 표시하고 중단됩니다.
+
+```powershell
+npm install --global pnpm@11.22.0
+pnpm install --frozen-lockfile
+pnpm run build:portable
 ```
 
-Windows 빌드 결과물은 `src-tauri/target/release`와 `src-tauri/target/release/bundle`에 생성됩니다. macOS Universal 빌드에는 전용 명령을 사용하세요.
+`pnpm-workspace.yaml`의 `packages`에는 루트 패키지 `.`가 명시적으로 포함되어 있습니다. 따라서 pnpm이 루트 Metra 패키지를 올바르게 인식하며 `packages field missing or empty` 오류를 방지합니다. 프로젝트 Cargo 설정은 사용자 수준 rustc wrapper도 비활성화하므로 전역 `sccache`가 사용되지 않습니다. 포터블 버전은 `src-tauri/target/release/Metra-<version>-portable.exe`에 생성됩니다. Windows 설치 프로그램이 필요하면 `pnpm run build`를 사용하세요. 결과물은 `src-tauri/target/release/bundle`에 생성됩니다.
+
+### macOS Universal
+
+macOS Universal 빌드에는 전용 명령을 사용하세요.
 
 ```text
 pnpm run build:macos-universal

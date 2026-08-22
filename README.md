@@ -25,7 +25,7 @@ Metra is a lightweight cross-platform desktop bubble for checking Cursor, Codex,
 
 ## Development
 
-You need Rust stable, Node.js 22+, npm or pnpm, and the Tauri system dependencies for your platform.
+You need Rust stable, Node.js 22.13+, npm or pnpm, and the Tauri system dependencies for your platform.
 
 ```text
 npm install
@@ -41,7 +41,17 @@ Create a release build with:
 npm run build
 ```
 
-Windows artifacts are written to `src-tauri/target/release` and `src-tauri/target/release/bundle`. For a universal macOS build, use the dedicated command:
+On Windows, fully quit every running Metra instance first, then open PowerShell in the repository root and run. The script stops with a clear message while Metra is running, preventing locked output files:
+
+```powershell
+npm install --global pnpm@11.22.0
+pnpm install --frozen-lockfile
+pnpm run build:portable
+```
+
+The project pins `pnpm@11.22.0` in `package.json`, and the first command installs that exact version without depending on Corepack. The checked-in `pnpm-workspace.yaml` explicitly includes the root package, preventing pnpm's `packages field missing or empty` error. The project Cargo config also disables user-level rustc wrappers, so a global `sccache` setting is not used. The portable executable is written to `src-tauri/target/release/Metra-<version>-portable.exe`. To create Windows installers instead, run `pnpm run build`; those artifacts are written to `src-tauri/target/release/bundle`.
+
+For a universal macOS build, use the dedicated command:
 
 ```text
 pnpm run build:macos-universal
