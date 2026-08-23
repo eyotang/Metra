@@ -1807,7 +1807,7 @@ function renderDetails(): void {
     <div class="panel-title">
       <div class="panel-brand">${metraLogo()}<div><strong>Metra</strong><small>${t("app.usageSubtitle")}</small></div></div>
       ${payload.snapshot.refreshing ? `<div class="refresh-status" role="status"><i></i><span>${t("refresh.updating")}</span></div>` : ""}
-      <button id="refresh" class="icon-btn" title="${payload.snapshot.refreshing ? t("refresh.refreshing") : t("refresh.now")}" aria-label="${payload.snapshot.refreshing ? t("refresh.refreshingUsage") : t("refresh.nowUsage")}"><span aria-hidden="true">↻</span></button>
+      <button id="refresh" class="icon-btn" title="${payload.snapshot.refreshing ? t("refresh.refreshing") : t("refresh.now")}" aria-label="${payload.snapshot.refreshing ? t("refresh.refreshingUsage") : t("refresh.nowUsage")}"><i aria-hidden="true">↻</i></button>
     </div>
     <div id="app-update-region" class="app-update-region">${renderAppUpdateStatus()}</div>
     ${renderBubbleConfig(payload.settings)}
