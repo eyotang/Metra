@@ -228,7 +228,11 @@ $nativeShow = [regex]::Match($appRust, 'fn show_panel_window\([\s\S]*?\n\}').Val
 if ($nativeShow -notmatch 'is_visible\(\)' -or $nativeShow -notmatch 'should_hide_panel' -or $nativeShow -notmatch 'panel\.hide\(\)') {
   $failures += "native details toggle does not check visibility before hiding"
 }
-$nativePosition = $nativeShow.IndexOf('set_position')
+$nativeFrame = [regex]::Match($appRust, 'fn apply_panel_frame\([\s\S]*?\n\}').Value
+if ($nativeFrame -notmatch 'set_position' -or $nativeFrame -notmatch 'set_size') {
+  $failures += "native panel frame helper does not position and size the window"
+}
+$nativePosition = $nativeShow.IndexOf('apply_panel_frame')
 $nativeShowIndex = $nativeShow.IndexOf('.show()')
 if ($nativePosition -lt 0 -or $nativeShowIndex -lt 0 -or $nativePosition -gt $nativeShowIndex) {
   $failures += "native panel command does not position before showing"
