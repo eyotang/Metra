@@ -1,6 +1,6 @@
 [package]
 name = "metra"
-version = "0.1.44"
+version = "0.2.0"
 description = "Cursor, Codex, and Claude Code usage bubble"
 authors = ["eyotang"]
 edition = "2024"
