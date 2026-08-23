@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 
-const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
-const app = readFileSync(new URL("../src-tauri/src/app.rs", import.meta.url), "utf8");
-const service = readFileSync(new URL("../src-tauri/src/service.rs", import.meta.url), "utf8");
+const readSource = (path) => readFileSync(new URL(path, import.meta.url), "utf8").replace(/\r\n?/g, "\n");
+const main = readSource("../src/main.ts");
+const app = readSource("../src-tauri/src/app.rs");
+const service = readSource("../src-tauri/src/service.rs");
 
 function requireMatch(source, pattern, message) {
   if (!pattern.test(source)) throw new Error(message);
