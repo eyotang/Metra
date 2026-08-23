@@ -14,6 +14,7 @@ import {
   type BubbleSize,
 } from "./bubble-geometry";
 import { decideBubbleGestureCompletion, probeBubbleRelease } from "./bubble-gesture";
+import { nextLanguageOptionIndex, type LanguageListboxNavigationKey } from "./language-listbox";
 import type { AppPayload, AppSettings, AppUpdateStatus, BubblePercentMode, ProviderName, ProviderSnapshot, ProviderStatus, QuotaKind, UiLanguage } from "./types";
 import { ProviderCardNavigator, shouldNavigateFromProviderRow } from "./provider-navigation";
 import {
@@ -45,7 +46,15 @@ let activeLanguagePreference: UiLanguage | null = null;
 let panelMode: "details" | "menu" = "details";
 let panelDockSide: BubbleDockSide = "right";
 let panelRequestSequence = 0;
-const MENU_PANEL_HEIGHT = 480;
+let activePanelRequestId = 0;
+let panelLayoutRevision = 0;
+let menuResizeFrame: number | null = null;
+let menuResizeObserver: ResizeObserver | null = null;
+let lastMenuResizeKey = "";
+let activeLanguageListbox: HTMLElement | null = null;
+let activeLanguageTrigger: HTMLButtonElement | null = null;
+let activeLanguageIndex = 0;
+let languageUpdateInFlight = false;
 const PANEL_GAP = 3;
 const ACTION_TIMEOUT_MS = 8_000;
 const PANEL_SHOW_TIMEOUT_MS = 1_000;
@@ -1802,6 +1811,9 @@ function bindBubbleConfigEditor(): void {
 
 function renderDetails(): void {
   if (!payload) return;
+  stopMenuPanelMeasurement();
+  closeLanguageListbox(false);
+  panelLayoutRevision += 1;
   closeColorPalette(false);
   app.innerHTML = `<main class="panel details-panel ${payload.snapshot.refreshing ? "is-refreshing" : ""}">
     <div class="panel-title">
@@ -1909,20 +1921,175 @@ function enableCursorUsage(): void {
   };
 }
 
+type LanguageFocusTarget = "trigger" | "next" | null;
+
+function dismissLanguageListboxOnPointerDown(event: PointerEvent): void {
+  const target = event.target as Node;
+  if (activeLanguageListbox?.contains(target) || activeLanguageTrigger?.contains(target)) return;
+  closeLanguageListbox(false);
+}
+
+function closeLanguageListbox(restoreFocus = false): boolean {
+  if (!activeLanguageListbox || !activeLanguageTrigger) return false;
+  const trigger = activeLanguageTrigger;
+  document.removeEventListener("pointerdown", dismissLanguageListboxOnPointerDown, true);
+  activeLanguageListbox.hidden = true;
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.removeAttribute("aria-activedescendant");
+  activeLanguageListbox = null;
+  activeLanguageTrigger = null;
+  if (restoreFocus && trigger.isConnected) requestAnimationFrame(() => trigger.focus());
+  return true;
+}
+
+function setActiveLanguageOption(index: number): void {
+  if (!activeLanguageListbox || !activeLanguageTrigger) return;
+  const options = [...activeLanguageListbox.querySelectorAll<HTMLElement>("[data-language-option]")];
+  if (!options.length) return;
+  activeLanguageIndex = Math.min(Math.max(index, 0), options.length - 1);
+  options.forEach((option, optionIndex) => {
+    option.dataset.active = String(optionIndex === activeLanguageIndex);
+  });
+  const activeOption = options[activeLanguageIndex];
+  activeLanguageTrigger.setAttribute("aria-activedescendant", activeOption.id);
+  requestAnimationFrame(() => {
+    if (activeLanguageListbox?.contains(activeOption)) activeOption.scrollIntoView({ block: "nearest" });
+  });
+}
+
+function openLanguageListbox(trigger: HTMLButtonElement, listbox: HTMLElement, index: number): void {
+  if (activeLanguageListbox === listbox) {
+    closeLanguageListbox(true);
+    return;
+  }
+  closeLanguageListbox(false);
+  activeLanguageListbox = listbox;
+  activeLanguageTrigger = trigger;
+  listbox.hidden = false;
+  trigger.setAttribute("aria-expanded", "true");
+  setActiveLanguageOption(index);
+  document.addEventListener("pointerdown", dismissLanguageListboxOnPointerDown, true);
+}
+
+function stopMenuPanelMeasurement(): void {
+  if (menuResizeFrame !== null) cancelAnimationFrame(menuResizeFrame);
+  menuResizeFrame = null;
+  menuResizeObserver?.disconnect();
+  menuResizeObserver = null;
+}
+
+function scheduleMenuPanelResize(layoutRevision: number): void {
+  if (view === "bubble" || panelMode !== "menu" || activePanelRequestId <= 0) return;
+  if (menuResizeFrame !== null) cancelAnimationFrame(menuResizeFrame);
+  const requestId = activePanelRequestId;
+  menuResizeFrame = requestAnimationFrame(() => {
+    menuResizeFrame = null;
+    if (layoutRevision !== panelLayoutRevision || panelMode !== "menu" || requestId !== activePanelRequestId) return;
+    const surface = app.querySelector<HTMLElement>(".menu-panel");
+    if (!surface) return;
+    const borderHeight = surface.offsetHeight - surface.clientHeight;
+    const height = Math.ceil(Math.max(
+      surface.getBoundingClientRect().height,
+      surface.scrollHeight + borderHeight,
+    ));
+    if (!Number.isFinite(height) || height <= 0) return;
+    const resizeKey = `${requestId}:${height}`;
+    if (resizeKey === lastMenuResizeKey) return;
+    lastMenuResizeKey = resizeKey;
+    void invokeWithTimeout<boolean>(
+      "resize_menu_panel",
+      { height, requestId },
+      PANEL_SHOW_TIMEOUT_MS,
+      t("panel.show"),
+    ).then((applied) => {
+      if (!applied && lastMenuResizeKey === resizeKey) lastMenuResizeKey = "";
+    }).catch(() => {
+      if (lastMenuResizeKey === resizeKey) lastMenuResizeKey = "";
+    });
+  });
+}
+
+function observeMenuPanelSize(layoutRevision: number): void {
+  const surface = app.querySelector<HTMLElement>(".menu-panel");
+  if (!surface) return;
+  scheduleMenuPanelResize(layoutRevision);
+  menuResizeObserver = new ResizeObserver(() => scheduleMenuPanelResize(layoutRevision));
+  menuResizeObserver.observe(surface);
+}
+
+function restoreLanguageFocus(target: LanguageFocusTarget, layoutRevision: number): void {
+  if (!target) return;
+  requestAnimationFrame(() => {
+    if (layoutRevision !== panelLayoutRevision || panelMode !== "menu") return;
+    const selector = target === "trigger" ? "[data-language-trigger]" : "[data-interval]";
+    app.querySelector<HTMLButtonElement>(selector)?.focus();
+  });
+}
+
+async function updateUiLanguage(
+  language: UiLanguage,
+  trigger: HTMLButtonElement,
+  focusTarget: LanguageFocusTarget,
+): Promise<void> {
+  const requestId = activePanelRequestId;
+  closeLanguageListbox(false);
+  if (!payload || language === payload.settings.uiLanguage) {
+    if (focusTarget === "trigger" && trigger.isConnected) trigger.focus();
+    return;
+  }
+  languageUpdateInFlight = true;
+  trigger.disabled = true;
+  trigger.setAttribute("aria-busy", "true");
+  showToast(t("menu.switchingLanguage"), "loading", 0);
+  try {
+    const settings = await invokeWithTimeout<AppSettings>(
+      "set_ui_language",
+      { language, locale: effectiveLocale(language) },
+      ACTION_TIMEOUT_MS,
+      t("menu.updateLanguageAction"),
+    );
+    payload.settings = settings;
+    applyLanguagePreference(settings.uiLanguage);
+    languageUpdateInFlight = false;
+    const menuRequestIsCurrent = panelMode === "menu" && activePanelRequestId === requestId;
+    renderPanel();
+    if (menuRequestIsCurrent) restoreLanguageFocus(focusTarget, panelLayoutRevision);
+    showToast(t("menu.languageUpdated"), "success");
+  } catch (reason) {
+    languageUpdateInFlight = false;
+    const menuRequestIsCurrent = panelMode === "menu" && activePanelRequestId === requestId;
+    if (menuRequestIsCurrent && trigger.isConnected) {
+      trigger.disabled = false;
+      trigger.setAttribute("aria-busy", "false");
+      if (focusTarget === "trigger") trigger.focus();
+    } else {
+      renderPanel();
+      if (menuRequestIsCurrent) restoreLanguageFocus(focusTarget, panelLayoutRevision);
+    }
+    showToast(friendlyError(reason, t("action.failed", { action: t("menu.updateLanguageAction") })), "error", 4_500);
+  }
+}
+
 function renderMenu(): void {
   if (!payload) return;
+  stopMenuPanelMeasurement();
+  closeLanguageListbox(false);
   closeColorPalette(false);
+  const layoutRevision = ++panelLayoutRevision;
   const s = payload.settings;
+  const selectedLanguage = UI_LANGUAGE_OPTIONS.find(({ value }) => value === s.uiLanguage) ?? UI_LANGUAGE_OPTIONS[0];
   app.innerHTML = `<main class="panel menu-panel">
     <div class="menu-brand">${metraLogo()}<div><strong>Metra</strong><small>${t("app.desktopBubbleSubtitle")}</small></div></div>
     <div class="menu-language-row">
-      <span>${t("menu.language")}</span>
-      <label class="language-select-control">
-        <select data-ui-language aria-label="${t("menu.language")}">
-          ${UI_LANGUAGE_OPTIONS.map(({ value, labelKey }) => `<option value="${value}" ${s.uiLanguage === value ? "selected" : ""}>${t(labelKey)}</option>`).join("")}
-        </select>
-        <i aria-hidden="true"></i>
-      </label>
+      <span id="menu-language-label">${t("menu.language")}</span>
+      <div class="language-select-control">
+        <button type="button" class="language-select-trigger" data-language-trigger role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="language-listbox" aria-labelledby="menu-language-label language-combobox-value" aria-busy="${languageUpdateInFlight}" ${languageUpdateInFlight ? "disabled" : ""}>
+          <span id="language-combobox-value">${t(selectedLanguage.labelKey)}</span><i aria-hidden="true"></i>
+        </button>
+        <div class="language-listbox" id="language-listbox" role="listbox" aria-labelledby="menu-language-label" hidden>
+          ${UI_LANGUAGE_OPTIONS.map(({ value, labelKey }) => `<div id="language-option-${value}" class="language-option" data-language-option="${value}" role="option" aria-selected="${s.uiLanguage === value}">${t(labelKey)}</div>`).join("")}
+        </div>
+      </div>
     </div>
     <div class="menu-label">${t("menu.refreshInterval")}</div>
     <div class="intervals">${[1, 5, 15, 30, 60].map((n) => `<button data-interval="${n}" class="${s.refreshMinutes === n ? "selected" : ""}">${n < 60 ? `${n}m` : "1h"}</button>`).join("")}</div>
@@ -1934,31 +2101,67 @@ function renderMenu(): void {
     <button data-action="rescan"><span>${t("menu.rescanCli")}</span><kbd>↻</kbd></button>
     <button data-action="quit" class="danger"><span>${t("menu.quit")}</span></button>
   </main>`;
-  const languageSelect = app.querySelector<HTMLSelectElement>("[data-ui-language]");
-  if (languageSelect) languageSelect.onchange = () => {
-    void (async () => {
-      const language = languageSelect.value as UiLanguage;
-      if (language === payload!.settings.uiLanguage) return;
-      languageSelect.disabled = true;
-      showToast(t("menu.switchingLanguage"), "loading", 0);
-      try {
-        const settings = await invokeWithTimeout<AppSettings>(
-          "set_ui_language",
-          { language, locale: effectiveLocale(language) },
-          ACTION_TIMEOUT_MS,
-          t("menu.updateLanguageAction"),
-        );
-        payload!.settings = settings;
-        applyLanguagePreference(settings.uiLanguage);
-        renderMenu();
-        showToast(t("menu.languageUpdated"), "success");
-      } catch (reason) {
-        languageSelect.disabled = false;
-        languageSelect.value = payload!.settings.uiLanguage;
-        showToast(friendlyError(reason, t("action.failed", { action: t("menu.updateLanguageAction") })), "error", 4_500);
+  const languageTrigger = app.querySelector<HTMLButtonElement>("[data-language-trigger]");
+  const languageListbox = app.querySelector<HTMLElement>("#language-listbox");
+  const languageOptions = languageListbox
+    ? [...languageListbox.querySelectorAll<HTMLElement>("[data-language-option]")]
+    : [];
+  const selectedLanguageIndex = Math.max(0, UI_LANGUAGE_OPTIONS.findIndex(({ value }) => value === s.uiLanguage));
+  if (languageTrigger && languageListbox && languageOptions.length) {
+    languageTrigger.onclick = () => openLanguageListbox(languageTrigger, languageListbox, selectedLanguageIndex);
+    languageTrigger.onkeydown = (event) => {
+      const expanded = activeLanguageListbox === languageListbox;
+      const navigationKey = ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)
+        ? event.key as LanguageListboxNavigationKey
+        : null;
+      if (navigationKey) {
+        event.preventDefault();
+        if (!expanded) {
+          const initialIndex = navigationKey === "Home"
+            ? 0
+            : navigationKey === "End"
+              ? languageOptions.length - 1
+              : selectedLanguageIndex;
+          openLanguageListbox(languageTrigger, languageListbox, initialIndex);
+        } else {
+          const nextIndex = nextLanguageOptionIndex(navigationKey, activeLanguageIndex, languageOptions.length);
+          if (nextIndex !== null) setActiveLanguageOption(nextIndex);
+        }
+        return;
       }
-    })();
-  };
+      if (event.key === "Escape" && expanded) {
+        event.preventDefault();
+        event.stopPropagation();
+        closeLanguageListbox(true);
+        return;
+      }
+      if ((event.key === "Enter" || event.key === " ") && expanded) {
+        event.preventDefault();
+        const language = languageOptions[activeLanguageIndex]?.dataset.languageOption as UiLanguage | undefined;
+        if (language) void updateUiLanguage(language, languageTrigger, "trigger");
+        return;
+      }
+      if ((event.key === "Enter" || event.key === " ") && !expanded) {
+        event.preventDefault();
+        openLanguageListbox(languageTrigger, languageListbox, selectedLanguageIndex);
+        return;
+      }
+      if (event.key === "Tab" && expanded) {
+        const language = languageOptions[activeLanguageIndex]?.dataset.languageOption as UiLanguage | undefined;
+        if (language) {
+          const focusTarget = event.shiftKey ? null : "next";
+          window.setTimeout(() => { void updateUiLanguage(language, languageTrigger, focusTarget); }, 0);
+        }
+      }
+    };
+    languageOptions.forEach((option) => {
+      option.addEventListener("pointerdown", (event) => event.preventDefault());
+      option.addEventListener("click", () => {
+        const language = option.dataset.languageOption as UiLanguage | undefined;
+        if (language) void updateUiLanguage(language, languageTrigger, "trigger");
+      });
+    });
+  }
   app.querySelectorAll<HTMLButtonElement>("[data-percent-mode]").forEach((button) => button.onclick = () => {
     void (async () => {
       const mode = button.dataset.percentMode as BubblePercentMode;
@@ -2038,6 +2241,7 @@ function renderMenu(): void {
       }
     })();
   });
+  observeMenuPanelSize(layoutRevision);
 }
 
 function renderPanel(): void {
@@ -2073,7 +2277,9 @@ if (view !== "bubble") {
   void listen<AppUpdateStatus>("app-update-status", (event) => applyAppUpdateStatus(event.payload))
     .catch(() => undefined);
   void loadAppUpdateStatus();
-  void listen<{ mode: "details" | "menu"; dockSide?: BubbleDockSide }>("panel-mode", (event) => {
+  void listen<{ mode: "details" | "menu"; dockSide?: BubbleDockSide; requestId: number }>("panel-mode", (event) => {
+    if (event.payload.requestId < activePanelRequestId) return;
+    activePanelRequestId = event.payload.requestId;
     panelMode = event.payload.mode;
     panelDockSide = event.payload.dockSide ?? panelDockSide;
     renderPanel();
@@ -2083,6 +2289,7 @@ if (view !== "bubble") {
       if (cursorLoginPending) void recheckCursorLogin();
       return;
     }
+    closeLanguageListbox(false);
     window.setTimeout(() => {
       void (async () => {
         try {
@@ -2096,6 +2303,10 @@ if (view !== "bubble") {
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      if (closeLanguageListbox(true)) {
+        event.preventDefault();
+        return;
+      }
       if (closeColorPalette(true)) {
         event.preventDefault();
         return;

@@ -80,9 +80,11 @@ if ($directInvokes -ne 3) { $failures += "unexpected IPC operations bypass the t
 if ($main -notmatch 'const UPDATE_INSTALL_TIMEOUT_MS = 6 \* 60_000' -or $main -notmatch '"install_app_update",[\s\S]{0,120}?UPDATE_INSTALL_TIMEOUT_MS') {
   $failures += "application update installation does not use its bounded long-running timeout"
 }
-if ($main -notmatch 'const MENU_PANEL_HEIGHT = 480' -or $appRust -notmatch '"menu" => \(252\.0, 480\.0, PANEL_MODE_MENU\)') { $failures += "menu panel height is not fitted to four-language content" }
+if ($main -match 'const MENU_PANEL_HEIGHT\s*=\s*480' -or $main -notmatch 'getBoundingClientRect\(\)\.height' -or $main -notmatch '"resize_menu_panel"' -or $appRust -notmatch 'fn resize_menu_panel\(' -or $appRust -notmatch 'frame_gate' -or $appRust -notmatch '"requestId": request_id') {
+  $failures += "menu panel does not fit its rendered content with stale-request protection"
+}
 $menuRenderer = [regex]::Match($main, 'function renderMenu\(\): void \{[\s\S]*?\n\}').Value
-if ($menuRenderer -notmatch 'menu-language-row[\s\S]{0,500}data-ui-language' -or $menuRenderer -match 'data-action="refresh"' -or $main -notmatch 'set_ui_language' -or $types -notmatch 'uiLanguage:\s*UiLanguage' -or $settingsRust -notmatch 'pub ui_language:\s*UiLanguage') {
+if ($menuRenderer -notmatch 'menu-language-row[\s\S]{0,900}data-language-trigger' -or $menuRenderer -notmatch 'role="combobox"' -or $menuRenderer -notmatch 'role="listbox"' -or $menuRenderer -notmatch 'role="option"' -or $menuRenderer -match '<select\b|<option\b' -or $menuRenderer -match 'data-action="refresh"' -or $main -notmatch 'set_ui_language' -or $types -notmatch 'uiLanguage:\s*UiLanguage' -or $settingsRust -notmatch 'pub ui_language:\s*UiLanguage') {
   $failures += "the context menu must start with the persisted language selector without a duplicate refresh action"
 }
 if ($main -notmatch 'const PANEL_GAP = 3') { $failures += "panel gap is not the compact 3px contract" }
@@ -115,7 +117,7 @@ if ($main -notmatch 'PROVIDER_ORDER[\s\S]*?"cursor"[\s\S]*?"codex"[\s\S]*?"claud
 if ($main -notmatch 'providerCard\("Claude Code",\s*payload\.snapshot\.claude\)' -or $main -notmatch 't\("loading\.usage"\)' -or $i18n -notmatch 'Cursor、Codex 和 Claude Code' -or $i18n -notmatch 'Cursor, Codex, and Claude Code' -or $main -notmatch 'PROVIDER_META\[provider\]\.name' -or $main -notmatch 'setAttribute\("aria-label"') {
   $failures += "details, loading, or accessible copy does not include Claude Code"
 }
-if ($appRust -notmatch '\(width \* scale\)\.round\(\) as u32' -or $appRust -notmatch '\(height \* scale\)\.round\(\) as u32') {
+if ($appRust -notmatch '\(width \* anchor\.scale\)\.round\(\)' -or $appRust -notmatch '\(height \* anchor\.scale\)\.round\(\)') {
   $failures += "panel position does not use the requested logical size at the current monitor scale"
 }
 if ($main -notmatch 'panelRequestSequence' -or $appRust -notmatch 'request_id' -or $appRust -notmatch 'Ordering::Acquire') {

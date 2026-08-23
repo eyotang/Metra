@@ -8,9 +8,7 @@ use std::{
 };
 
 use serde::Serialize;
-use tauri::{
-    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow,
-};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use tauri::{
     Runtime,
@@ -50,6 +48,12 @@ unsafe extern "system" {
 
 const PANEL_MODE_DETAILS: u8 = 1;
 const PANEL_MODE_MENU: u8 = 2;
+const DETAILS_PANEL_WIDTH: f64 = 340.0;
+const DETAILS_PANEL_HEIGHT: f64 = 480.0;
+const MENU_PANEL_WIDTH: f64 = 252.0;
+const MENU_PANEL_FALLBACK_HEIGHT: f64 = 480.0;
+const MENU_PANEL_MIN_HEIGHT: f64 = 240.0;
+const MENU_PANEL_MAX_HEIGHT: f64 = 720.0;
 const CURSOR_SETTINGS_DEEP_LINK: &str = "cursor://anysphere.cursor-deeplink/settings/plan-usage";
 const CURSOR_LOGIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const CURSOR_AGENT_LOGIN_ARGS: &[&str] = &["login"];
@@ -142,6 +146,8 @@ struct PanelRequestState {
     latest_request: AtomicU64,
     latest_bubble_request: AtomicU64,
     visible_mode: AtomicU8,
+    menu_height: AtomicU64,
+    frame_gate: Mutex<()>,
 }
 
 #[derive(Default)]
@@ -401,6 +407,11 @@ fn next_panel_request(requests: &PanelRequestState) -> u64 {
     requests.latest_request.fetch_add(1, Ordering::AcqRel) + 1
 }
 
+fn is_current_menu_request(requests: &PanelRequestState, request_id: u64) -> bool {
+    requests.latest_request.load(Ordering::Acquire) == request_id
+        && requests.visible_mode.load(Ordering::Acquire) == PANEL_MODE_MENU
+}
+
 #[tauri::command]
 fn is_primary_mouse_button_pressed() -> bool {
     #[cfg(target_os = "macos")]
@@ -466,45 +477,20 @@ fn calculate_panel_position(
     )
 }
 
-fn show_panel_window(
-    mode: &str,
-    toggle: bool,
-    request_id: u64,
-    app: &AppHandle,
-    requests: &PanelRequestState,
-) -> Result<u64, String> {
-    let started = Instant::now();
-    let (width, height, mode_code) = match mode {
-        "details" => (340.0, 480.0, PANEL_MODE_DETAILS),
-        "menu" => (252.0, 480.0, PANEL_MODE_MENU),
-        _ => return Err("未知弹窗模式".into()),
-    };
+struct PanelAnchor {
+    bubble_x: i32,
+    bubble_y: i32,
+    full_bubble_width: u32,
+    work_area: Option<(i32, i32, u32, u32)>,
+    scale: f64,
+    dock_side: &'static str,
+    reveal_bubble: bool,
+}
+
+fn resolve_panel_anchor(app: &AppHandle) -> Result<PanelAnchor, String> {
     let bubble = app
         .get_webview_window("bubble")
         .ok_or_else(|| "气泡窗口不可用".to_string())?;
-    let panel = app
-        .get_webview_window("panel")
-        .ok_or_else(|| "详情窗口不可用".to_string())?;
-    let panel_visible = panel.is_visible().unwrap_or(false);
-    if should_hide_panel(
-        toggle,
-        mode_code,
-        requests.visible_mode.load(Ordering::Acquire),
-        panel_visible,
-    ) {
-        panel.hide().map_err(|_| "无法收起详情窗口".to_string())?;
-        let _ = app.emit(
-            "panel-visibility-changed",
-            serde_json::json!({ "visible": false }),
-        );
-        return Ok(started.elapsed().as_millis() as u64);
-    }
-    panel
-        .set_size(LogicalSize::new(width, height))
-        .map_err(|_| "无法调整弹窗大小".to_string())?;
-    if requests.latest_request.load(Ordering::Acquire) != request_id {
-        return Ok(started.elapsed().as_millis() as u64);
-    }
     let bubble_position = bubble
         .outer_position()
         .map_err(|_| "无法读取气泡位置".to_string())?;
@@ -529,48 +515,181 @@ fn show_panel_window(
         i64::from(bubble_position.x) + i64::from(bubble_size.width / 2)
             >= i64::from(work_x) + i64::from(work_width / 2)
     });
-    let dock_side = if docked_right { "right" } else { "left" };
-    let bubble_x = panel_bubble_x(
-        bubble_position.x,
-        bubble_size.width,
+    Ok(PanelAnchor {
+        bubble_x: panel_bubble_x(
+            bubble_position.x,
+            bubble_size.width,
+            full_bubble_width,
+            docked_right,
+        ),
+        bubble_y: bubble_position.y,
         full_bubble_width,
-        docked_right,
-    );
-    if bubble_size.width < full_bubble_width {
-        let _ = app.emit(
-            "bubble-reveal-requested",
-            serde_json::json!({ "side": dock_side }),
-        );
-    }
-    let (x, y) = calculate_panel_position(
-        bubble_x,
-        bubble_position.y,
-        full_bubble_width,
-        (width * scale).round() as u32,
-        (height * scale).round() as u32,
         work_area,
         scale,
+        dock_side: if docked_right { "right" } else { "left" },
+        reveal_bubble: bubble_size.width < full_bubble_width,
+    })
+}
+
+fn apply_panel_frame(
+    panel: &WebviewWindow,
+    anchor: &PanelAnchor,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    let physical_width = (width * anchor.scale).round().max(1.0) as u32;
+    let physical_height = (height * anchor.scale).round().max(1.0) as u32;
+    let (x, y) = calculate_panel_position(
+        anchor.bubble_x,
+        anchor.bubble_y,
+        anchor.full_bubble_width,
+        physical_width,
+        physical_height,
+        anchor.work_area,
+        anchor.scale,
     );
     panel
         .set_position(PhysicalPosition::new(x, y))
         .map_err(|_| "无法定位弹窗".to_string())?;
+    panel
+        .set_size(PhysicalSize::new(physical_width, physical_height))
+        .map_err(|_| "无法调整弹窗大小".to_string())
+}
+
+fn clamp_menu_panel_height(
+    requested_height: f64,
+    work_area: Option<(i32, i32, u32, u32)>,
+    scale: f64,
+) -> f64 {
+    let bounded = requested_height.clamp(MENU_PANEL_MIN_HEIGHT, MENU_PANEL_MAX_HEIGHT);
+    let Some((_, _, _, work_height)) = work_area else {
+        return bounded;
+    };
+    let available = (f64::from(work_height) / scale - 16.0).max(1.0);
+    bounded.min(available)
+}
+
+fn show_panel_window(
+    mode: &str,
+    toggle: bool,
+    request_id: u64,
+    app: &AppHandle,
+    requests: &PanelRequestState,
+) -> Result<u64, String> {
+    let started = Instant::now();
+    let _frame_guard = requests
+        .frame_gate
+        .lock()
+        .map_err(|_| "弹窗布局状态不可用".to_string())?;
     if requests.latest_request.load(Ordering::Acquire) != request_id {
         return Ok(started.elapsed().as_millis() as u64);
     }
-    panel
+    let (width, height, mode_code) = match mode {
+        "details" => (
+            DETAILS_PANEL_WIDTH,
+            DETAILS_PANEL_HEIGHT,
+            PANEL_MODE_DETAILS,
+        ),
+        "menu" => {
+            let measured = requests.menu_height.load(Ordering::Acquire);
+            let height = if measured == 0 {
+                MENU_PANEL_FALLBACK_HEIGHT
+            } else {
+                measured as f64
+            };
+            (MENU_PANEL_WIDTH, height, PANEL_MODE_MENU)
+        }
+        _ => return Err("未知弹窗模式".into()),
+    };
+    let panel = app
+        .get_webview_window("panel")
+        .ok_or_else(|| "详情窗口不可用".to_string())?;
+    let panel_visible = panel.is_visible().unwrap_or(false);
+    if should_hide_panel(
+        toggle,
+        mode_code,
+        requests.visible_mode.load(Ordering::Acquire),
+        panel_visible,
+    ) {
+        panel.hide().map_err(|_| "无法收起详情窗口".to_string())?;
+        requests.visible_mode.store(0, Ordering::Release);
+        let _ = app.emit(
+            "panel-visibility-changed",
+            serde_json::json!({ "visible": false }),
+        );
+        return Ok(started.elapsed().as_millis() as u64);
+    }
+    let anchor = resolve_panel_anchor(app)?;
+    let height = if mode_code == PANEL_MODE_MENU {
+        clamp_menu_panel_height(height, anchor.work_area, anchor.scale)
+    } else {
+        height
+    };
+    if anchor.reveal_bubble {
+        let _ = app.emit(
+            "bubble-reveal-requested",
+            serde_json::json!({ "side": anchor.dock_side }),
+        );
+    }
+    apply_panel_frame(&panel, &anchor, width, height)?;
+    if requests.latest_request.load(Ordering::Acquire) != request_id {
+        return Ok(started.elapsed().as_millis() as u64);
+    }
+    requests.visible_mode.store(mode_code, Ordering::Release);
+    if panel
         .emit(
             "panel-mode",
-            serde_json::json!({ "mode": mode, "dockSide": dock_side }),
+            serde_json::json!({ "mode": mode, "dockSide": anchor.dock_side, "requestId": request_id }),
         )
-        .map_err(|_| "无法切换弹窗内容".to_string())?;
-    panel.show().map_err(|_| "无法显示弹窗".to_string())?;
+        .is_err()
+    {
+        requests.visible_mode.store(0, Ordering::Release);
+        return Err("无法切换弹窗内容".into());
+    }
+    if panel.show().is_err() {
+        requests.visible_mode.store(0, Ordering::Release);
+        return Err("无法显示弹窗".into());
+    }
     let _ = app.emit(
         "panel-visibility-changed",
         serde_json::json!({ "visible": true }),
     );
-    requests.visible_mode.store(mode_code, Ordering::Release);
     panel.set_focus().map_err(|_| "无法聚焦弹窗".to_string())?;
     Ok(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64)
+}
+
+#[tauri::command]
+fn resize_menu_panel(
+    height: f64,
+    request_id: u64,
+    app: AppHandle,
+    requests: State<'_, PanelRequestState>,
+) -> Result<bool, String> {
+    if !height.is_finite() || height <= 0.0 {
+        return Err("菜单高度无效".into());
+    }
+    let requests = requests.inner();
+    let _frame_guard = requests
+        .frame_gate
+        .lock()
+        .map_err(|_| "弹窗布局状态不可用".to_string())?;
+    if !is_current_menu_request(requests, request_id) {
+        return Ok(false);
+    }
+    let panel = app
+        .get_webview_window("panel")
+        .ok_or_else(|| "详情窗口不可用".to_string())?;
+    let anchor = resolve_panel_anchor(&app)?;
+    let requested_height = height.clamp(MENU_PANEL_MIN_HEIGHT, MENU_PANEL_MAX_HEIGHT);
+    let fitted_height = clamp_menu_panel_height(requested_height, anchor.work_area, anchor.scale);
+    apply_panel_frame(&panel, &anchor, MENU_PANEL_WIDTH, fitted_height)?;
+    if requests.latest_request.load(Ordering::Acquire) != request_id {
+        return Ok(false);
+    }
+    requests
+        .menu_height
+        .store(requested_height.round() as u64, Ordering::Release);
+    Ok(true)
 }
 
 #[tauri::command]
@@ -969,6 +1088,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             show_panel,
+            resize_menu_panel,
             is_primary_mouse_button_pressed,
             begin_bubble_window_session,
             set_bubble_window_frame,
@@ -1058,9 +1178,12 @@ pub fn run() {
 }
 #[cfg(test)]
 mod panel_geometry_tests {
+    use std::sync::atomic::Ordering;
+
     use super::{
         BubbleWindowOperationSequence, PANEL_MODE_DETAILS, PANEL_MODE_MENU, PanelRequestState,
-        accept_bubble_operation, calculate_panel_position, claim_bubble_panel_request, native_copy,
+        accept_bubble_operation, calculate_panel_position, claim_bubble_panel_request,
+        clamp_menu_panel_height, is_current_menu_request, native_copy,
         next_bubble_operation_session, next_panel_request, panel_bubble_x, should_hide_panel,
     };
 
@@ -1105,6 +1228,34 @@ mod panel_geometry_tests {
         assert!(!claim_bubble_panel_request(&requests, 2));
         assert!(!claim_bubble_panel_request(&requests, 1));
         assert_eq!(next_panel_request(&requests), 1);
+    }
+
+    #[test]
+    fn menu_measurements_only_apply_to_the_current_visible_menu_request() {
+        let requests = PanelRequestState::default();
+        let first = next_panel_request(&requests);
+        requests
+            .visible_mode
+            .store(PANEL_MODE_MENU, Ordering::Release);
+        assert!(is_current_menu_request(&requests, first));
+
+        let second = next_panel_request(&requests);
+        assert!(!is_current_menu_request(&requests, first));
+        assert!(is_current_menu_request(&requests, second));
+        requests
+            .visible_mode
+            .store(PANEL_MODE_DETAILS, Ordering::Release);
+        assert!(!is_current_menu_request(&requests, second));
+    }
+
+    #[test]
+    fn measured_menu_height_is_bounded_by_policy_and_monitor_work_area() {
+        assert_eq!(clamp_menu_panel_height(120.0, None, 1.0), 240.0);
+        assert_eq!(clamp_menu_panel_height(900.0, None, 1.0), 720.0);
+        assert_eq!(
+            clamp_menu_panel_height(500.0, Some((0, 0, 1200, 800)), 2.0),
+            384.0
+        );
     }
 
     #[test]

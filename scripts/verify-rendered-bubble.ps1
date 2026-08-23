@@ -290,27 +290,123 @@ function Get-VisibleMetraWindows([int]$ProcessId) {
   return @([MetraWindowSmokeNative]::GetVisibleWindows($ProcessId))
 }
 
+function Test-ProcessElevated {
+  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+  try {
+    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  } finally {
+    $identity.Dispose()
+  }
+}
+
+function ConvertTo-DiagnosticText($Value) {
+  if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) { return "none" }
+  return (([string]$Value -replace "\s+", " ").Trim())
+}
+
+function Get-VisibleWindowSummary([int]$ProcessId) {
+  $summary = @(Get-VisibleMetraWindows $ProcessId | ForEach-Object {
+    "0x$($_.Handle.ToInt64().ToString('X')):$($_.Width)x$($_.Height)@$($_.Left),$($_.Top)"
+  }) -join ", "
+  if (-not $summary) { return "none" }
+  return $summary
+}
+
 $resolvedExecutable = (Resolve-Path -LiteralPath $Executable).Path
 $port = Get-FreeTcpPort
 $hadPreviousArguments = Test-Path Env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
 $previousArguments = $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
+$browserArguments = "--remote-debugging-port=$port --remote-allow-origins=*"
+$isElevated = Test-ProcessElevated
+$environmentOverrideApplied = $false
+$policyOverrideAttempted = $false
+$policyParentPath = "SOFTWARE\Policies\Microsoft\Edge\WebView2"
+$policyPath = "SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments"
+$policyValueName = [IO.Path]::GetFileName($resolvedExecutable)
+$policyKeyExisted = $false
+$policyValueExisted = $false
+$previousPolicyValue = $null
+$previousPolicyValueKind = $null
+if ($isElevated) {
+  $policyKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($policyPath, $false)
+  if ($null -ne $policyKey) {
+    $policyKeyExisted = $true
+    try {
+      if ($policyKey.GetValueNames() -contains $policyValueName) {
+        $policyValueExisted = $true
+        $previousPolicyValue = $policyKey.GetValue(
+          $policyValueName,
+          $null,
+          [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames
+        )
+        $previousPolicyValueKind = $policyKey.GetValueKind($policyValueName)
+      }
+    } finally {
+      $policyKey.Dispose()
+    }
+  }
+}
 $process = $null
 try {
-  $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$port --remote-allow-origins=*"
+  if ($isElevated) {
+    $policyKey = [Microsoft.Win32.Registry]::LocalMachine.CreateSubKey($policyPath)
+    if ($null -eq $policyKey) { throw "Unable to open the WebView2 machine policy key" }
+    try {
+      $policyOverrideAttempted = $true
+      $policyKey.SetValue(
+        $policyValueName,
+        $browserArguments,
+        [Microsoft.Win32.RegistryValueKind]::String
+      )
+    } finally {
+      $policyKey.Dispose()
+    }
+  } else {
+    $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $browserArguments
+    $environmentOverrideApplied = $true
+  }
   $process = Start-Process -FilePath $resolvedExecutable -PassThru
   $startupTimer = [Diagnostics.Stopwatch]::StartNew()
   $target = $null
+  $lastHttpError = $null
+  $seenPageUrls = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
   do {
     Start-Sleep -Milliseconds 100
     try {
       $pages = Invoke-RestMethod -Uri "http://127.0.0.1:$port/json" -TimeoutSec 1
+      $lastHttpError = $null
       foreach ($page in $pages) {
-        if ([string]$page.url -match "view=bubble") { $target = $page; break }
+        $pageUrl = [string]$page.url
+        if ($pageUrl) { [void]$seenPageUrls.Add($pageUrl) }
+        if ($pageUrl -match "view=bubble") { $target = $page; break }
       }
-    } catch {}
+    } catch {
+      $lastHttpError = $_.Exception.Message
+    }
     $process.Refresh()
   } while (-not $target -and -not $process.HasExited -and $startupTimer.ElapsedMilliseconds -lt $TimeoutMs)
-  if (-not $target) { throw "Bubble WebView was not ready for pid=$($process.Id)" }
+  if (-not $target) {
+    $process.Refresh()
+    $processExited = $process.HasExited
+    $exitCode = if ($processExited) { [string]$process.ExitCode } else { "n/a" }
+    $pageSummary = if ($seenPageUrls.Count -gt 0) {
+      @($seenPageUrls | Sort-Object) -join ", "
+    } else {
+      "none"
+    }
+    throw (
+      "Bubble WebView was not ready for pid={0} process_exited={1} exit_code={2} cdp_override={3} cdp_port={4} last_http_error={5} page_urls={6} visible_windows={7}" -f
+        $process.Id,
+        $processExited,
+        $exitCode,
+        $(if ($isElevated) { "HKLM" } else { "environment" }),
+        $port,
+        (ConvertTo-DiagnosticText $lastHttpError),
+        (ConvertTo-DiagnosticText $pageSummary),
+        (Get-VisibleWindowSummary $process.Id)
+    )
+  }
 
   $socket = [Net.WebSockets.ClientWebSocket]::new()
   $socket.Options.SetRequestHeader("Origin", "http://127.0.0.1:$port")
@@ -438,9 +534,57 @@ try {
     Stop-Process -InputObject $process -Force -ErrorAction SilentlyContinue
     Wait-Process -InputObject $process -Timeout 2 -ErrorAction SilentlyContinue
   }
-  if ($hadPreviousArguments) {
-    $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $previousArguments
-  } else {
-    Remove-Item Env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS -ErrorAction SilentlyContinue
+  if ($policyOverrideAttempted) {
+    $policyKey = if ($policyValueExisted) {
+      [Microsoft.Win32.Registry]::LocalMachine.CreateSubKey($policyPath)
+    } else {
+      [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($policyPath, $true)
+    }
+    if ($null -ne $policyKey) {
+      try {
+        if ($policyValueExisted) {
+          $policyKey.SetValue($policyValueName, $previousPolicyValue, $previousPolicyValueKind)
+        } else {
+          $policyKey.DeleteValue($policyValueName, $false)
+        }
+      } finally {
+        $policyKey.Dispose()
+      }
+    }
+
+    if (-not $policyKeyExisted) {
+      $policyKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($policyPath, $false)
+      $deletePolicyKey = $false
+      if ($null -ne $policyKey) {
+        try {
+          $deletePolicyKey = (
+            $policyKey.GetValueNames().Count -eq 0 -and
+            $policyKey.GetSubKeyNames().Count -eq 0
+          )
+        } finally {
+          $policyKey.Dispose()
+        }
+      }
+      if ($deletePolicyKey) {
+        $policyParentKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(
+          $policyParentPath,
+          $true
+        )
+        if ($null -ne $policyParentKey) {
+          try {
+            $policyParentKey.DeleteSubKey("AdditionalBrowserArguments", $false)
+          } finally {
+            $policyParentKey.Dispose()
+          }
+        }
+      }
+    }
+  }
+  if ($environmentOverrideApplied) {
+    if ($hadPreviousArguments) {
+      $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $previousArguments
+    } else {
+      Remove-Item Env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS -ErrorAction SilentlyContinue
+    }
   }
 }

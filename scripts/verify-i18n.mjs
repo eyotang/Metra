@@ -125,7 +125,7 @@ assert.match(main, /localizeProviderMessage\(/, "native provider messages must c
 assert.match(main, /localizeQuotaLabel\(/, "native quota labels must cross a localization boundary");
 assert.doesNotMatch(main, /[\p{Script=Han}]/u, "frontend business logic must not contain hard-coded Chinese copy");
 assert.doesNotMatch(main, /String\(reason\)/, "native errors must pass through the localized error boundary");
-assert.match(menuRenderer, /menu-language-row[\s\S]{0,500}data-ui-language/, "the context menu must start with a direct language selector");
+assert.match(menuRenderer, /menu-language-row[\s\S]{0,900}data-language-trigger/, "the context menu must start with a direct language selector");
 assert.doesNotMatch(menuRenderer, /data-action="refresh"/, "the context menu must not duplicate the details refresh action");
 assert.match(main, /set_ui_language/, "the context-menu language selector must persist changes");
 assert.match(main, /STATUS_TEXT_KEYS/, "status copy must be translated at render time");
@@ -170,22 +170,22 @@ assert.match(
   /Windows 포터블 버전도 새 버전을 자동으로 감지[\s\S]*자동으로 내려받거나 교체/u,
   "Korean docs must distinguish automatic Portable detection from manual download",
 );
-const languageSelectRule = styles.match(/\.language-select-control select \{([^}]*)\}/)?.[1] ?? "";
-const hoveredLanguageSelectRule = styles.match(/\.language-select-control select:hover,[^{]+\{([^}]*)\}/)?.[1] ?? "";
-const languageOptionRule = styles.match(/\.language-select-control select option \{([^}]*)\}/)?.[1] ?? "";
-const checkedLanguageOptionRule = styles.match(/\.language-select-control select option:checked \{([^}]*)\}/)?.[1] ?? "";
+const languageSelectRule = styles.match(/\.language-select-trigger \{([^}]*)\}/)?.[1] ?? "";
+const hoveredLanguageSelectRule = styles.match(/\.language-select-trigger:hover,[^{]+\{([^}]*)\}/)?.[1] ?? "";
+const languageListboxRule = styles.match(/\.language-listbox \{([^}]*)\}/)?.[1] ?? "";
+const languageOptionRule = styles.match(/\.language-option \{([^}]*)\}/)?.[1] ?? "";
+const checkedLanguageOptionRule = styles.match(/\.language-option\[aria-selected="true"\] \{([^}]*)\}/)?.[1] ?? "";
 const panelRule = styles.match(/\.panel \{([^}]*)\}/)?.[1] ?? "";
 const rootRule = styles.match(/:root \{([^}]*)\}/)?.[1] ?? "";
 assert.match(rootRule, /color-scheme:\s*dark/, "the app must advertise a dark platform theme");
-assert.match(languageSelectRule, /color-scheme:\s*dark/, "the native language selector must request dark platform controls");
 assert.match(languageSelectRule, /background:\s*#[\da-f]{6}(?![\da-f])/i, "the closed language selector must use an opaque panel-colored background");
-assert.match(languageOptionRule, /background(?:-color)?:\s*#[\da-f]{6}(?![\da-f])/i, "Windows language options must use an explicit opaque background");
+assert.match(languageListboxRule, /background:\s*#[\da-f]{6}(?![\da-f])/i, "Windows language options must use an explicit opaque surface");
 assert.match(languageOptionRule, /color:\s*#[\da-f]{6}(?![\da-f])/i, "Windows language options must use an explicit readable text color");
 const selectBackground = languageSelectRule.match(/background:\s*(#[\da-f]{6})(?![\da-f])/i)?.[1] ?? "";
 const selectText = languageSelectRule.match(/(?:^|;)\s*color:\s*(#[\da-f]{6})(?![\da-f])/i)?.[1] ?? "";
 const hoveredSelectBackground = hoveredLanguageSelectRule.match(/background:\s*(#[\da-f]{6})(?![\da-f])/i)?.[1] ?? "";
 const hoveredSelectText = hoveredLanguageSelectRule.match(/(?:^|;)\s*color:\s*(#[\da-f]{6})(?![\da-f])/i)?.[1] ?? "";
-const optionBackground = languageOptionRule.match(/background(?:-color)?:\s*(#[\da-f]{6})(?![\da-f])/i)?.[1] ?? "";
+const optionBackground = languageListboxRule.match(/background:\s*(#[\da-f]{6})(?![\da-f])/i)?.[1] ?? "";
 const optionText = languageOptionRule.match(/(?:^|;)\s*color:\s*(#[\da-f]{6})(?![\da-f])/i)?.[1] ?? "";
 const checkedOptionBackground = checkedLanguageOptionRule.match(/background(?:-color)?:\s*(#[\da-f]{6})(?![\da-f])/i)?.[1] ?? "";
 const checkedOptionText = checkedLanguageOptionRule.match(/(?:^|;)\s*color:\s*(#[\da-f]{6})(?![\da-f])/i)?.[1] ?? "";

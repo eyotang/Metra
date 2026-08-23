@@ -36,6 +36,28 @@ assert.equal(
 assert.doesNotMatch(renderedBubbleCheck, /TickCount64/, "Windows PowerShell 5.1 does not expose Environment.TickCount64");
 assert.match(renderedBubbleCheck, /Diagnostics\.Stopwatch/, "the Windows render timeout must use a PowerShell 5.1-compatible monotonic clock");
 assert.match(renderedBubbleCheck, /\.A\s+-gt\s+0/, "the rendered bubble check must reject fully transparent pixels");
+assert.match(
+  renderedBubbleCheck,
+  /SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2/,
+  "elevated Windows runners must enable WebView2 debugging through the machine policy registry",
+);
+assert.match(renderedBubbleCheck, /AdditionalBrowserArguments/, "the machine policy must target WebView2 additional browser arguments");
+assert.match(
+  renderedBubbleCheck,
+  /Registry\]::LocalMachine/,
+  "the elevated WebView2 debugging override must use the machine registry hive",
+);
+assert.match(
+  renderedBubbleCheck,
+  /Test-ProcessElevated[\s\S]*if \(\$isElevated\)[\s\S]*WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS/,
+  "the smoke test must reserve HKLM for elevated runs and keep the environment fallback",
+);
+assert.match(
+  renderedBubbleCheck,
+  /GetValueKind[\s\S]*SetValue[\s\S]*DeleteValue/,
+  "the WebView2 smoke test must preserve and restore any existing machine policy value",
+);
+assert.match(renderedBubbleCheck, /cdp_port=/, "WebView2 startup failures must report the probed CDP port");
 assert.match(portableBuild, /Get-Process[\s\S]*ProcessName[\s\S]*Metra/, "portable builds must detect a running single-instance Metra before smoke testing");
 assert.ok(
   (portableBuild.match(/Assert-MetraNotRunning/g) ?? []).length >= 3,
