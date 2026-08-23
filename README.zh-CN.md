@@ -68,7 +68,7 @@ npm run build:macos-universal
 
 由于 v0.1.38 本身不包含更新器，现有安装版与便携版用户都需要先手动升级到 v0.1.39。仅含 Windows 平台项的清单已经可以通知 v0.1.39 便携版，但 v0.1.39 macOS 仍要求清单存在 Darwin 更新载荷，因此 macOS 还需要手动安装一次 v0.1.40；从 v0.1.40 起，macOS 会独立读取清单版本号，不再要求存在 Darwin 安装项也能发现后续版本。
 
-Windows NSIS 安装版会校验 Tauri 更新签名、下载安装包并在应用内更新。macOS 的更新按钮会打开检测到版本的 GitHub Release 页面，由用户手动下载 Universal DMG。当前 macOS 产物没有 Developer ID 签名或公证；从官方 Release 下载并核对 SHA-256 文件后，将 Metra 复制到 `/Applications`，若 Gatekeeper 阻止启动，请执行 `xattr -cr /Applications/Metra.app`。在 Apple 凭据尚未配置且上游 [Tauri 更新器安全问题 #3505](https://github.com/tauri-apps/plugins-workspace/issues/3505) 尚未修复前，暂不进行有风险的原地替换。Windows 便携版也会自动检测新版本，但绝不会自动下载或覆盖正在运行的程序；点击更新按钮只会打开检测到版本的 Release 页面，由用户手动下载新的便携版 EXE。
+Windows NSIS 安装版会校验 Tauri 更新签名、下载安装包并在应用内更新。macOS 的更新按钮会打开检测到版本的 GitHub Release 页面，由用户手动下载 Universal DMG。当前 macOS 产物没有 Developer ID 签名或公证；从官方 Release 下载并核对 SHA-256 文件后，将 Metra 复制到 `/Applications`，若 Gatekeeper 阻止启动，请执行 `sudo xattr -d com.apple.quarantine /Applications/Metra.app`。在 Apple 凭据尚未配置且上游 [Tauri 更新器安全问题 #3505](https://github.com/tauri-apps/plugins-workspace/issues/3505) 尚未修复前，暂不进行有风险的原地替换。Windows 便携版也会自动检测新版本，但绝不会自动下载或覆盖正在运行的程序；点击更新按钮只会打开检测到版本的 Release 页面，由用户手动下载新的便携版 EXE。
 
 以后具备 Apple Developer ID 凭据时，Metra 会先发布一个签名、公证且仍由用户手动安装 DMG 的桥接版本。待 macOS 更新器安全问题修复，并完成替换失败与回滚验证后，下一版只需在同一个 `latest.json` 中加入 `darwin-aarch64` 和 `darwin-x86_64`，二者共同指向一份已签名的 Universal `.app.tar.gz`，无需更换地址或引入第二份清单。
 
