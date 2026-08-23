@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   mkdtempSync,
   mkdirSync,
@@ -66,6 +67,10 @@ function verifyRepositoryContract() {
   const frontendSource = readFileSync(join(projectRoot, "src", "main.ts"), "utf8");
   const updateAction = frontendSource.match(/function bindAppUpdateAction\([\s\S]*?\n\}/)?.[0] ?? "";
   const manualAction = updateAction.match(/if \(manualDownload\) \{([\s\S]*?)\} else \{/)?.[1] ?? "";
+  const releaseArtifactsJob = workflow.match(/release-artifacts:[\s\S]*?(?=\n  publish-release:)/)?.[0] ?? "";
+  const macBuildStep = workflow.match(
+    /- name: Build unsigned Universal macOS DMG[\s\S]*?(?=\n      - name:)/,
+  )?.[0] ?? "";
 
   assert.equal(readReleaseVersion(projectRoot), packageJson.version);
   assert.equal(overlay.bundle?.createUpdaterArtifacts, true, "release overlay must create signed updater artifacts");
@@ -86,13 +91,13 @@ function verifyRepositoryContract() {
   );
   assert.match(
     updaterSource,
-    /fn should_retain_pending_update\([\s\S]*?mode == AppUpdateMode::InApp/,
-    "manual distributions must never retain an installable updater payload",
+    /fn finish_in_app_check_available\([\s\S]*?state\.status\.mode != AppUpdateMode::InApp[\s\S]*?state\.pending = Some\(update\)/,
+    "only the in-app check path may retain an installable updater payload",
   );
   assert.match(
     updaterSource,
-    /state\.pending = should_retain_pending_update\(state\.status\.mode\)\.then_some\(update\)/,
-    "discovered payload retention must use the in-app-only policy",
+    /fn finish_manual_check_available\([\s\S]*?state\.status\.mode != AppUpdateMode::ManualDownload[\s\S]*?state\.pending = None/,
+    "manual distributions must never retain an installable updater payload",
   );
   assert.match(
     updaterSource,
@@ -126,7 +131,7 @@ function verifyRepositoryContract() {
   assert.match(workflow, /concurrency:[\s\S]*metra-stable-release[\s\S]*cancel-in-progress/);
   assert.match(workflow, /release-artifacts:[\s\S]*if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
   assert.doesNotMatch(
-    workflow.match(/release-artifacts:[\s\S]*?(?=\n  publish-release:)/)?.[0] ?? "",
+    releaseArtifactsJob,
     /workflow_dispatch/,
     "manual branch dispatches must not publish a stable release",
   );
@@ -136,12 +141,23 @@ function verifyRepositoryContract() {
   );
   assert.match(
     workflow,
-    /Build signed Universal macOS application[\s\S]*--target universal-apple-darwin[\s\S]*--bundles app,dmg[\s\S]*--config src-tauri\/tauri\.release\.conf\.json/,
+    /Build unsigned Universal macOS DMG[\s\S]*--target universal-apple-darwin[\s\S]*--bundles app,dmg/,
+  );
+  assert.doesNotMatch(
+    macBuildStep,
+    /tauri\.release\.conf\.json|TAURI_SIGNING_PRIVATE_KEY|APPLE_/,
+    "the manual macOS build must not generate updater artifacts or imply Apple signing",
+  );
+  assert.doesNotMatch(
+    releaseArtifactsJob,
+    /secrets\.APPLE_|APPLE_CERTIFICATE|APPLE_ID|APPLE_PASSWORD|APPLE_TEAM_ID/,
+    "Apple credentials must not be required until signed macOS updates are enabled",
   );
   assert.match(workflow, /TAURI_SIGNING_PRIVATE_KEY_PASSWORD/);
-  assert.ok(
-    (workflow.match(/TAURI_SIGNING_PRIVATE_KEY:/g) ?? []).length >= 3,
-    "both release builders must receive the updater signing key and validate it",
+  assert.equal(
+    (releaseArtifactsJob.match(/^\s+TAURI_SIGNING_PRIVATE_KEY:\s*\$\{\{ secrets\./gm) ?? []).length,
+    2,
+    "only the Windows secret validator and NSIS builder may receive the updater signing key",
   );
   assert.match(workflow, /Verify rendered Windows bubble[\s\S]*src-tauri\/target\/release\/metra\.exe/);
   assert.match(
@@ -149,17 +165,27 @@ function verifyRepositoryContract() {
     /__TAURI_BUNDLE_TYPE_VAR_UNK[\s\S]*Portable executable does not contain exactly one unpatched Tauri bundle marker/,
     "the copied portable executable must retain Tauri's unbundled marker",
   );
-  assert.match(workflow, /Metra\.app\.tar\.gz/);
+  assert.doesNotMatch(
+    releaseArtifactsJob,
+    /Metra\.app\.tar\.gz|macos-universal\.app\.tar\.gz/,
+    "macOS updater archives must not be generated before signed in-app updates are enabled",
+  );
+  assert.match(
+    releaseArtifactsJob,
+    /macOS DMG is intentionally unsigned and not notarized[\s\S]*manual download only/,
+    "the workflow summary must state the macOS trust and update limitations",
+  );
   assert.match(workflow, /bundle[\\/]nsis/);
   assert.equal(
     (workflow.match(
       /cargo test --locked --test updater_signature_contract release_artifact_matches_embedded_public_key -- --ignored --exact/g,
     ) ?? []).length,
-    2,
-    "both platform updater artifacts must be verified against the embedded public key",
+    1,
+    "the Windows NSIS updater artifact must be verified against the embedded public key exactly once",
   );
   assert.match(workflow, /Verify Windows updater artifact signature[\s\S]*METRA_UPDATER_ARTIFACT/);
-  assert.match(workflow, /Verify macOS updater artifact signature[\s\S]*METRA_UPDATER_ARTIFACT/);
+  assert.doesNotMatch(workflow, /Verify macOS updater artifact signature/);
+  assert.match(releaseArtifactsJob, /shasum -a 256/);
   assert.match(workflow, /publish-release:[\s\S]*needs: release-artifacts/);
   assert.match(workflow, /publish-release:[\s\S]*contents: write/);
   assert.match(
@@ -184,6 +210,16 @@ function verifyRepositoryContract() {
   );
   assert.match(workflow, /actions\/download-artifact@v4[\s\S]*merge-multiple: true/);
   assert.match(workflow, /gh release create[\s\S]*--draft/);
+  assert.match(
+    workflow,
+    /metra-unsigned-macos-notice[\s\S]*--generate-notes/,
+    "stable release notes must disclose that the macOS DMG is unsigned and not notarized",
+  );
+  assert.match(
+    workflow,
+    /xattr -cr \/Applications\/Metra\.app/,
+    "unsigned macOS release notes must include the documented quarantine-removal command",
+  );
   assert.match(workflow, /generate:updater-manifest/);
   assert.match(workflow, /gh release upload[\s\S]*--clobber/);
   assert.match(workflow, /gh release download/);
@@ -195,13 +231,20 @@ function writeFixtureAssets(directory, version) {
   mkdirSync(directory, { recursive: true });
   const names = releaseAssetNames(version);
   for (const [kind, filename] of Object.entries(names)) {
-    const contents = kind === "macUpdaterSignature"
-      ? "deterministic-mac-signature\n"
-      : kind === "windowsInstallerSignature"
-        ? "deterministic-windows-signature\n"
-        : `fixture:${filename}\n`;
+    if (kind === "macDmgChecksum") {
+      continue;
+    }
+    const contents = kind === "windowsInstallerSignature"
+      ? "deterministic-windows-signature\n"
+      : `fixture:${filename}\n`;
     writeFileSync(join(directory, filename), contents);
   }
+  const macDmg = readFileSync(join(directory, names.macDmg));
+  const macDmgChecksum = createHash("sha256").update(macDmg).digest("hex");
+  writeFileSync(
+    join(directory, names.macDmgChecksum),
+    `${macDmgChecksum}  ${names.macDmg}\n`,
+  );
   return names;
 }
 
@@ -229,18 +272,34 @@ function verifyDeterministicGeneration() {
     assert.equal(manifest.version, version);
     assert.equal(manifest.pub_date, options.pubDate);
     assert.equal("notes" in manifest, false, "generic placeholder release notes must be omitted");
-    assert.deepEqual(manifest.platforms["darwin-aarch64"], manifest.platforms["darwin-x86_64"]);
-    assert.equal(manifest.platforms["darwin-aarch64"].signature, "deterministic-mac-signature");
+    assert.deepEqual(Object.keys(manifest.platforms), ["windows-x86_64"]);
     assert.equal(manifest.platforms["windows-x86_64"].signature, "deterministic-windows-signature");
-    assert.match(manifest.platforms["darwin-aarch64"].url, new RegExp(`${names.macUpdater.replaceAll(".", "\\.")}$`));
     assert.match(manifest.platforms["windows-x86_64"].url, new RegExp(`${names.windowsInstaller.replaceAll(".", "\\.")}$`));
-    assert.doesNotMatch(first, /portable\.exe|\.dmg"/i, "manual downloads must not be updater platforms");
+    assert.doesNotMatch(
+      first,
+      /darwin|portable\.exe|\.dmg"/i,
+      "manual downloads must not be updater platforms",
+    );
 
-    writeFileSync(join(assetsDir, names.macUpdaterSignature), "\n");
+    writeFileSync(join(assetsDir, names.windowsInstallerSignature), "\n");
     assert.throws(
       () => buildLatestManifest({ ...options, version }),
       /signature is empty/,
       "an empty updater signature must fail closed",
+    );
+
+    writeFileSync(
+      join(assetsDir, names.windowsInstallerSignature),
+      "deterministic-windows-signature\n",
+    );
+    writeFileSync(
+      join(assetsDir, names.macDmgChecksum),
+      `${"0".repeat(64)}  ${names.macDmg}\n`,
+    );
+    assert.throws(
+      () => buildLatestManifest({ ...options, version }),
+      /does not match/,
+      "a macOS DMG checksum mismatch must fail closed",
     );
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });

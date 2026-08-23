@@ -15,7 +15,7 @@ Metra는 Cursor, Codex, Claude Code의 로그인 상태, 사용량 한도와 재
 - 공급자별 표시 여부를 선택하고, 점 6개 핸들로 순서를 바꾸며, 버블 레이블과 마커 색상을 모두 사용자 지정할 수 있습니다. 기본 제공되는 55색 팔레트는 다른 설정과 함께 SQLite에 저장됩니다.
 - 왼쪽 클릭으로 세부 정보를 열고 패널의 새로고침 아이콘으로 사용량을 업데이트합니다. 컨텍스트 메뉴 상단에는 언어 선택기가 있으며 새로고침 간격, 시작 시 실행, 호환 모드, CLI 다시 감지 및 종료도 설정할 수 있습니다. 새로고침 동작은 중복해서 표시하지 않습니다.
 - 새로고침에 실패해도 마지막으로 성공한 결과를 유지하고 오래된 데이터임을 명확히 표시합니다.
-- v0.1.39부터 Windows 포터블 버전을 포함한 지원 배포본은 실행 직후 GitHub Releases를 확인하고 실행 중에는 24시간마다 다시 확인합니다. Windows 설치 버전은 승인 후 앱 안에서 업데이트하며, macOS와 Windows 포터블 버전은 감지한 버전의 Release 페이지를 열어 직접 다운로드합니다.
+- v0.1.39부터 Windows 포터블 버전을 포함한 지원 배포본은 실행 직후 GitHub Releases의 단일 `latest.json`을 확인하고 실행 중에는 24시간마다 다시 확인합니다. Windows NSIS 설치 버전은 승인 후 앱 안에서 업데이트하며, macOS와 Windows 포터블 버전은 같은 매니페스트로 버전을 감지한 뒤 해당 Release 페이지를 열어 직접 다운로드합니다.
 - 인터페이스는 영어, 중국어 간체(`zh-CN`), 일본어, 한국어를 지원합니다. “자동 감지”는 운영체제 또는 브라우저 언어를 따르며, 수동 선택은 즉시 적용되고 재시작 후에도 유지됩니다.
 
 <p align="center">
@@ -64,11 +64,13 @@ npm run build:macos-universal
 
 ## 업데이트 확인 및 설치 방식(v0.1.39 이상)
 
-Windows 포터블 버전을 포함한 지원 배포본은 실행 직후 GitHub 최신 Release의 `latest.json`을 읽고 실행 중에는 24시간마다 다시 확인합니다. GitHub에 연결할 수 없으면 Metra는 연결 오류를 표시하거나 연속으로 재시도하지 않고 다음 예정 확인 주기까지 조용히 기다립니다. 새 버전이 발견되면 버전 번호와 업데이트 확인 메시지를 표시하며, 사용자가 명시적으로 승인한 후에만 선택한 업데이트 작업을 시작합니다.
+Windows 포터블 버전을 포함한 지원 배포본은 실행 직후 GitHub 최신 Release의 같은 `latest.json`을 읽고 실행 중에는 24시간마다 다시 확인합니다. Windows NSIS 설치 버전에서는 Tauri 업데이터가 일치하는 설치 프로그램 URL과 서명을 읽습니다. 수동 다운로드 배포본은 최상위 버전과 선택적 설명만 읽고 검증된 버전으로 고정 GitHub Release 페이지를 만들기 때문에 가짜 업데이트 페이로드가 필요하지 않습니다. GitHub에 연결할 수 없으면 Metra는 연결 오류를 표시하거나 연속으로 재시도하지 않고 다음 예정 확인 주기까지 조용히 기다립니다. 새 버전이 발견되면 버전 번호와 업데이트 확인 메시지를 표시하며, 사용자가 명시적으로 승인한 후에만 선택한 업데이트 작업을 시작합니다.
 
-v0.1.38 자체에는 업데이터가 포함되어 있지 않으므로 기존 설치 버전과 포터블 버전 사용자는 먼저 v0.1.39로 직접 업데이트해야 합니다. 이 초기 설치를 마친 뒤부터 모든 지원 배포본에서 후속 버전을 자동으로 감지할 수 있습니다. Windows NSIS 설치 버전은 앱 안에서 업데이트할 수 있고 macOS와 Windows 포터블 버전은 계속 직접 다운로드합니다.
+v0.1.38 자체에는 업데이터가 포함되어 있지 않으므로 기존 설치 버전과 포터블 버전 사용자는 먼저 v0.1.39로 직접 업데이트해야 합니다. Windows 항목만 있는 매니페스트도 v0.1.39 포터블 버전에는 알릴 수 있지만, v0.1.39 macOS는 Darwin 업데이트 페이로드를 요구합니다. 따라서 macOS는 v0.1.40으로 한 번 직접 업데이트해야 합니다. v0.1.40부터는 매니페스트 버전을 독립적으로 읽으므로 Darwin 설치 항목이 없어도 이후 릴리스를 감지할 수 있습니다.
 
-Windows NSIS 설치 버전은 Tauri 업데이트 서명을 검증하고 설치 프로그램을 내려받아 앱 안에서 업데이트합니다. macOS도 `latest.json`으로 새 버전을 감지하지만 업데이트 버튼은 감지한 버전의 GitHub Release 페이지를 열고, 사용자가 서명 및 공증된 DMG를 직접 다운로드합니다. 업스트림 [Tauri 업데이터 안전 문제 #3505](https://github.com/tauri-apps/plugins-workspace/issues/3505)가 해결될 때까지 위험한 제자리 앱 교체는 비활성화됩니다. Windows 포터블 버전도 새 버전을 자동으로 감지하지만 실행 중인 프로그램을 자동으로 내려받거나 교체하지 않습니다. 업데이트 버튼은 감지한 버전의 Release 페이지를 열며, 사용자가 새 포터블 EXE를 직접 다운로드합니다.
+Windows NSIS 설치 버전은 Tauri 업데이트 서명을 검증하고 설치 프로그램을 내려받아 앱 안에서 업데이트합니다. macOS의 업데이트 버튼은 감지한 버전의 GitHub Release 페이지를 열고 사용자가 Universal DMG를 직접 다운로드하게 합니다. 현재 macOS 산출물에는 Developer ID 서명이나 공증이 없습니다. 공식 Release에서 다운로드하고 SHA-256 파일을 확인한 뒤 Metra를 `/Applications`에 복사하고, Gatekeeper가 실행을 막으면 `xattr -cr /Applications/Metra.app`을 실행하세요. Apple 자격 증명이 없고 업스트림 [Tauri 업데이터 안전 문제 #3505](https://github.com/tauri-apps/plugins-workspace/issues/3505)가 해결되지 않은 동안에는 위험한 제자리 앱 교체를 비활성화합니다. Windows 포터블 버전도 새 버전을 자동으로 감지하지만 실행 중인 프로그램을 자동으로 내려받거나 교체하지 않습니다. 업데이트 버튼은 감지한 버전의 Release 페이지를 열며, 사용자가 새 포터블 EXE를 직접 다운로드합니다.
+
+나중에 Apple Developer ID 자격 증명을 사용할 수 있게 되면 먼저 서명 및 공증되었지만 여전히 DMG에서 직접 설치하는 브리지 버전을 배포합니다. macOS 업데이터 안전 문제가 수정되고 교체 실패 및 롤백 검증이 완료되면 다음 릴리스에서 같은 `latest.json`에 `darwin-aarch64`와 `darwin-x86_64`를 추가하고, 두 항목이 하나의 서명된 Universal `.app.tar.gz`를 가리키게 합니다. 주소를 바꾸거나 두 번째 매니페스트를 도입할 필요가 없습니다.
 
 ## 선택 사항: 공식 Claude Code API 사용량
 
@@ -97,15 +99,15 @@ API는 UTC 달력일 기준으로 사용량을 집계하며, 데이터가 최대
 
 ## 릴리스 서명
 
-`v*` 태그를 푸시하면 릴리스 아티팩트 워크플로가 실행됩니다. macOS를 공식 배포하려면 릴리스 환경에 `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`를 설정해야 합니다.
+`v*` 태그를 푸시하면 릴리스 아티팩트 워크플로가 실행됩니다. 현재 워크플로는 Windows NSIS 업데이터와 수동 다운로드용 Windows 포터블 및 서명되지 않은 Universal macOS DMG를 생성합니다. macOS Runner는 버전, 두 아키텍처, DMG 컨테이너와 SHA-256 파일을 검증하지만, Apple 자격 증명이 없는 상태에서 Developer ID 서명, Gatekeeper 신뢰 또는 공증을 주장하지 않습니다.
 
-업데이트 산출물에는 서로 일치하는 서명 키 쌍이 필요합니다. 개인 키는 절대로 저장소에 커밋하지 말고 GitHub Actions의 `TAURI_SIGNING_PRIVATE_KEY` Secret에 업로드하는 동시에 별도의 안전한 오프라인 백업을 보관하세요. 키를 암호화한 경우에만 비밀번호를 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`에 저장하며, 공개 키는 `src-tauri/tauri.conf.json`에 보관합니다. 개인 키를 잃으면 설치된 클라이언트가 이후 업데이트를 받을 수 없습니다. 릴리스 빌드는 Windows NSIS 업데이트 패키지와 macOS `.app.tar.gz` 번들에 서명하며, DMG와 Windows 포터블 실행 파일은 수동 다운로드용 산출물로 제공합니다.
+업데이트 산출물에는 서로 일치하는 서명 키 쌍이 필요합니다. 개인 키는 절대로 저장소에 커밋하지 말고 GitHub Actions의 `TAURI_SIGNING_PRIVATE_KEY` Secret에 업로드하는 동시에 별도의 안전한 오프라인 백업을 보관하세요. 키를 암호화한 경우에만 비밀번호를 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`에 저장하며, 공개 키는 `src-tauri/tauri.conf.json`에 보관합니다. 개인 키를 잃으면 설치된 클라이언트가 이후 업데이트를 받을 수 없습니다. 현재 이 키는 Windows NSIS 업데이터만 서명합니다. DMG와 Windows 포터블 실행 파일은 수동 다운로드 자산이며 updater 플랫폼 URL로 사용하지 않습니다.
 
-이 워크플로는 macOS 산출물에 대해 `arm64`와 `x86_64`를 모두 포함한 Universal 바이너리, `Developer ID Application` 서명, hardened runtime 플래그, Gatekeeper 통과, 그리고 `.app` 및 `.dmg`의 notarization ticket 검증을 모두 강제합니다. 하나라도 빠지면 바로 실패합니다.
+나중에 정식 macOS 자동 업데이트를 활성화하려면 `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`가 추가로 필요합니다. 그때의 브리지 워크플로는 `arm64` + `x86_64` Universal 앱, `Developer ID Application`, hardened runtime, Gatekeeper 통과 및 유효한 공증 티켓을 Darwin 업데이터 항목 게시의 필수 조건으로 적용합니다.
 
-CI는 먼저 GitHub Release를 초안으로 만들고 설치 프로그램, 서명, 수동 다운로드 패키지 및 `latest.json`을 업로드한 다음 매니페스트, URL, 버전, 서명 및 필수 산출물이 모두 일치하는지 검증합니다. 모든 검증을 통과한 후에만 초안을 게시하고 latest 릴리스로 지정하므로, 클라이언트가 아직 완성되지 않은 업데이트를 발견하지 않습니다.
+CI는 먼저 GitHub Release를 초안으로 만들고 Windows 설치 프로그램과 서명, 수동 다운로드 패키지 및 단일 `latest.json`을 업로드한 다음 Windows 플랫폼 URL, 버전, 서명 및 필수 산출물이 모두 일치하는지 검증합니다. 모든 검증을 통과한 후에만 초안을 게시하고 latest 릴리스로 지정하므로, 클라이언트가 아직 완성되지 않은 업데이트를 발견하지 않습니다.
 
-로컬 ad-hoc macOS 빌드는 아키텍처와 패키징 점검에는 유용하지만, 테스트 전용이며 공개 배포에는 사용할 수 없습니다.
+서명되지 않았거나 ad-hoc인 macOS 빌드는 현재 수동 다운로드 호환 채널로 제공합니다. Developer ID 서명과 공증을 추가하기 전에는 Metra 공식 Release에서만 내려받고 공개된 SHA-256을 확인한 뒤 문서의 `xattr` 단계를 따르세요.
 
 ## 라이선스
 

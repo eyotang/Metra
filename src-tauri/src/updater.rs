@@ -1,12 +1,13 @@
 //! Signed application updates backed by the latest public GitHub Release.
 
 use std::{
+    io::Read,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard},
     time::{Duration, Instant},
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State, utils::config::BundleType};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
@@ -18,6 +19,9 @@ const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(15);
 const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const UPDATE_SCHEDULER_TICK: Duration = Duration::from_secs(5);
+const UPDATE_MANIFEST_MAX_BYTES: u64 = 64 * 1024;
+const UPDATE_MANIFEST_URL: &str =
+    "https://github.com/eyotang/Metra/releases/latest/download/latest.json";
 const UPDATE_RELEASE_TAG_PAGE_PREFIX: &str = "https://github.com/eyotang/Metra/releases/tag/v";
 
 /// Installation policy for the current application distribution.
@@ -69,6 +73,26 @@ struct UpdateState {
     operation: UpdateOperation,
 }
 
+#[derive(Debug, Deserialize)]
+struct ManualUpdateManifest {
+    version: String,
+    #[serde(default)]
+    notes: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ManualUpdate {
+    version: String,
+    notes: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct StableVersion {
+    major: u64,
+    minor: u64,
+    patch: u64,
+}
+
 /// Thread-safe update state shared by the scheduler and Tauri commands.
 pub struct AppUpdaterState {
     inner: Mutex<UpdateState>,
@@ -115,9 +139,10 @@ impl AppUpdaterState {
         true
     }
 
-    fn finish_check_available(&self, mut update: Update) -> Option<AppUpdateStatus> {
+    fn finish_in_app_check_available(&self, mut update: Update) -> Option<AppUpdateStatus> {
         let mut state = self.lock_inner();
-        if state.operation != UpdateOperation::Checking {
+        if state.operation != UpdateOperation::Checking || state.status.mode != AppUpdateMode::InApp
+        {
             return None;
         }
         update.timeout = Some(UPDATE_DOWNLOAD_TIMEOUT);
@@ -127,7 +152,25 @@ impl AppUpdaterState {
         state.status.notes = update.body.clone();
         state.status.downloaded_bytes = 0;
         state.status.total_bytes = None;
-        state.pending = should_retain_pending_update(state.status.mode).then_some(update);
+        state.pending = Some(update);
+        state.operation = UpdateOperation::Idle;
+        Some(state.status.clone())
+    }
+
+    fn finish_manual_check_available(&self, update: ManualUpdate) -> Option<AppUpdateStatus> {
+        let mut state = self.lock_inner();
+        if state.operation != UpdateOperation::Checking
+            || state.status.mode != AppUpdateMode::ManualDownload
+        {
+            return None;
+        }
+        state.status.revision = state.status.revision.saturating_add(1);
+        state.status.phase = AppUpdatePhase::Available;
+        state.status.version = Some(update.version);
+        state.status.notes = update.notes;
+        state.status.downloaded_bytes = 0;
+        state.status.total_bytes = None;
+        state.pending = None;
         state.operation = UpdateOperation::Idle;
         Some(state.status.clone())
     }
@@ -275,35 +318,99 @@ fn update_mode(
                 .is_some() =>
         {
             // tauri-plugin-updater 2.10.1 can destroy the existing .app if its
-            // final rename fails (upstream issue #3505). Keep signed update
-            // discovery, but direct macOS users to the notarized DMG for now.
+            // final rename fails (upstream issue #3505). Keep version discovery,
+            // but direct macOS users to the manual DMG while Apple signing is unavailable.
             AppUpdateMode::ManualDownload
         }
         _ => AppUpdateMode::Disabled,
     }
 }
 
-fn should_retain_pending_update(mode: AppUpdateMode) -> bool {
-    mode == AppUpdateMode::InApp
+fn parse_stable_version(version: &str) -> Option<StableVersion> {
+    let mut segments = version.split('.');
+    let parse_segment = |segment: &str| {
+        if segment.is_empty()
+            || !segment.bytes().all(|byte| byte.is_ascii_digit())
+            || (segment.len() > 1 && segment.starts_with('0'))
+        {
+            return None;
+        }
+        segment.parse::<u64>().ok()
+    };
+
+    let version = StableVersion {
+        major: parse_segment(segments.next()?)?,
+        minor: parse_segment(segments.next()?)?,
+        patch: parse_segment(segments.next()?)?,
+    };
+    segments.next().is_none().then_some(version)
+}
+
+fn parse_manual_update_manifest(
+    bytes: &[u8],
+    current_version: &str,
+) -> Result<Option<ManualUpdate>, String> {
+    if bytes.len() as u64 > UPDATE_MANIFEST_MAX_BYTES {
+        return Err("update manifest exceeds the size limit".to_string());
+    }
+
+    let manifest = serde_json::from_slice::<ManualUpdateManifest>(bytes)
+        .map_err(|error| format!("invalid update manifest: {error}"))?;
+    let available = parse_stable_version(&manifest.version)
+        .ok_or_else(|| "update manifest version is not a stable semantic version".to_string())?;
+    let current = parse_stable_version(current_version)
+        .ok_or_else(|| "current version is not a stable semantic version".to_string())?;
+
+    Ok((available > current).then_some(ManualUpdate {
+        version: manifest.version,
+        notes: manifest.notes,
+    }))
+}
+
+fn fetch_manual_update(current_version: &str) -> Result<Option<ManualUpdate>, String> {
+    let redirect_policy = reqwest::redirect::Policy::custom(|attempt| {
+        if attempt.previous().len() >= 5 {
+            attempt.error("too many update manifest redirects")
+        } else if attempt.url().scheme() != "https" {
+            attempt.error("update manifest redirect must use HTTPS")
+        } else {
+            attempt.follow()
+        }
+    });
+    let client = reqwest::blocking::Client::builder()
+        .timeout(UPDATE_CHECK_TIMEOUT)
+        .redirect(redirect_policy)
+        .user_agent(concat!("Metra/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let mut response = client
+        .get(UPDATE_MANIFEST_URL)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .map_err(|error| error.to_string())?;
+
+    if response.url().scheme() != "https" {
+        return Err("update manifest response must use HTTPS".to_string());
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > UPDATE_MANIFEST_MAX_BYTES)
+    {
+        return Err("update manifest exceeds the size limit".to_string());
+    }
+
+    let mut bytes = Vec::new();
+    response
+        .by_ref()
+        .take(UPDATE_MANIFEST_MAX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    parse_manual_update_manifest(&bytes, current_version)
 }
 
 fn manual_download_page(version: &str) -> Option<String> {
-    let mut segments = version.split('.');
-    let valid_segment = |segment: &str| {
-        !segment.is_empty()
-            && segment.bytes().all(|byte| byte.is_ascii_digit())
-            && (segment == "0" || !segment.starts_with('0'))
-    };
-    let major = segments.next()?;
-    let minor = segments.next()?;
-    let patch = segments.next()?;
-    if segments.next().is_some()
-        || !valid_segment(major)
-        || !valid_segment(minor)
-        || !valid_segment(patch)
-    {
-        return None;
-    }
+    parse_stable_version(version)?;
     Some(format!("{UPDATE_RELEASE_TAG_PAGE_PREFIX}{version}"))
 }
 
@@ -335,34 +442,78 @@ fn queue_update_check(app: AppHandle, updater: Arc<AppUpdaterState>) {
     }
 
     tauri::async_runtime::spawn(async move {
-        let result = match app.updater_builder().timeout(UPDATE_CHECK_TIMEOUT).build() {
-            Ok(client) => client.check().await,
-            Err(error) => Err(error),
-        };
+        match updater.status().mode {
+            AppUpdateMode::InApp => {
+                let result = match app.updater_builder().timeout(UPDATE_CHECK_TIMEOUT).build() {
+                    Ok(client) => client.check().await,
+                    Err(error) => Err(error),
+                };
 
-        match result {
-            Ok(Some(update)) => {
-                diagnostics::info(
-                    "updater.available",
-                    format!(
-                        "current={} available={}",
-                        update.current_version, update.version
-                    ),
-                );
-                if let Some(status) = updater.finish_check_available(update) {
-                    emit_status(&app, status);
+                match result {
+                    Ok(Some(update)) => {
+                        diagnostics::info(
+                            "updater.available",
+                            format!(
+                                "current={} available={}",
+                                update.current_version, update.version
+                            ),
+                        );
+                        if let Some(status) = updater.finish_in_app_check_available(update) {
+                            emit_status(&app, status);
+                        }
+                    }
+                    Ok(None) => {
+                        diagnostics::info("updater.current", "no_update=true");
+                        if let Some(status) = updater.finish_check_idle() {
+                            emit_status(&app, status);
+                        }
+                    }
+                    Err(error) => {
+                        // A blocked or unavailable GitHub endpoint is not actionable for the user.
+                        // Keep the current version and wait for the next scheduled daily check.
+                        diagnostics::warn("updater.check_deferred", error.to_string());
+                        updater.finish_check_deferred();
+                    }
                 }
             }
-            Ok(None) => {
-                diagnostics::info("updater.current", "no_update=true");
-                if let Some(status) = updater.finish_check_idle() {
-                    emit_status(&app, status);
+            AppUpdateMode::ManualDownload => {
+                let current_version = updater.status().current_version;
+                let result = tauri::async_runtime::spawn_blocking(move || {
+                    fetch_manual_update(&current_version)
+                })
+                .await;
+
+                match result {
+                    Ok(Ok(Some(update))) => {
+                        diagnostics::info(
+                            "updater.available",
+                            format!(
+                                "current={} available={}",
+                                updater.status().current_version,
+                                update.version
+                            ),
+                        );
+                        if let Some(status) = updater.finish_manual_check_available(update) {
+                            emit_status(&app, status);
+                        }
+                    }
+                    Ok(Ok(None)) => {
+                        diagnostics::info("updater.current", "no_update=true");
+                        if let Some(status) = updater.finish_check_idle() {
+                            emit_status(&app, status);
+                        }
+                    }
+                    Ok(Err(error)) => {
+                        diagnostics::warn("updater.check_deferred", error);
+                        updater.finish_check_deferred();
+                    }
+                    Err(error) => {
+                        diagnostics::warn("updater.check_deferred", error.to_string());
+                        updater.finish_check_deferred();
+                    }
                 }
             }
-            Err(error) => {
-                // A blocked or unavailable GitHub endpoint is not actionable for the user.
-                // Keep the current version and wait for the next scheduled daily check.
-                diagnostics::warn("updater.check_deferred", error.to_string());
+            AppUpdateMode::Disabled => {
                 updater.finish_check_deferred();
             }
         }
@@ -492,9 +643,10 @@ pub fn open_app_update_download_page(
 #[cfg(test)]
 mod tests {
     use super::{
-        AppUpdateMode, AppUpdaterState, DesktopPlatform, UPDATE_CHECK_INTERVAL,
-        UPDATE_STARTUP_DELAY, UpdateSchedule, macos_app_bundle_from_executable,
-        manual_download_page, should_retain_pending_update, update_mode,
+        AppUpdateMode, AppUpdatePhase, AppUpdaterState, DesktopPlatform, ManualUpdate,
+        UPDATE_CHECK_INTERVAL, UPDATE_MANIFEST_MAX_BYTES, UPDATE_STARTUP_DELAY, UpdateSchedule,
+        macos_app_bundle_from_executable, manual_download_page, parse_manual_update_manifest,
+        parse_stable_version, update_mode,
     };
     use std::path::Path;
     use std::sync::Arc;
@@ -646,9 +798,95 @@ mod tests {
 
         assert!(updater.status().supported);
         assert!(updater.begin_check());
+        let status = updater
+            .finish_manual_check_available(ManualUpdate {
+                version: "0.1.40".to_string(),
+                notes: Some("Manual download".to_string()),
+            })
+            .expect("manual update should become available");
+
+        assert_eq!(status.phase, AppUpdatePhase::Available);
+        assert_eq!(status.version.as_deref(), Some("0.1.40"));
+        assert_eq!(status.notes.as_deref(), Some("Manual download"));
+        assert!(updater.lock_inner().pending.is_none());
         assert!(updater.begin_download().is_none());
-        assert!(!should_retain_pending_update(AppUpdateMode::ManualDownload));
-        assert!(should_retain_pending_update(AppUpdateMode::InApp));
+    }
+
+    #[test]
+    fn manual_manifest_reads_only_release_metadata_and_compares_semver() {
+        let manifest = br#"{
+            "version": "0.10.0",
+            "notes": "A newer stable release",
+            "platforms": {
+                "windows-x86_64": {
+                    "signature": "unused by manual checks",
+                    "url": "https://example.invalid/unused.exe"
+                }
+            }
+        }"#;
+
+        assert_eq!(
+            parse_manual_update_manifest(manifest, "0.9.99"),
+            Ok(Some(ManualUpdate {
+                version: "0.10.0".to_string(),
+                notes: Some("A newer stable release".to_string()),
+            }))
+        );
+        assert_eq!(parse_manual_update_manifest(manifest, "0.10.0"), Ok(None));
+        assert_eq!(parse_manual_update_manifest(manifest, "1.0.0"), Ok(None));
+    }
+
+    #[test]
+    fn manual_manifest_rejects_non_stable_or_oversized_input() {
+        assert!(parse_stable_version("0.1.40").is_some());
+        assert!(parse_stable_version("0.1.40-beta.1").is_none());
+        assert!(parse_stable_version("0.1.40+build.1").is_none());
+        assert!(parse_stable_version("00.1.40").is_none());
+        assert!(parse_stable_version("18446744073709551616.1.0").is_none());
+
+        assert!(parse_manual_update_manifest(br#"{"version":"0.1.40-beta.1"}"#, "0.1.39").is_err());
+        assert!(
+            parse_manual_update_manifest(
+                &vec![b' '; UPDATE_MANIFEST_MAX_BYTES as usize + 1],
+                "0.1.39"
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn failed_manual_check_is_silent_and_a_later_check_can_run() {
+        let updater = AppUpdaterState::new(AppUpdateMode::ManualDownload);
+
+        assert!(updater.begin_check());
+        updater.finish_check_deferred();
+
+        let status = updater.status();
+        assert_eq!(status.phase, AppUpdatePhase::Idle);
+        assert_eq!(status.revision, 0);
+        assert!(status.version.is_none());
+        assert!(updater.begin_check());
+    }
+
+    #[test]
+    fn successful_manual_no_update_clears_stale_availability() {
+        let updater = AppUpdaterState::new(AppUpdateMode::ManualDownload);
+        assert!(updater.begin_check());
+        updater
+            .finish_manual_check_available(ManualUpdate {
+                version: "0.1.40".to_string(),
+                notes: None,
+            })
+            .expect("manual update should become available");
+
+        assert!(updater.begin_check());
+        let status = updater
+            .finish_check_idle()
+            .expect("stale availability should be cleared");
+
+        assert_eq!(status.phase, AppUpdatePhase::Idle);
+        assert!(status.version.is_none());
+        assert!(status.notes.is_none());
     }
 
     #[test]

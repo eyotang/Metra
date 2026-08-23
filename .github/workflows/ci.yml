@@ -105,6 +105,7 @@ jobs:
           targets: ${{ matrix.os == 'macos-latest' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
       - run: npm ci
       - name: Validate updater signing secret
+        if: runner.os == 'Windows'
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -164,51 +165,10 @@ jobs:
           $env:METRA_UPDATER_ARTIFACT = Join-Path $env:GITHUB_WORKSPACE "release-assets/Metra-${appVersion}-windows-x64-setup.exe"
           $env:METRA_UPDATER_SIGNATURE = "$env:METRA_UPDATER_ARTIFACT.sig"
           cargo test --locked --test updater_signature_contract release_artifact_matches_embedded_public_key -- --ignored --exact
-      - name: Validate Apple release secrets
+      - name: Build unsigned Universal macOS DMG
         if: runner.os == 'macOS'
-        shell: bash
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          for required in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-            if [[ -z "${!required:-}" ]]; then
-              echo "Missing required Apple release secret: ${required}" >&2
-              exit 1
-            fi
-          done
-      - name: Build signed Universal macOS application
-        if: runner.os == 'macOS'
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run build -- --target universal-apple-darwin --bundles app,dmg --config src-tauri/tauri.release.conf.json
-      - name: Notarize and staple macOS DMG
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          app_version="$(node -p "require('./package.json').version")"
-          dmg_path="src-tauri/target/universal-apple-darwin/release/bundle/dmg/Metra_${app_version}_universal.dmg"
-
-          xcrun notarytool submit "${dmg_path}" \
-            --apple-id "${APPLE_ID}" \
-            --password "${APPLE_PASSWORD}" \
-            --team-id "${APPLE_TEAM_ID}" \
-            --wait
-          xcrun stapler staple "${dmg_path}"
-      - name: Verify and stage Universal macOS release
+        run: npm run build -- --target universal-apple-darwin --bundles app,dmg
+      - name: Verify and stage unsigned Universal macOS release
         if: runner.os == 'macOS'
         shell: bash
         run: |
@@ -218,63 +178,50 @@ jobs:
           app_path="${bundle_root}/macos/Metra.app"
           app_binary="${app_path}/Contents/MacOS/metra"
           dmg_path="${bundle_root}/dmg/Metra_${app_version}_universal.dmg"
-          updater_path="${bundle_root}/macos/Metra.app.tar.gz"
-          updater_signature_path="${updater_path}.sig"
 
           test "${GITHUB_REF_NAME}" = "v${app_version}"
           test -d "${app_path}"
           test -s "${dmg_path}"
-          test -s "${updater_path}"
-          test -s "${updater_signature_path}"
           test "$(plutil -extract CFBundleShortVersionString raw -o - "${app_path}/Contents/Info.plist")" = "${app_version}"
           test "$(plutil -extract CFBundleVersion raw -o - "${app_path}/Contents/Info.plist")" = "${app_version}"
           lipo "${app_binary}" -verify_arch arm64 x86_64
 
-          codesign --verify --deep --strict --all-architectures --verbose=4 "${app_path}"
-          signature_details="$(codesign -d --verbose=4 "${app_path}" 2>&1)"
-          grep -q '^Authority=Developer ID Application:' <<<"${signature_details}"
-          grep -Eq '^TeamIdentifier=[A-Z0-9]{10}$' <<<"${signature_details}"
-          grep -Eq 'flags=.*runtime' <<<"${signature_details}"
-          spctl --assess --type execute --verbose=4 "${app_path}"
-          xcrun stapler validate "${app_path}"
-
-          codesign --verify --verbose=4 "${dmg_path}"
           hdiutil verify "${dmg_path}"
-          spctl --assess --type open --context context:primary-signature --verbose=4 "${dmg_path}"
-          xcrun stapler validate "${dmg_path}"
 
-          extracted_updater="$(mktemp -d)"
-          trap 'rm -rf "${extracted_updater}"' EXIT
-          tar -xzf "${updater_path}" -C "${extracted_updater}"
-          updater_app="${extracted_updater}/Metra.app"
-          updater_binary="${updater_app}/Contents/MacOS/metra"
-          test -d "${updater_app}"
-          test "$(plutil -extract CFBundleShortVersionString raw -o - "${updater_app}/Contents/Info.plist")" = "${app_version}"
-          lipo "${updater_binary}" -verify_arch arm64 x86_64
-          codesign --verify --deep --strict --all-architectures --verbose=4 "${updater_app}"
-          updater_signature_details="$(codesign -d --verbose=4 "${updater_app}" 2>&1)"
-          grep -q '^Authority=Developer ID Application:' <<<"${updater_signature_details}"
-          grep -Eq '^TeamIdentifier=[A-Z0-9]{10}$' <<<"${updater_signature_details}"
-          grep -Eq 'flags=.*runtime' <<<"${updater_signature_details}"
-          spctl --assess --type execute --verbose=4 "${updater_app}"
-          xcrun stapler validate "${updater_app}"
+          assert_not_apple_signed_or_notarized() {
+            local artifact="$1"
+            local signature_details
+            local team_identifier
+            signature_details="$(codesign -d --verbose=4 "${artifact}" 2>&1 || true)"
+            if grep -q '^Authority=' <<<"${signature_details}"; then
+              echo "Manual macOS artifact unexpectedly contains a certificate authority: ${artifact}" >&2
+              exit 1
+            fi
+            team_identifier="$(sed -n 's/^TeamIdentifier=//p' <<<"${signature_details}")"
+            if [[ -n "${team_identifier}" && "${team_identifier}" != "not set" ]]; then
+              echo "Manual macOS artifact unexpectedly contains TeamIdentifier=${team_identifier}: ${artifact}" >&2
+              exit 1
+            fi
+            if xcrun stapler validate "${artifact}" >/dev/null 2>&1; then
+              echo "Manual macOS artifact unexpectedly contains a notarization ticket: ${artifact}" >&2
+              exit 1
+            fi
+          }
+          assert_not_apple_signed_or_notarized "${app_path}"
+          assert_not_apple_signed_or_notarized "${dmg_path}"
 
           mkdir -p release-assets
           release_dmg="Metra-${app_version}-macos-universal.dmg"
           cp "${dmg_path}" "release-assets/${release_dmg}"
-          cp "${updater_path}" "release-assets/Metra-${app_version}-macos-universal.app.tar.gz"
-          cp "${updater_signature_path}" "release-assets/Metra-${app_version}-macos-universal.app.tar.gz.sig"
           (cd release-assets && shasum -a 256 "${release_dmg}" > "${release_dmg}.sha256")
-      - name: Verify macOS updater artifact signature
-        if: runner.os == 'macOS'
-        shell: bash
-        working-directory: src-tauri
-        run: |
-          set -euo pipefail
-          app_version="$(node -p "require('../package.json').version")"
-          export METRA_UPDATER_ARTIFACT="${GITHUB_WORKSPACE}/release-assets/Metra-${app_version}-macos-universal.app.tar.gz"
-          export METRA_UPDATER_SIGNATURE="${METRA_UPDATER_ARTIFACT}.sig"
-          cargo test --locked --test updater_signature_contract release_artifact_matches_embedded_public_key -- --ignored --exact
+
+          {
+            echo "### macOS release status"
+            echo
+            echo "The macOS DMG is intentionally unsigned and not notarized; it is a manual download only."
+            echo "It is excluded from latest.json and cannot be installed by the Tauri updater."
+            echo "Users should verify ${release_dmg}.sha256 and expect a Gatekeeper warning."
+          } >> "${GITHUB_STEP_SUMMARY}"
       - uses: actions/upload-artifact@v4
         with:
           name: metra-release-${{ matrix.artifact }}
@@ -326,6 +273,7 @@ jobs:
         run: |
           set -euo pipefail
           export CURRENT_RELEASE_TAG="${GITHUB_REF_NAME}"
+          unsigned_macos_notice=$'<!-- metra-unsigned-macos-notice -->\n> [!WARNING]\n> **macOS:** The Universal DMG is currently unsigned and not notarized. It is offered only as a manual download, is excluded from `latest.json`, and may trigger Gatekeeper. Verify the accompanying `.sha256` file before installation. After copying `Metra.app` to `/Applications`, run `xattr -cr /Applications/Metra.app` if macOS blocks launch.\n\n**Windows:** Only the NSIS installer uses the signed Tauri updater. The Portable EXE detects updates but must be replaced manually.'
           gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
             --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' |
             node -e '
@@ -366,12 +314,17 @@ jobs:
             read -r is_draft is_prerelease <<<"${release_state}"
             test "${is_draft}" = "true"
             test "${is_prerelease}" = "false"
+            release_body="$(gh release view "${GITHUB_REF_NAME}" --json body --jq .body)"
+            if [[ "${release_body}" != *"<!-- metra-unsigned-macos-notice -->"* ]]; then
+              gh release edit "${GITHUB_REF_NAME}" --notes "${unsigned_macos_notice}"$'\n\n'"${release_body}"
+            fi
           else
             gh release create "${GITHUB_REF_NAME}" \
               --verify-tag \
               --draft \
               --latest=false \
               --title "Metra ${GITHUB_REF_NAME#v}" \
+              --notes "${unsigned_macos_notice}" \
               --generate-notes
           fi
       - name: Upload release assets to the draft
@@ -400,6 +353,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(gh release view "${GITHUB_REF_NAME}" --json isDraft --jq .isDraft)" = "true"
+          gh release view "${GITHUB_REF_NAME}" --json body --jq .body | grep -Fq '<!-- metra-unsigned-macos-notice -->'
           gh release edit "${GITHUB_REF_NAME}" --draft=false --prerelease=false --latest
           test "$(gh release view "${GITHUB_REF_NAME}" --json isDraft,isPrerelease --jq '[.isDraft, .isPrerelease] | any')" = "false"
           test "$(gh release view --json tagName --jq .tagName)" = "${GITHUB_REF_NAME}"
