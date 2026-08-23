@@ -1,3 +1,4 @@
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { availableMonitors, getCurrentWindow, type PhysicalPosition } from "@tauri-apps/api/window";
@@ -40,6 +41,7 @@ const providerCardNavigator = new ProviderCardNavigator(document, {
 });
 const currentWindow = getCurrentWindow();
 const view = new URLSearchParams(location.search).get("view") ?? "bubble";
+let appVersion = "";
 let payload: AppPayload | null = null;
 let pendingSettings: AppSettings | null = null;
 let activeLanguagePreference: UiLanguage | null = null;
@@ -120,6 +122,10 @@ const PROVIDER_META: Record<ProviderName, { name: string; fallbackLabel: string;
 
 function escapeHtml(value: unknown): string {
   return String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]!);
+}
+function appSubtitle(): string {
+  const version = appVersion ? ` · v${escapeHtml(appVersion)}` : "";
+  return `${escapeHtml(t("app.usageSubtitle"))}${version}`;
 }
 function bubbleProviderOrder(settings?: AppSettings): ProviderName[] {
   const configured = settings?.bubbleProviderOrder ?? [];
@@ -510,7 +516,10 @@ async function refreshWithFeedback(label = t("refresh.action"), includeCursor?: 
 }
 async function loadPayload(): Promise<void> {
   if (view === "bubble") renderBubble();
-  else renderLoadingPanel();
+  else {
+    appVersion = await getVersion().catch(() => "");
+    renderLoadingPanel();
+  }
   try {
     const loaded = await invokeWithTimeout<AppPayload>("get_app_payload", undefined, ACTION_TIMEOUT_MS, t("refresh.readUsage"));
     if (pendingSettings) loaded.settings = pendingSettings;
@@ -525,7 +534,7 @@ async function loadPayload(): Promise<void> {
 
 function renderLoadingPanel(): void {
   app.innerHTML = `<main class="panel details-panel loading-panel">
-    <div class="panel-title"><div class="panel-brand">${metraLogo()}<div><strong>Metra</strong><small>${t("app.usageSubtitle")}</small></div></div></div>
+    <div class="panel-title"><div class="panel-brand">${metraLogo()}<div><strong>Metra</strong><small>${appSubtitle()}</small></div></div></div>
     <div class="loading-state"><i></i><strong>${t("loading.ready")}</strong><small>${t("loading.usage")}</small></div>
   </main>`;
 }
@@ -1817,7 +1826,7 @@ function renderDetails(): void {
   closeColorPalette(false);
   app.innerHTML = `<main class="panel details-panel ${payload.snapshot.refreshing ? "is-refreshing" : ""}">
     <div class="panel-title">
-      <div class="panel-brand">${metraLogo()}<div><strong>Metra</strong><small>${t("app.usageSubtitle")}</small></div></div>
+      <div class="panel-brand">${metraLogo()}<div><strong>Metra</strong><small>${appSubtitle()}</small></div></div>
       ${payload.snapshot.refreshing ? `<div class="refresh-status" role="status"><i></i><span>${t("refresh.updating")}</span></div>` : ""}
       <button id="refresh" class="icon-btn" title="${payload.snapshot.refreshing ? t("refresh.refreshing") : t("refresh.now")}" aria-label="${payload.snapshot.refreshing ? t("refresh.refreshingUsage") : t("refresh.nowUsage")}"><i aria-hidden="true">↻</i></button>
     </div>
@@ -2083,7 +2092,7 @@ function renderMenu(): void {
   const s = payload.settings;
   const selectedLanguage = UI_LANGUAGE_OPTIONS.find(({ value }) => value === s.uiLanguage) ?? UI_LANGUAGE_OPTIONS[0];
   app.innerHTML = `<main class="panel menu-panel">
-    <div class="menu-brand">${metraLogo()}<div><strong>Metra</strong><small>${t("app.desktopBubbleSubtitle")}</small></div></div>
+    <div class="menu-brand">${metraLogo()}<div><strong>Metra</strong><small>${appSubtitle()}</small></div></div>
     <div class="menu-language-row">
       <span id="menu-language-label">${t("menu.language")}</span>
       <div class="language-select-control">
