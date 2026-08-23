@@ -118,8 +118,15 @@ const chineseReadme = readFileSync(new URL("../README.zh-CN.md", import.meta.url
 const japaneseReadme = readFileSync(new URL("../README.ja.md", import.meta.url), "utf8");
 const koreanReadme = readFileSync(new URL("../README.ko.md", import.meta.url), "utf8");
 const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+const detailsRenderer = main.match(/function renderDetails\(\): void \{[\s\S]*?\n\}/)?.[0] ?? "";
 const menuRenderer = main.match(/function renderMenu\(\): void \{[\s\S]*?\n\}/)?.[0] ?? "";
+const appSubtitleRenderer = main.match(/function appSubtitle\(\): string \{[\s\S]*?\n\}/)?.[0] ?? "";
 assert.match(main, /applyDocumentLocale\(i18n\.locale\)/, "the document language must follow the detected locale");
+assert.match(main, /getVersion\(\)/, "the panel must read the packaged app version");
+assert.match(appSubtitleRenderer, /app\.usageSubtitle/, "the shared app subtitle must describe limits and usage");
+assert.match(appSubtitleRenderer, /appVersion/, "the shared app subtitle must include the packaged version");
+assert.match(detailsRenderer, /appSubtitle\(\)/, "the details panel must use the shared app subtitle");
+assert.match(menuRenderer, /appSubtitle\(\)/, "the context menu must use the shared app subtitle");
 assert.match(main, /function applyLanguagePreference\(/, "saved language preferences need one shared application boundary");
 assert.match(main, /localizeProviderMessage\(/, "native provider messages must cross a localization boundary");
 assert.match(main, /localizeQuotaLabel\(/, "native quota labels must cross a localization boundary");
