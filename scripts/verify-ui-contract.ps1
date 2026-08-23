@@ -68,7 +68,8 @@ $refreshFeedback = [regex]::Match($main, 'async function refreshWithFeedback[\s\
 if ($refreshFeedback -notmatch 'hasInlineProgress = view === "panel" && panelMode === "details"' -or $refreshFeedback -notmatch 'if \(hasInlineProgress\)[\s\S]*?\.action-toast[\s\S]*?else[\s\S]*?showToast') {
   $failures += "details refresh still duplicates inline progress with a loading toast"
 }
-if ($main -notmatch '"refresh_now", \{ includeCursor \}' -or $main -notmatch 'action === "rescan" \? true : undefined') {
+$rescanHandler = [regex]::Match($main, 'if \(action === "rescan"\) \{[\s\S]*?\n\s*\}').Value
+if ($refreshFeedback -notmatch 'includeCursor\?:\s*boolean' -or $main -notmatch '"refresh_now", \{ includeCursor \}' -or $main -notmatch 'querySelector\("#refresh"\)[\s\S]{0,160}?refreshWithFeedback\(\)' -or $rescanHandler -notmatch 'refreshWithFeedback\([^,\r\n]+,\s*true\)') {
   $failures += "manual refresh cannot skip disabled Cursor while rescan still forces detection"
 }
 if ($appRust -notmatch 'include_cursor\.unwrap_or_else' -or $appRust -notmatch 'service\s*\.cursor_compat') {
@@ -76,6 +77,9 @@ if ($appRust -notmatch 'include_cursor\.unwrap_or_else' -or $appRust -notmatch '
 }
 $directInvokes = [regex]::Matches($main, '\binvoke(?:<[^>]+>)?\(').Count
 if ($directInvokes -ne 3) { $failures += "unexpected IPC operations bypass the timeout wrapper" }
+if ($main -notmatch 'const UPDATE_INSTALL_TIMEOUT_MS = 6 \* 60_000' -or $main -notmatch '"install_app_update",[\s\S]{0,120}?UPDATE_INSTALL_TIMEOUT_MS') {
+  $failures += "application update installation does not use its bounded long-running timeout"
+}
 if ($main -notmatch 'const MENU_PANEL_HEIGHT = 480' -or $appRust -notmatch '"menu" => \(252\.0, 480\.0, PANEL_MODE_MENU\)') { $failures += "menu panel height is not fitted to four-language content" }
 $menuRenderer = [regex]::Match($main, 'function renderMenu\(\): void \{[\s\S]*?\n\}').Value
 if ($menuRenderer -notmatch 'menu-language-row[\s\S]{0,500}data-ui-language' -or $menuRenderer -match 'data-action="refresh"' -or $main -notmatch 'set_ui_language' -or $types -notmatch 'uiLanguage:\s*UiLanguage' -or $settingsRust -notmatch 'pub ui_language:\s*UiLanguage') {
@@ -147,7 +151,8 @@ if ($main -notmatch '<button[^>]+class="bubble-config-dot color-trigger \$\{prov
 if ($main -notmatch '<span class="provider-dot \$\{provider\.provider\}"' -or $main -notmatch '<span class="provider-dot cursor"' -or $main -match '\$\{name\[0\]\}' -or $css -notmatch '\.provider-dot::after') {
   $failures += "provider cards repeat initials instead of using color dots"
 }
-if ($main -notmatch 'provider\.stale \? "stale" : provider\.status === "available" \? "available" : "unavailable"' -or $css -notmatch '\.status\.available' -or $css -notmatch '\.status\.unavailable' -or $css -notmatch '\.status\.stale' -or $css -notmatch '\.status\.pending') {
+$providerCard = [regex]::Match($main, 'function providerCard\([\s\S]*?\n\}').Value
+if ($providerCard -notmatch 'const statusTone = loading \? "pending" : provider\.stale \? "stale" : provider\.status === "available" \? "available" : provider\.status === "desktop_installed" \? "pending" : "unavailable"' -or $providerCard -notmatch 'class="status \$\{statusTone\}"' -or $css -notmatch '\.status\.available' -or $css -notmatch '\.status\.unavailable' -or $css -notmatch '\.status\.stale' -or $css -notmatch '\.status\.pending') {
   $failures += "provider availability is not rendered with semantic status badges"
 }
 if ($main -notmatch 'cursorBubbleLabel' -or $main -notmatch 'codexBubbleLabel' -or $main -notmatch 'claudeBubbleLabel' -or $main -notmatch 'cursorLabel,\s*codexLabel,\s*claudeLabel' -or $main -notmatch 'fallbackLabel:\s*"A"' -or $main -notmatch 'maxlength="3"') {
@@ -209,7 +214,7 @@ if ($main -notmatch 'const PANEL_SHOW_TIMEOUT_MS = 1_000') {
 if ($showPanel -notmatch 'invokeWithTimeout<number>\s*\(\s*"show_panel"') {
   $failures += "panel display is not delegated through one native bridge call"
 }
-if ($showPanel -match 'WebviewWindow|getByLabel|setSize|emitTo|positionPanel|panel\.show|panel\.setFocus') {
+if ($showPanel -match 'WebviewWindow|getByLabel|setSize|emitTo|positionPanel|\bpanel\.(?:show|setFocus)\s*\(') {
   $failures += "panel display still performs sequential frontend window bridge calls"
 }
 $showPanelInvokes = [regex]::Matches($showPanel, 'invokeWithTimeout').Count
@@ -227,7 +232,7 @@ if ($nativePosition -lt 0 -or $nativeShowIndex -lt 0 -or $nativePosition -gt $na
   $failures += "native panel command does not position before showing"
 }
 if ($failures.Count) {
-  $failures | ForEach-Object { Write-Error $_ }
+  $failures | ForEach-Object { [Console]::Error.WriteLine("UI contract: $_") }
   exit 1
 }
 

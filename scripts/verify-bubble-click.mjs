@@ -5,7 +5,7 @@ import {
   probeBubbleRelease,
 } from "../src/bubble-gesture.ts";
 
-const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8").replace(/\r\n?/g, "\n");
 const pointerDownMethod = main.match(/private onPointerDown\([\s\S]*?\n  }\n/)?.[0] ?? "";
 const finishNativeDragMethod = main.match(/private async finishNativeDrag\([\s\S]*?\n  }\n\n  private isActiveDrag/)?.[0] ?? "";
 const cancelFailedProbeMethod = main.match(/private cancelNativeGestureAfterReleaseProbeFailure\([\s\S]*?\n  }\n/)?.[0] ?? "";

@@ -57,8 +57,8 @@ button { font: inherit; color: inherit; }
 .logo-mark { flex: 0 0 30px; width: 30px; height: 30px; display: block; border-radius: 50%; filter: drop-shadow(0 5px 9px #5868e84d); }
 .icon-btn { width: 32px; height: 32px; border: 0; border-radius: 11px; background: #ffffff0b; color: #aeb5ca; cursor: pointer; font-size: 20px; }
 .icon-btn:hover { background: #ffffff14; color: white; }
-.icon-btn span { display: block; line-height: 1; }
-.is-refreshing .icon-btn span { animation: spin .8s linear infinite; }
+.icon-btn i { display: block; font-style: normal; line-height: 1; }
+.is-refreshing .icon-btn i { animation: spin .8s linear infinite; }
 .refresh-status { min-width: 0; margin-left: auto; padding: 5px 8px; display: flex; align-items: center; gap: 6px; border: 1px solid #45cbb01f; border-radius: 9px; background: #45cbb014; color: #83a69f; font-size: 9px; white-space: nowrap; }
 .refresh-status i { width: 10px; height: 10px; border: 1px solid #ffffff22; border-top-color: #67dcc7; border-radius: 50%; animation: spin .8s linear infinite; }
 .app-update-region { min-width: 0; flex: 0 0 auto; }
@@ -178,7 +178,7 @@ button { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .bubble-shell, .bubble-center, .bubble-idle-usage, .provider-card, .bubble-config-item.dropping, .bubble-config-placeholder, .bubble-config-dot::after, .bubble-config-name.provider-nav span, .color-swatch, .visibility-toggle, .visibility-toggle span { transition: none; }
   .bubble-config-name.provider-nav:hover span, .bubble-config-name.provider-nav:focus-visible span { transform: none; }
-  .bubble-row.loading-row strong, .bubble-row .token-gain, .is-refreshing .icon-btn span, .refresh-status i, .app-update-mark.is-busy::after, .app-update-progress.indeterminate i, .loading-state i { animation: none; }
+  .bubble-row.loading-row strong, .bubble-row .token-gain, .is-refreshing .icon-btn i, .refresh-status i, .app-update-mark.is-busy::after, .app-update-progress.indeterminate i, .loading-state i { animation: none; }
   .app-update-progress i { transition: none; }
 }
 

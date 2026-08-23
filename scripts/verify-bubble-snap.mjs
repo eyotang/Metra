@@ -79,12 +79,13 @@ assert.deepEqual(
   { x: 600, y: -600 },
 );
 
-const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
-const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
-const config = readFileSync(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8");
-const appRust = readFileSync(new URL("../src-tauri/src/app.rs", import.meta.url), "utf8");
-const settingsRust = readFileSync(new URL("../src-tauri/src/settings.rs", import.meta.url), "utf8");
-const types = readFileSync(new URL("../src/types.ts", import.meta.url), "utf8");
+const readSource = (path) => readFileSync(new URL(path, import.meta.url), "utf8").replace(/\r\n?/g, "\n");
+const main = readSource("../src/main.ts");
+const css = readSource("../src/styles.css");
+const config = readSource("../src-tauri/tauri.conf.json");
+const appRust = readSource("../src-tauri/src/app.rs");
+const settingsRust = readSource("../src-tauri/src/settings.rs");
+const types = readSource("../src/types.ts");
 
 assert.match(main, /const BUBBLE_IDLE_DELAY_MS = 3_000/, "ordinary idle peek must still wait three seconds");
 assert.match(main, /function idleBubbleValue\(/, "idle mode needs a percentage-only renderer");
