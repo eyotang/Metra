@@ -1,4 +1,10 @@
-:root { font-family: Inter, "SF Pro Display", "Segoe UI", system-ui, sans-serif; color: #edf1ff; color-scheme: dark; }
+@import url("/fonts/metra-fonts.css");
+
+:root { --metra-cjk-fonts: "Metra CJK SC"; font-synthesis: none; font-optical-sizing: none; color: #edf1ff; color-scheme: dark; }
+:root, [lang] { font-family: "Metra Inter", var(--metra-cjk-fonts), sans-serif; }
+:lang(zh-CN) { --metra-cjk-fonts: "Metra CJK SC"; }
+:lang(ja) { --metra-cjk-fonts: "Metra CJK JP", "Metra CJK SC"; }
+:lang(ko) { --metra-cjk-fonts: "Metra CJK KR", "Metra CJK SC"; }
 * { box-sizing: border-box; }
 html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; user-select: none; }
 button { font: inherit; color: inherit; }
@@ -142,7 +148,8 @@ button { font: inherit; color: inherit; }
 .bubble-config-item.dropping { transition: transform .13s ease-out; }
 .bubble-config-placeholder { height: 31px; border: 1px dashed #8067ff80; border-radius: 9px; background: linear-gradient(90deg, #8067ff12, #38cdb015); box-shadow: inset 0 0 12px #8067ff0d; }
 .bubble-config-list.is-sorting .bubble-config-item:not(.dragging), .bubble-config-placeholder { transition: transform .12s ease, border-color .12s ease, background .12s ease; }
-.drag-handle { width: 17px; height: 24px; padding: 0; border: 0; outline: none; background: transparent; color: #68728d; cursor: grab; font-size: 14px; line-height: 1; text-align: center; touch-action: none; }
+.drag-handle { width: 17px; height: 24px; padding: 0; border: 0; outline: none; display: grid; place-items: center; background: transparent; color: #68728d; cursor: grab; touch-action: none; }
+.drag-handle::before { width: 10px; height: 15px; content: ""; background: radial-gradient(circle, currentColor 1.2px, transparent 1.35px) 0 0 / 5px 5px; }
 .drag-handle:hover, .drag-handle:focus-visible { color: #a99aff; }
 .bubble-config-item.dragging .drag-handle { cursor: grabbing; }
 .bubble-config-dot { flex: 0 0 20px; width: 20px; height: 20px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 7px; outline: none; background: transparent; cursor: pointer; -webkit-appearance: none; appearance: none; }
@@ -156,7 +163,7 @@ button { font: inherit; color: inherit; }
 .bubble-config-name.provider-nav:hover, .bubble-config-name.provider-nav:focus-visible { color: #e1e6f5; }
 .bubble-config-name.provider-nav:hover span, .bubble-config-name.provider-nav:focus-visible span { color: #a99aff; transform: translateX(1px); }
 .bubble-config-name.provider-nav:focus-visible { box-shadow: 0 0 0 2px #9b8cff; }
-.bubble-config-item input { width: 48px; height: 23px; padding: 0 5px; border: 1px solid #ffffff12; border-radius: 7px; outline: none; background: #ffffff08; color: #eef2ff; cursor: text; font-size: 10px; font-weight: 700; text-align: center; user-select: text; }
+.bubble-config-item input { width: 48px; height: 23px; padding: 0 5px; border: 1px solid #ffffff12; border-radius: 7px; outline: none; background: #ffffff08; color: #eef2ff; cursor: text; font-family: inherit; font-size: 10px; font-weight: 700; text-align: center; user-select: text; }
 .bubble-config-item input:focus { border-color: #8067ff99; background: #8067ff16; }
 .visibility-toggle { position: relative; flex: 0 0 31px; width: 31px; height: 18px; padding: 0; border: 1px solid #ffffff0e; border-radius: 10px; outline: none; background: #343a4d; cursor: pointer; transition: border-color .16s ease, background .16s ease; -webkit-appearance: none; appearance: none; }
 .visibility-toggle span { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #8c94a8; transition: transform .16s ease, background .16s ease; }
@@ -236,7 +243,7 @@ button { font: inherit; color: inherit; }
 .menu-panel button span { font-size: 12px; }
 .menu-panel button span b { display: block; font-weight: 500; }
 .menu-panel button span small { display: block; margin-top: 2px; color: #68728c; font-size: 9px; }
-kbd { padding: 2px 6px; border-radius: 5px; background: #ffffff0a; color: #737d95; font: 9px inherit; }
+kbd { padding: 2px 6px; border-radius: 5px; background: #ffffff0a; color: #737d95; font-family: inherit; font-size: 9px; }
 .menu-label { margin: 8px 10px 7px; color: #667089; font-size: 9px; text-transform: uppercase; }
 .intervals { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin-bottom: 8px; }
 .intervals button { height: 30px; padding: 0; border: 1px solid #ffffff0b; border-radius: 9px; background: #ffffff06; color: #7d869d; cursor: pointer; font-size: 10px; }

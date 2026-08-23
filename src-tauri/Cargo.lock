@@ -2123,7 +2123,7 @@ dependencies = [
 
 [[package]]
 name = "metra"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "base64 0.22.1",
  "chrono",

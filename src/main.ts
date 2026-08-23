@@ -106,11 +106,11 @@ const COLOR_TONE_KEYS = [
   "color.tone.dark",
 ] as const satisfies readonly TranslationKey[];
 const UI_LANGUAGE_OPTIONS = [
-  { value: "system", labelKey: "menu.languageSystem" },
-  { value: "zh-CN", labelKey: "menu.languageZhCn" },
-  { value: "en", labelKey: "menu.languageEnglish" },
-  { value: "ja", labelKey: "menu.languageJapanese" },
-  { value: "ko", labelKey: "menu.languageKorean" },
+  { value: "system", labelKey: "menu.languageSystem", languageTag: null },
+  { value: "zh-CN", labelKey: "menu.languageZhCn", languageTag: "zh-CN" },
+  { value: "en", labelKey: "menu.languageEnglish", languageTag: "en" },
+  { value: "ja", labelKey: "menu.languageJapanese", languageTag: "ja" },
+  { value: "ko", labelKey: "menu.languageKorean", languageTag: "ko" },
 ] as const;
 const PROVIDER_META: Record<ProviderName, { name: string; fallbackLabel: string; fallbackColor: string }> = {
   cursor: { name: "Cursor", fallbackLabel: "C", fallbackColor: "#9c83ff" },
@@ -1494,7 +1494,7 @@ function bubbleConfigItem(provider: ProviderName, settings: AppSettings): string
   const color = bubbleProviderColor(provider, settings);
   const visible = bubbleVisibleProviderOrder(settings).includes(provider);
   return `<div class="bubble-config-item ${visible ? "" : "is-hidden"}" data-bubble-provider="${provider}" data-bubble-color="${color}" data-bubble-visible="${visible}">
-    <button type="button" class="drag-handle" title="${t("config.dragOrder")}" aria-label="${t("config.dragProviderOrder", { provider: name })}">⠿</button>
+    <button type="button" class="drag-handle" title="${t("config.dragOrder")}" aria-label="${t("config.dragProviderOrder", { provider: name })}"></button>
     <button type="button" class="bubble-config-dot color-trigger ${provider}" data-color-provider="${provider}" data-provider-accent="${provider}" style="--provider-color:${color}" aria-haspopup="dialog" aria-expanded="false" aria-controls="provider-color-palette" aria-label="${t("config.chooseCurrentColor", { provider: name, color })}" title="${t("config.chooseColor", { provider: name })}"></button>
     <a class="bubble-config-name provider-nav" href="#provider-card-${provider}" aria-label="${t("config.viewStats", { provider: name })}">${name}<span aria-hidden="true">›</span></a>
     <input type="text" maxlength="3" value="${escapeHtml(bubbleProviderLabel(provider, settings))}" aria-label="${t("config.bubbleLabel", { provider: name })}" spellcheck="false">
@@ -2015,6 +2015,10 @@ function observeMenuPanelSize(layoutRevision: number): void {
   scheduleMenuPanelResize(layoutRevision);
   menuResizeObserver = new ResizeObserver(() => scheduleMenuPanelResize(layoutRevision));
   menuResizeObserver.observe(surface);
+  if (document.fonts) {
+    window.setTimeout(() => scheduleMenuPanelResize(layoutRevision), 1_200);
+    void document.fonts.ready.then(() => scheduleMenuPanelResize(layoutRevision));
+  }
 }
 
 function restoreLanguageFocus(target: LanguageFocusTarget, layoutRevision: number): void {
@@ -2084,10 +2088,10 @@ function renderMenu(): void {
       <span id="menu-language-label">${t("menu.language")}</span>
       <div class="language-select-control">
         <button type="button" class="language-select-trigger" data-language-trigger role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="language-listbox" aria-labelledby="menu-language-label language-combobox-value" aria-busy="${languageUpdateInFlight}" ${languageUpdateInFlight ? "disabled" : ""}>
-          <span id="language-combobox-value">${t(selectedLanguage.labelKey)}</span><i aria-hidden="true"></i>
+          <span id="language-combobox-value" lang="${selectedLanguage.languageTag ?? i18n.locale}">${t(selectedLanguage.labelKey)}</span><i aria-hidden="true"></i>
         </button>
         <div class="language-listbox" id="language-listbox" role="listbox" aria-labelledby="menu-language-label" hidden>
-          ${UI_LANGUAGE_OPTIONS.map(({ value, labelKey }) => `<div id="language-option-${value}" class="language-option" data-language-option="${value}" role="option" aria-selected="${s.uiLanguage === value}">${t(labelKey)}</div>`).join("")}
+          ${UI_LANGUAGE_OPTIONS.map(({ value, labelKey, languageTag }) => `<div id="language-option-${value}" class="language-option" data-language-option="${value}" role="option" lang="${languageTag ?? i18n.locale}" aria-selected="${s.uiLanguage === value}">${t(labelKey)}</div>`).join("")}
         </div>
       </div>
     </div>
