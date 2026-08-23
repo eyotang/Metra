@@ -1,6 +1,7 @@
 /node_modules/
 /dist/
 /src-tauri/target/
+/release-assets/
 /.idea/
 /.vscode/
 .DS_Store

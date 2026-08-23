@@ -1,7 +1,7 @@
 {
   "name": "metra",
   "private": true,
-  "version": "0.1.39",
+  "version": "0.1.40",
   "packageManager": "pnpm@11.22.0",
   "engines": {
     "node": ">=22.13.0"

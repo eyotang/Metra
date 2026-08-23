@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -42,8 +43,6 @@ export function releaseAssetNames(version) {
   return {
     macDmg: `Metra-${version}-macos-universal.dmg`,
     macDmgChecksum: `Metra-${version}-macos-universal.dmg.sha256`,
-    macUpdater: `Metra-${version}-macos-universal.app.tar.gz`,
-    macUpdaterSignature: `Metra-${version}-macos-universal.app.tar.gz.sig`,
     windowsInstaller: `Metra-${version}-windows-x64-setup.exe`,
     windowsInstallerSignature: `Metra-${version}-windows-x64-setup.exe.sig`,
     windowsPortable: `Metra-${version}-windows-x64-portable.exe`,
@@ -95,6 +94,21 @@ function assertReleaseAssets(assetsDir, names, allowManifest) {
       throw new Error(`Release asset must be a non-empty file: ${path}`);
     }
   }
+
+  const checksumPath = join(assetsDir, names.macDmgChecksum);
+  const checksum = readFileSync(checksumPath, "utf8").trim();
+  const checksumMatch = checksum.match(/^([a-fA-F0-9]{64}) [ *](.+)$/);
+  if (!checksumMatch || checksumMatch[2] !== names.macDmg) {
+    throw new Error(
+      `${names.macDmgChecksum} must contain one SHA-256 checksum for ${names.macDmg}`,
+    );
+  }
+  const actualChecksum = createHash("sha256")
+    .update(readFileSync(join(assetsDir, names.macDmg)))
+    .digest("hex");
+  if (checksumMatch[1].toLowerCase() !== actualChecksum) {
+    throw new Error(`${names.macDmgChecksum} does not match ${names.macDmg}`);
+  }
 }
 
 function readSignature(path) {
@@ -118,10 +132,6 @@ export function buildLatestManifest({ assetsDir, repository, tag, pubDate, versi
   }
   assertReleaseAssets(assetsDir, names, manifestExists);
 
-  const macUpdate = {
-    signature: readSignature(join(assetsDir, names.macUpdaterSignature)),
-    url: releaseDownloadUrl(repository, tag, names.macUpdater),
-  };
   const windowsUpdate = {
     signature: readSignature(join(assetsDir, names.windowsInstallerSignature)),
     url: releaseDownloadUrl(repository, tag, names.windowsInstaller),
@@ -131,8 +141,6 @@ export function buildLatestManifest({ assetsDir, repository, tag, pubDate, versi
     version,
     pub_date: normalizedPubDate,
     platforms: {
-      "darwin-aarch64": macUpdate,
-      "darwin-x86_64": { ...macUpdate },
       "windows-x86_64": windowsUpdate,
     },
   };
