@@ -22,10 +22,10 @@ jobs:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
       - name: Install frontend dependencies
@@ -99,10 +99,10 @@ jobs:
             artifact: macos-universal
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -226,7 +226,7 @@ jobs:
             echo "It is excluded from latest.json and cannot be installed by the Tauri updater."
             echo "Users should verify ${release_dmg}.sha256 and expect a Gatekeeper warning."
           } >> "${GITHUB_STEP_SUMMARY}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: metra-release-${{ matrix.artifact }}
           path: release-assets/*
@@ -241,11 +241,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
-      - uses: actions/download-artifact@v4
+          node-version: 24
+      - uses: actions/download-artifact@v8
         with:
           pattern: metra-release-*
           path: release-assets

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+const nvmVersion = readFileSync(new URL("../.nvmrc", import.meta.url), "utf8").trim();
 const workspace = readFileSync(new URL("../pnpm-workspace.yaml", import.meta.url), "utf8");
 const cargoConfig = readFileSync(new URL("../.cargo/config.toml", import.meta.url), "utf8");
 const portableBuild = readFileSync(new URL("./build-portable.ps1", import.meta.url), "utf8");
@@ -23,11 +24,19 @@ assert.match(
   "project builds must disable any user-level workspace rustc wrapper",
 );
 assert.equal(packageJson.packageManager, "pnpm@11.22.0", "package.json must pin the tested pnpm version");
-assert.equal(packageJson.engines?.node, ">=22.13.0", "pnpm 11.22 requires the documented Node 22.13+ baseline");
+assert.equal(packageJson.engines?.node, ">=24.0.0", "the project must require the documented Node 24+ baseline");
+assert.equal(nvmVersion, "24", ".nvmrc must select the supported Node major");
 for (const readme of readmes) {
-  assert.match(readme, /Node(?:\.js)? 22\.13(?:\+| 以降| 이상)/, "every README must document the supported Node baseline");
+  assert.match(readme, /Node(?:\.js)? 24(?:\+| 以降| 이상)/, "every README must document the supported Node baseline");
   assert.match(readme, /npm install --global pnpm@11\.22\.0/, "every README must install the pinned Windows pnpm version");
 }
+assert.deepEqual(
+  [...ciWorkflow.matchAll(/node-version:\s*["']?(\d+)/g)].map((match) => match[1]),
+  ["24", "24", "24"],
+  "verify, release artifact, and release publishing jobs must all use Node 24",
+);
+assert.equal((ciWorkflow.match(/actions\/checkout@v7/g) ?? []).length, 3, "all checkout steps must use the Node 24 action runtime");
+assert.equal((ciWorkflow.match(/actions\/setup-node@v7/g) ?? []).length, 3, "all setup-node steps must use the Node 24 action runtime");
 assert.equal(
   packageJson.scripts["build:portable"],
   "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1",

@@ -26,7 +26,7 @@ Metra는 Cursor, Codex, Claude Code의 로그인 상태, 사용량 한도와 재
 
 ## 개발
 
-Rust stable, Node.js 22.13 이상, npm 및 현재 플랫폼용 Tauri 시스템 종속성이 필요합니다.
+Rust stable, Node.js 24 이상, npm 및 현재 플랫폼용 Tauri 시스템 종속성이 필요합니다.
 
 ```text
 npm install

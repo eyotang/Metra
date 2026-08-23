@@ -208,7 +208,8 @@ function verifyRepositoryContract() {
     /latest_tag=.*gh release view --json tagName/,
     "release ordering must not trust the mutable latest pointer",
   );
-  assert.match(workflow, /actions\/download-artifact@v4[\s\S]*merge-multiple: true/);
+  assert.match(workflow, /actions\/upload-artifact@v7/, "release assets must use the Node 24 upload action runtime");
+  assert.match(workflow, /actions\/download-artifact@v8[\s\S]*merge-multiple: true/, "release publishing must use the Node 24 download action runtime");
   assert.match(workflow, /gh release create[\s\S]*--draft/);
   assert.match(
     workflow,

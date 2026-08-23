@@ -26,7 +26,7 @@ Metra は、Cursor、Codex、Claude Code のログイン状態、使用量上限
 
 ## 開発
 
-Rust stable、Node.js 22.13 以降、npm、および使用するプラットフォーム向けの Tauri システム依存関係が必要です。
+Rust stable、Node.js 24 以降、npm、および使用するプラットフォーム向けの Tauri システム依存関係が必要です。
 
 ```text
 npm install

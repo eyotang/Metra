@@ -26,7 +26,7 @@ Metra 是一个轻量的跨平台桌面气泡，用来查看 Cursor、Codex 和 
 
 ## 开发
 
-需要 Rust stable、Node.js 22.13+、npm 或 pnpm，以及 Tauri 对应平台的系统依赖。
+需要 Rust stable、Node.js 24+、npm 或 pnpm，以及 Tauri 对应平台的系统依赖。
 
 ```text
 npm install
