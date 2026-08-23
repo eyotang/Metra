@@ -218,8 +218,8 @@ function verifyRepositoryContract() {
   );
   assert.match(
     workflow,
-    /xattr -cr \/Applications\/Metra\.app/,
-    "unsigned macOS release notes must include the documented quarantine-removal command",
+    /sudo xattr -d com\.apple\.quarantine \/Applications\/Metra\.app/,
+    "unsigned macOS release notes must remove only the quarantine attribute with the documented command",
   );
   assert.match(workflow, /generate:updater-manifest/);
   assert.match(workflow, /gh release upload[\s\S]*--clobber/);

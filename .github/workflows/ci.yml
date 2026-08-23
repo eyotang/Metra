@@ -277,7 +277,7 @@ jobs:
         run: |
           set -euo pipefail
           export CURRENT_RELEASE_TAG="${GITHUB_REF_NAME}"
-          unsigned_macos_notice=$'<!-- metra-unsigned-macos-notice -->\n> [!WARNING]\n> **macOS:** The Universal DMG is currently unsigned and not notarized. It is offered only as a manual download, is excluded from `latest.json`, and may trigger Gatekeeper. Verify the accompanying `.sha256` file before installation. After copying `Metra.app` to `/Applications`, run `xattr -cr /Applications/Metra.app` if macOS blocks launch.\n\n**Windows:** Only the NSIS installer uses the signed Tauri updater. The Portable EXE detects updates but must be replaced manually.'
+          unsigned_macos_notice=$'<!-- metra-unsigned-macos-notice -->\n> [!WARNING]\n> **macOS:** The Universal DMG is currently unsigned and not notarized. It is offered only as a manual download, is excluded from `latest.json`, and may trigger Gatekeeper. Verify the accompanying `.sha256` file before installation. After copying `Metra.app` to `/Applications`, run `sudo xattr -d com.apple.quarantine /Applications/Metra.app` if macOS blocks launch.\n\n**Windows:** Only the NSIS installer uses the signed Tauri updater. The Portable EXE detects updates but must be replaced manually.'
           gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
             --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' |
             node -e '
