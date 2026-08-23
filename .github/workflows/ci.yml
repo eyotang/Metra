@@ -28,6 +28,11 @@ jobs:
           node-version: 24
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore Windows Rust cache
+        if: runner.os == 'Windows'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
       - name: Install frontend dependencies
         run: npm ci
       - name: Type check
@@ -81,9 +86,7 @@ jobs:
       - name: Frontend build
         run: npm run vite -- build
       - name: Rust tests
-        run: |
-          cargo check --manifest-path src-tauri/Cargo.toml --all-targets
-          cargo test --manifest-path src-tauri/Cargo.toml --all-targets
+        run: cargo test --manifest-path src-tauri/Cargo.toml --all-targets
 
   release-artifacts:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -107,6 +110,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.os == 'macos-latest' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
+      - name: Restore Windows Rust cache
+        if: runner.os == 'Windows'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
       - run: npm ci
       - name: Validate updater signing secret
         if: runner.os == 'Windows'
