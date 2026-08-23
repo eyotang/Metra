@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use crate::model::Provider;
@@ -13,14 +13,13 @@ pub const DEFAULT_CURSOR_BUBBLE_COLOR: &str = "#9c83ff";
 pub const DEFAULT_CODEX_BUBBLE_COLOR: &str = "#4bd8c0";
 pub const DEFAULT_CLAUDE_BUBBLE_COLOR: &str = "#e99068";
 pub const BUBBLE_COLOR_PALETTE: [&str; 55] = [
-    "#ff6b6b", "#e99068", "#ffc21a", "#91b800", "#34b84a", "#4bd8c0", "#2da9dc",
-    "#7698ee", "#d86bb3", "#9c83ff", "#949aa4", "#ffe0df", "#ffe3c7", "#fff0c2",
-    "#e4f3ad", "#cceecd", "#c5f0eb", "#caebf7", "#dce6fb", "#f4d9e9", "#e8def9",
-    "#e8eaed", "#ffb5b0", "#ffc98f", "#ffe08a", "#c9e45f", "#92da96", "#72d8cc",
-    "#80d1ed", "#b4c8f6", "#efb2d7", "#d2bdf2", "#cbd0d6", "#ef4e48", "#eb6f17",
-    "#dfa20a", "#749900", "#2fa43d", "#119b88", "#158eb9", "#487bea", "#c23f91",
-    "#8752df", "#656c76", "#cf332d", "#a84d08", "#8f6508", "#496600", "#208c2b",
-    "#087164", "#0b6787", "#2456d9", "#98246e", "#6d2bd1", "#3f454d",
+    "#ff6b6b", "#e99068", "#ffc21a", "#91b800", "#34b84a", "#4bd8c0", "#2da9dc", "#7698ee",
+    "#d86bb3", "#9c83ff", "#949aa4", "#ffe0df", "#ffe3c7", "#fff0c2", "#e4f3ad", "#cceecd",
+    "#c5f0eb", "#caebf7", "#dce6fb", "#f4d9e9", "#e8def9", "#e8eaed", "#ffb5b0", "#ffc98f",
+    "#ffe08a", "#c9e45f", "#92da96", "#72d8cc", "#80d1ed", "#b4c8f6", "#efb2d7", "#d2bdf2",
+    "#cbd0d6", "#ef4e48", "#eb6f17", "#dfa20a", "#749900", "#2fa43d", "#119b88", "#158eb9",
+    "#487bea", "#c23f91", "#8752df", "#656c76", "#cf332d", "#a84d08", "#8f6508", "#496600",
+    "#208c2b", "#087164", "#0b6787", "#2456d9", "#98246e", "#6d2bd1", "#3f454d",
 ];
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -119,11 +118,7 @@ impl Default for AppSettings {
             bubble_position: None,
             bubble_position_version: 0,
             bubble_provider_order: vec![Provider::Cursor, Provider::Codex, Provider::Claude],
-            bubble_visible_providers: vec![
-                Provider::Cursor,
-                Provider::Codex,
-                Provider::Claude,
-            ],
+            bubble_visible_providers: vec![Provider::Cursor, Provider::Codex, Provider::Claude],
             cursor_bubble_label: "C".into(),
             codex_bubble_label: "X".into(),
             claude_bubble_label: "A".into(),
@@ -214,16 +209,12 @@ impl AppSettings {
         self.cursor_bubble_label = normalize_bubble_label(&self.cursor_bubble_label, "C");
         self.codex_bubble_label = normalize_bubble_label(&self.codex_bubble_label, "X");
         self.claude_bubble_label = normalize_bubble_label(&self.claude_bubble_label, "A");
-        self.cursor_bubble_color = normalize_bubble_color(
-            &self.cursor_bubble_color,
-            DEFAULT_CURSOR_BUBBLE_COLOR,
-        );
+        self.cursor_bubble_color =
+            normalize_bubble_color(&self.cursor_bubble_color, DEFAULT_CURSOR_BUBBLE_COLOR);
         self.codex_bubble_color =
             normalize_bubble_color(&self.codex_bubble_color, DEFAULT_CODEX_BUBBLE_COLOR);
-        self.claude_bubble_color = normalize_bubble_color(
-            &self.claude_bubble_color,
-            DEFAULT_CLAUDE_BUBBLE_COLOR,
-        );
+        self.claude_bubble_color =
+            normalize_bubble_color(&self.claude_bubble_color, DEFAULT_CLAUDE_BUBBLE_COLOR);
         self
     }
 }

@@ -15,6 +15,7 @@ Metra は、Cursor、Codex、Claude Code のログイン状態、使用量上限
 - プロバイダーごとに表示・非表示を切り替え、6 点ハンドルで並べ替え、バブル内のラベルとマーカー色を個別に変更できます。内蔵の 55 色パレットは、ほかの設定とともに SQLite に保存されます。
 - 左クリックで詳細を開き、パネル内の更新アイコンから使用量を更新できます。コンテキストメニューの先頭には言語セレクターがあり、更新間隔、自動起動、互換モード、再検出、終了も設定できます。更新操作は重複して表示しません。
 - 更新に失敗しても直近の正常な結果を保持し、古いデータであることを明確に示します。
+- v0.1.39 以降、Windows ポータブル版を含む対応配布形式は起動後まもなく GitHub Releases を確認し、実行中は 24 時間ごとに再確認します。Windows インストーラー版は承認後にアプリ内更新し、macOS と Windows ポータブル版は検出したバージョンの Release ページを開いて手動でダウンロードします。
 - インターフェースは英語、簡体字中国語（`zh-CN`）、日本語、韓国語に対応しています。「自動検出」は OS またはブラウザの言語に従い、手動で選んだ言語はすぐに反映され、再起動後も保持されます。
 
 <p align="center">
@@ -61,6 +62,14 @@ npm run build:macos-universal
 
 `pnpm run build -- --target universal-apple-darwin` は使用しないでください。pnpm では余分な `--` が下位のコマンドへ渡り、Rust が `universal-apple-darwin` を存在しない単一ターゲットとして受け取るため、ビルドに失敗します。また、Homebrew の `cargo` / `rustc` が PATH 上で rustup より優先されている状態で、rustup にインストールしたターゲットと混在させても失敗します。上記の専用コマンドは、どちらの問題も自動的に回避します。
 
+## 更新確認とインストール方法（v0.1.39 以降）
+
+Windows ポータブル版を含む対応配布形式は、起動後まもなく GitHub の最新 Release にある `latest.json` を読み込み、実行中は 24 時間ごとに再確認します。GitHub に接続できない場合、Metra は接続エラーを表示したり連続して再試行したりせず、次回の定期確認まで静かに待機します。新しいバージョンが見つかると、バージョン番号と更新確認を表示します。選択された更新操作は、ユーザーが明示的に承認した後にのみ開始されます。
+
+v0.1.38 自体にはアップデーターが含まれていないため、既存のインストール版とポータブル版のユーザーは最初に v0.1.39 へ手動で更新する必要があります。この初回導入後、すべての対応配布形式で以降のバージョンを自動検出できます。Windows NSIS インストール版はアプリ内更新に対応し、macOS と Windows ポータブル版は引き続き手動でダウンロードします。
+
+Windows の NSIS インストール版は Tauri updater の署名を検証し、インストーラーをダウンロードしてアプリ内で更新します。macOS も `latest.json` で新バージョンを検出しますが、更新ボタンは検出したバージョンの GitHub Release ページを開き、ユーザーが署名・公証済み DMG を手動でダウンロードします。上流の [Tauri updater セキュリティ問題 #3505](https://github.com/tauri-apps/plugins-workspace/issues/3505) が解決されるまで、リスクのあるアプリの直接置換は無効です。Windows ポータブル版も新バージョンを自動検出しますが、実行中のプログラムを自動でダウンロードまたは置換することはありません。更新ボタンは検出したバージョンの Release ページを開き、ユーザーが新しいポータブル EXE を手動でダウンロードします。
+
 ## 任意：公式 Claude Code API の使用量
 
 Anthropic の Claude Code Analytics API で使用できるのは、組織レベルの Admin API キー（`sk-ant-admin...`）のみです。通常の Claude API キー（`sk-ant-api...`）では過去の使用量を照会できず、個人アカウントは Admin API を利用できません。詳細は [Claude Code Analytics API のドキュメント](https://platform.claude.com/docs/en/manage-claude/claude-code-analytics-api) を参照してください。
@@ -90,7 +99,11 @@ API は UTC の暦日単位で使用量を集計し、データには最大で�
 
 `v*` タグを push すると、リリース成果物ワークフローが起動します。macOS を正式配布するには、リリース環境に `APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_ID`、`APPLE_PASSWORD`、`APPLE_TEAM_ID` を設定する必要があります。
 
+アップデート成果物には、対応する署名鍵のペアが必要です。秘密鍵は絶対にリポジトリへコミットせず、GitHub Actions の `TAURI_SIGNING_PRIVATE_KEY` Secret にアップロードするとともに、別途安全なオフラインバックアップを保管してください。暗号化した鍵を使う場合だけ、パスワードを `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` に保存します。公開鍵は `src-tauri/tauri.conf.json` に保存します。秘密鍵を紛失すると、既存クライアントは以後のアップデートを受け入れられません。リリースビルドは Windows の NSIS アップデートパッケージと macOS の `.app.tar.gz` バンドルを署名し、DMG と Windows ポータブル実行ファイルは手動ダウンロード用の成果物として提供します。
+
 このワークフローは macOS 成果物に対して、`arm64` と `x86_64` の Universal バイナリ、`Developer ID Application` 署名、hardened runtime フラグ、Gatekeeper の審査通過、そして `.app` と `.dmg` の notarization ticket 検証を必須条件として強制します。どれか 1 つでも欠けると失敗します。
+
+CI は最初に GitHub Release をドラフトとして作成し、インストーラー、署名、手動ダウンロード用パッケージ、`latest.json` をアップロードしてから、マニフェスト、URL、バージョン、署名、必須成果物がすべて一致することを検証します。すべての検証に合格した場合に限り、CI はドラフトを公開して latest に設定します。これにより、クライアントが作成途中のアップデートを検出することはありません。
 
 ローカルの ad-hoc macOS ビルドは、アーキテクチャやパッケージングの確認には有用ですが、テスト専用であり一般公開には使えません。
 

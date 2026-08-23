@@ -165,10 +165,7 @@ fn executable_candidates(name: &str) -> Vec<String> {
     }
 }
 
-pub fn find_executable(
-    names: &[&str],
-    known_paths: &[PathBuf],
-) -> Option<ResolvedExecutable> {
+pub fn find_executable(names: &[&str], known_paths: &[PathBuf]) -> Option<ResolvedExecutable> {
     find_executable_ordered(names, known_paths, false)
 }
 
@@ -366,18 +363,11 @@ fn resolve_standard_commands_via_shell(
     environment: &[(&str, &OsStr)],
     timeout: Duration,
 ) -> Option<HashMap<String, ResolvedExecutable>> {
-    use std::{
-        io::Read,
-        os::unix::ffi::OsStringExt,
-        process::Stdio,
-        sync::mpsc,
-        thread,
-    };
+    use std::{io::Read, os::unix::ffi::OsStringExt, process::Stdio, sync::mpsc, thread};
 
     const OUTPUT_LIMIT: usize = 64 * 1024;
     const PATH_MARKER: &[u8] = b"__METRA_SHELL_PATH__=";
-    const SCRIPT: &str =
-        r#"exec /bin/sh -c 'printf "__METRA_SHELL_PATH__=%s\n" "$PATH"'"#;
+    const SCRIPT: &str = r#"exec /bin/sh -c 'printf "__METRA_SHELL_PATH__=%s\n" "$PATH"'"#;
     let started = Instant::now();
     let mut command = std::process::Command::new(shell);
     command
@@ -432,10 +422,7 @@ fn resolve_standard_commands_via_shell(
                 let _ = child.wait();
                 diagnostics::warn(
                     "cli.discovery.shell_failed",
-                    format!(
-                        "stage=timeout elapsed_ms={}",
-                        started.elapsed().as_millis()
-                    ),
+                    format!("stage=timeout elapsed_ms={}", started.elapsed().as_millis()),
                 );
                 return None;
             }
@@ -540,21 +527,18 @@ fn resolve_standard_commands_via_login_shell() -> Option<HashMap<String, Resolve
     };
     Some(
         String::from_utf8_lossy(&output)
-        .lines()
-        .filter_map(|line| line.split_once('\t'))
-        .filter_map(|(name, path)| {
-            let path = PathBuf::from(path.trim());
-            path.is_file()
-                .then(|| (name.to_owned(), ResolvedExecutable::from_path(path)))
-        })
-        .collect::<HashMap<_, _>>(),
+            .lines()
+            .filter_map(|line| line.split_once('\t'))
+            .filter_map(|(name, path)| {
+                let path = PathBuf::from(path.trim());
+                path.is_file()
+                    .then(|| (name.to_owned(), ResolvedExecutable::from_path(path)))
+            })
+            .collect::<HashMap<_, _>>(),
     )
 }
 
-pub fn command_for(
-    executable: &ResolvedExecutable,
-    args: &[&str],
-) -> std::process::Command {
+pub fn command_for(executable: &ResolvedExecutable, args: &[&str]) -> std::process::Command {
     let path = executable.path();
     #[cfg(windows)]
     {
@@ -564,12 +548,7 @@ pub fn command_for(
             .unwrap_or_default();
         if extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat") {
             let mut command = std::process::Command::new("cmd.exe");
-            command
-                .arg("/D")
-                .arg("/S")
-                .arg("/C")
-                .arg(path)
-                .args(args);
+            command.arg("/D").arg("/S").arg("/C").arg(path).args(args);
             scrub_sensitive_child_environment(&mut command);
             return command;
         }
@@ -720,10 +699,7 @@ mod macos_tests {
         for executable in [&wrapper, &node] {
             std::fs::set_permissions(executable, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
-        let executable = ResolvedExecutable::with_path_entries(
-            wrapper,
-            &[cli_bin, runtime_bin],
-        );
+        let executable = ResolvedExecutable::with_path_entries(wrapper, &[cli_bin, runtime_bin]);
 
         let output = command_for(&executable, &[]).output().unwrap();
 

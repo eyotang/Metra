@@ -8,5 +8,8 @@ export interface ProviderSnapshot { provider: ProviderName; status: ProviderStat
 export interface DashboardSnapshot { cursor: ProviderSnapshot; codex: ProviderSnapshot; claude: ProviderSnapshot; refreshing: boolean; }
 export type BubblePercentMode = "used" | "remaining";
 export type UiLanguage = "system" | "zh-CN" | "en" | "ja" | "ko";
+export type AppUpdatePhase = "idle" | "available" | "downloading" | "installing" | "deferred";
+export type AppUpdateMode = "disabled" | "manual_download" | "in_app";
+export interface AppUpdateStatus { revision: number; supported: boolean; mode: AppUpdateMode; phase: AppUpdatePhase; currentVersion: string; version: string | null; notes: string | null; downloadedBytes: number; totalBytes: number | null; }
 export interface AppSettings { refreshMinutes: number; autostart: boolean; cursorCompatEnabled: boolean; bubbleSnapEnabled: boolean; bubblePercentMode: BubblePercentMode; uiLanguage: UiLanguage; bubblePosition?: { x: number; y: number }; bubblePositionVersion: number; bubbleProviderOrder: ProviderName[]; bubbleVisibleProviders: ProviderName[]; cursorBubbleLabel: string; codexBubbleLabel: string; claudeBubbleLabel: string; cursorBubbleColor: string; codexBubbleColor: string; claudeBubbleColor: string; }
 export interface AppPayload { snapshot: DashboardSnapshot; settings: AppSettings; }

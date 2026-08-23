@@ -15,6 +15,7 @@ Metra 是一个轻量的跨平台桌面气泡，用来查看 Cursor、Codex 和 
 - 悬浮球中的三个 Provider 支持独立开关显示、通过六点图标拖动排序，显示字符和标记颜色也可分别自定义；内置 55 色快捷色板，配置保存在 SQLite。
 - 左键展开详情，并通过弹窗中的刷新图标更新用量；右键菜单顶部直接提供语言下拉框，同时可设置刷新间隔、开机启动、兼容模式、重新检测或退出，不再重复放置“立即更新”。
 - 刷新失败保留最后一次成功数据，并明确标记为过期。
+- 从 v0.1.39 起，包括 Windows 便携版在内的受支持发行形式会在启动后不久检查 GitHub Releases，并在持续运行时每 24 小时再检查一次。Windows 安装版确认后可在应用内更新；macOS 与 Windows 便携版会打开检测到版本的 Release 页面供用户手动下载。
 - 界面支持简体中文（`zh-CN`）、English、日本語与한국어；“自动检测”会跟随操作系统 / 浏览器语言，手动选择后立即生效并在重启后保留。
 
 <p align="center">
@@ -61,6 +62,14 @@ npm run build:macos-universal
 
 该命令会将 Cargo 和 rustc 固定到同一个 rustup `stable` 工具链，安装两个 macOS targets，禁用 `sccache`，再调用 Tauri 构建 `universal-apple-darwin`。手动运行 `pnpm run build -- --target universal-apple-darwin` 会多传一个 `--`；它可能进入 Cargo/rustc，导致 universal target 被当作 Rust target specification 解析。Homebrew Rust 遮蔽 rustup、造成 Cargo 与 rustc 来自不同工具链时也会构建失败。专用命令会同时规避这两个问题。
 
+## 更新检查与安装方式（v0.1.39 及以后）
+
+受支持的发行形式（包括 Windows 便携版）会在启动后不久读取 GitHub 最新 Release 中的 `latest.json`，持续运行时每 24 小时再检查一次。如果无法连接 GitHub，Metra 会静默等待下一个计划检查周期，不显示连接错误，也不会连续重试。发现新版本时，Metra 会显示新版本号和更新提示；只有用户明确确认后，才会开始对应的更新操作。
+
+由于 v0.1.38 本身不包含更新器，现有安装版与便携版用户都需要先手动升级到 v0.1.39。完成这次引导升级后，所有受支持的发行形式都能自动检测后续版本：Windows NSIS 安装版可在应用内更新，macOS 与 Windows 便携版仍采用手动下载。
+
+Windows NSIS 安装版会校验 Tauri 更新签名、下载安装包并在应用内更新。macOS 仍通过 `latest.json` 检测新版本，但更新按钮会打开检测到版本的 GitHub Release 页面，由用户手动下载已签名、公证的 DMG；在上游 [Tauri 更新器安全问题 #3505](https://github.com/tauri-apps/plugins-workspace/issues/3505) 修复前，暂不进行有风险的原地替换。Windows 便携版也会自动检测新版本，但绝不会自动下载或覆盖正在运行的程序；点击更新按钮只会打开检测到版本的 Release 页面，由用户手动下载新的便携版 EXE。
+
 ## 可选：官方 Claude Code API 用量
 
 Anthropic 的 Claude Code Analytics API 仅接受组织级 Admin API Key（`sk-ant-admin...`）。普通 Claude API Key（`sk-ant-api...`）无法查询历史用量，个人账户也无法使用 Admin API。详见 [Claude Code Analytics API 文档](https://platform.claude.com/docs/en/manage-claude/claude-code-analytics-api)。
@@ -90,7 +99,11 @@ API 按 UTC 自然日汇总用量，数据可能有最长约一小时的延迟�
 
 推送 `v*` 标签会触发发布产物工作流。正式发布 macOS 版本时，发布环境必须提供 `APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_ID`、`APPLE_PASSWORD` 和 `APPLE_TEAM_ID`。
 
+自动更新产物需要一对匹配的签名密钥。绝不能将私钥提交到仓库：请把它上传到 GitHub Actions 的 `TAURI_SIGNING_PRIVATE_KEY` Secret，并另外保存一份安全的离线备份。如果私钥设置了密码，再将密码保存到 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`；公钥则保存在 `src-tauri/tauri.conf.json`。私钥丢失后，已安装客户端将无法接受后续更新。发布构建会签名 Windows NSIS 更新包和 macOS `.app.tar.gz` 应用包，DMG 与 Windows 便携版则保留为手工下载产物。
+
 工作流会强制校验 macOS 产物：必须同时包含 `arm64` 与 `x86_64` 的 Universal 二进制，使用 `Developer ID Application` 签名，带有 hardened runtime 标记，通过 Gatekeeper 检查，并且 `.app` 与 `.dmg` 的 notarization ticket 都能通过验证；否则直接失败。
+
+CI 会先创建 GitHub Release 草稿，上传安装包、签名、手工下载包和 `latest.json`，再校验清单、下载地址、版本、签名与必需产物是否完全一致。只有全部校验通过后，CI 才会发布草稿并将其设为 latest，避免客户端发现尚未组装完整的更新。
 
 本地 ad-hoc macOS 构建仍然适合做架构和打包自检，但只可用于测试，不适合公开发布。
 

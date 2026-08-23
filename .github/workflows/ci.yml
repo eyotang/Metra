@@ -7,6 +7,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ startsWith(github.ref, 'refs/tags/v') && 'metra-stable-release' || format('metra-ci-{0}', github.ref) }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+
 jobs:
   verify:
     strategy:
@@ -29,6 +36,8 @@ jobs:
         run: npm run verify:i18n
       - name: Package-manager contract
         run: npm run verify:package-manager
+      - name: Updater release contract
+        run: npm run verify:updater-release
       - name: Windows PowerShell 5.1 syntax
         if: runner.os == 'Windows'
         shell: powershell
@@ -73,8 +82,9 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml --all-targets
 
   release-artifacts:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: verify
+    environment: release
     strategy:
       fail-fast: false
       matrix:
@@ -94,13 +104,66 @@ jobs:
         with:
           targets: ${{ matrix.os == 'macos-latest' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
       - run: npm ci
-      - name: Build Windows application
+      - name: Validate updater signing secret
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
+            echo "Missing required updater signing secret: TAURI_SIGNING_PRIVATE_KEY" >&2
+            exit 1
+          fi
+      - name: Build Windows NSIS application
         if: runner.os == 'Windows'
-        run: npm run build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run build -- --bundles nsis --config src-tauri/tauri.release.conf.json
       - name: Verify rendered Windows bubble
         if: runner.os == 'Windows'
         shell: powershell
         run: ./scripts/verify-rendered-bubble.ps1 -Executable src-tauri/target/release/metra.exe
+      - name: Stage Windows installer and manual portable download
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $appVersion = (Get-Content -Raw -Encoding UTF8 package.json | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_NAME -ne "v$appVersion") {
+            throw "Release tag $env:GITHUB_REF_NAME must match v$appVersion"
+          }
+
+          $installer = "src-tauri/target/release/bundle/nsis/Metra_${appVersion}_x64-setup.exe"
+          $signature = "$installer.sig"
+          $portable = "src-tauri/target/release/metra.exe"
+          foreach ($path in @($installer, $signature, $portable)) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Missing Windows release artifact: $path"
+            }
+            if ((Get-Item -LiteralPath $path).Length -eq 0) {
+              throw "Windows release artifact is empty: $path"
+            }
+          }
+
+          $portableBytes = [System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $portable))
+          $portableText = [System.Text.Encoding]::ASCII.GetString($portableBytes)
+          $portableMarker = "__TAURI_BUNDLE_TYPE_VAR_UNK"
+          if ([regex]::Matches($portableText, [regex]::Escape($portableMarker)).Count -ne 1) {
+            throw "Portable executable does not contain exactly one unpatched Tauri bundle marker"
+          }
+
+          New-Item -ItemType Directory -Path release-assets -Force | Out-Null
+          Copy-Item -LiteralPath $installer -Destination "release-assets/Metra-${appVersion}-windows-x64-setup.exe"
+          Copy-Item -LiteralPath $signature -Destination "release-assets/Metra-${appVersion}-windows-x64-setup.exe.sig"
+          Copy-Item -LiteralPath $portable -Destination "release-assets/Metra-${appVersion}-windows-x64-portable.exe"
+      - name: Verify Windows updater artifact signature
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: src-tauri
+        run: |
+          $appVersion = (Get-Content -Raw -Encoding UTF8 ../package.json | ConvertFrom-Json).version
+          $env:METRA_UPDATER_ARTIFACT = Join-Path $env:GITHUB_WORKSPACE "release-assets/Metra-${appVersion}-windows-x64-setup.exe"
+          $env:METRA_UPDATER_SIGNATURE = "$env:METRA_UPDATER_ARTIFACT.sig"
+          cargo test --locked --test updater_signature_contract release_artifact_matches_embedded_public_key -- --ignored --exact
       - name: Validate Apple release secrets
         if: runner.os == 'macOS'
         shell: bash
@@ -125,7 +188,9 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npm run build -- --target universal-apple-darwin
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run build -- --target universal-apple-darwin --bundles app,dmg --config src-tauri/tauri.release.conf.json
       - name: Notarize and staple macOS DMG
         if: runner.os == 'macOS'
         shell: bash
@@ -143,22 +208,24 @@ jobs:
             --team-id "${APPLE_TEAM_ID}" \
             --wait
           xcrun stapler staple "${dmg_path}"
-      - name: Verify Universal architecture, Developer ID, and notarization
+      - name: Verify and stage Universal macOS release
         if: runner.os == 'macOS'
         shell: bash
         run: |
+          set -euo pipefail
           app_version="$(node -p "require('./package.json').version")"
-          app_path="src-tauri/target/universal-apple-darwin/release/bundle/macos/Metra.app"
+          bundle_root="src-tauri/target/universal-apple-darwin/release/bundle"
+          app_path="${bundle_root}/macos/Metra.app"
           app_binary="${app_path}/Contents/MacOS/metra"
-          dmg_path="src-tauri/target/universal-apple-darwin/release/bundle/dmg/Metra_${app_version}_universal.dmg"
-          release_dmg_path="src-tauri/target/universal-apple-darwin/release/bundle/dmg/Metra-${app_version}-macos-universal.dmg"
+          dmg_path="${bundle_root}/dmg/Metra_${app_version}_universal.dmg"
+          updater_path="${bundle_root}/macos/Metra.app.tar.gz"
+          updater_signature_path="${updater_path}.sig"
 
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            test "${GITHUB_REF_NAME}" = "v${app_version}"
-          fi
-
+          test "${GITHUB_REF_NAME}" = "v${app_version}"
           test -d "${app_path}"
-          test -f "${dmg_path}"
+          test -s "${dmg_path}"
+          test -s "${updater_path}"
+          test -s "${updater_signature_path}"
           test "$(plutil -extract CFBundleShortVersionString raw -o - "${app_path}/Contents/Info.plist")" = "${app_version}"
           test "$(plutil -extract CFBundleVersion raw -o - "${app_path}/Contents/Info.plist")" = "${app_version}"
           lipo "${app_binary}" -verify_arch arm64 x86_64
@@ -175,18 +242,164 @@ jobs:
           hdiutil verify "${dmg_path}"
           spctl --assess --type open --context context:primary-signature --verbose=4 "${dmg_path}"
           xcrun stapler validate "${dmg_path}"
-          cp "${dmg_path}" "${release_dmg_path}"
-          shasum -a 256 "${release_dmg_path}" > macos-universal-sha256.txt
-      - name: Collect portable Windows executable
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: Copy-Item src-tauri/target/release/metra.exe src-tauri/target/release/Metra-portable.exe
+
+          extracted_updater="$(mktemp -d)"
+          trap 'rm -rf "${extracted_updater}"' EXIT
+          tar -xzf "${updater_path}" -C "${extracted_updater}"
+          updater_app="${extracted_updater}/Metra.app"
+          updater_binary="${updater_app}/Contents/MacOS/metra"
+          test -d "${updater_app}"
+          test "$(plutil -extract CFBundleShortVersionString raw -o - "${updater_app}/Contents/Info.plist")" = "${app_version}"
+          lipo "${updater_binary}" -verify_arch arm64 x86_64
+          codesign --verify --deep --strict --all-architectures --verbose=4 "${updater_app}"
+          updater_signature_details="$(codesign -d --verbose=4 "${updater_app}" 2>&1)"
+          grep -q '^Authority=Developer ID Application:' <<<"${updater_signature_details}"
+          grep -Eq '^TeamIdentifier=[A-Z0-9]{10}$' <<<"${updater_signature_details}"
+          grep -Eq 'flags=.*runtime' <<<"${updater_signature_details}"
+          spctl --assess --type execute --verbose=4 "${updater_app}"
+          xcrun stapler validate "${updater_app}"
+
+          mkdir -p release-assets
+          release_dmg="Metra-${app_version}-macos-universal.dmg"
+          cp "${dmg_path}" "release-assets/${release_dmg}"
+          cp "${updater_path}" "release-assets/Metra-${app_version}-macos-universal.app.tar.gz"
+          cp "${updater_signature_path}" "release-assets/Metra-${app_version}-macos-universal.app.tar.gz.sig"
+          (cd release-assets && shasum -a 256 "${release_dmg}" > "${release_dmg}.sha256")
+      - name: Verify macOS updater artifact signature
+        if: runner.os == 'macOS'
+        shell: bash
+        working-directory: src-tauri
+        run: |
+          set -euo pipefail
+          app_version="$(node -p "require('../package.json').version")"
+          export METRA_UPDATER_ARTIFACT="${GITHUB_WORKSPACE}/release-assets/Metra-${app_version}-macos-universal.app.tar.gz"
+          export METRA_UPDATER_SIGNATURE="${METRA_UPDATER_ARTIFACT}.sig"
+          cargo test --locked --test updater_signature_contract release_artifact_matches_embedded_public_key -- --ignored --exact
       - uses: actions/upload-artifact@v4
         with:
-          name: metra-${{ matrix.artifact }}
-          path: |
-            src-tauri/target/release/Metra-portable.exe
-            src-tauri/target/release/bundle/**
-            src-tauri/target/universal-apple-darwin/release/bundle/**
-            macos-universal-sha256.txt
+          name: metra-release-${{ matrix.artifact }}
+          path: release-assets/*
           if-no-files-found: error
+          retention-days: 7
+
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: release-artifacts
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: metra-release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Generate deterministic latest.json
+        id: updater-manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          pub_date="$(git show -s --format=%cI "${GITHUB_SHA}")"
+          echo "pub_date=${pub_date}" >> "${GITHUB_OUTPUT}"
+          npm run generate:updater-manifest -- \
+            --assets-dir release-assets \
+            --output release-assets/latest.json \
+            --repository "${GITHUB_REPOSITORY}" \
+            --tag "${GITHUB_REF_NAME}" \
+            --pub-date "${pub_date}"
+      - name: Verify staged release contract
+        run: >-
+          npm run verify:updater-release --
+          --assets-dir release-assets
+          --repository "${GITHUB_REPOSITORY}"
+          --tag "${GITHUB_REF_NAME}"
+          --pub-date "${{ steps.updater-manifest.outputs.pub_date }}"
+      - name: Create or reuse a draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          export CURRENT_RELEASE_TAG="${GITHUB_REF_NAME}"
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' |
+            node -e '
+              const fs = require("node:fs");
+              const stableTagPattern = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+              const parseVersion = (tag) => {
+                if (!stableTagPattern.test(tag)) {
+                  throw new Error(`Invalid current stable release tag: ${tag}`);
+                }
+                return tag.slice(1).split(".").map(BigInt);
+              };
+              const compareVersions = (left, right) => {
+                for (let index = 0; index < 3; index += 1) {
+                  if (left[index] > right[index]) return 1;
+                  if (left[index] < right[index]) return -1;
+                }
+                return 0;
+              };
+              const currentTag = process.env.CURRENT_RELEASE_TAG;
+              const currentVersion = parseVersion(currentTag);
+              const publishedStableTags = fs.readFileSync(0, "utf8")
+                .split(/\r?\n/)
+                .filter((tag) => stableTagPattern.test(tag));
+              const highestPublishedStable = publishedStableTags.reduce((highest, tag) => {
+                if (!highest || compareVersions(parseVersion(tag), parseVersion(highest)) > 0) {
+                  return tag;
+                }
+                return highest;
+              }, null);
+              if (highestPublishedStable && compareVersions(currentVersion, parseVersion(highestPublishedStable)) <= 0) {
+                throw new Error(
+                  `Release ${currentTag} must be strictly newer than published stable release ${highestPublishedStable}`,
+                );
+              }
+            '
+
+          if release_state="$(gh release view "${GITHUB_REF_NAME}" --json isDraft,isPrerelease --jq '[.isDraft, .isPrerelease] | @tsv' 2>/dev/null)"; then
+            read -r is_draft is_prerelease <<<"${release_state}"
+            test "${is_draft}" = "true"
+            test "${is_prerelease}" = "false"
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --verify-tag \
+              --draft \
+              --latest=false \
+              --title "Metra ${GITHUB_REF_NAME#v}" \
+              --generate-notes
+          fi
+      - name: Upload release assets to the draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${GITHUB_REF_NAME}" release-assets/* --clobber
+      - name: Download and verify draft release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir downloaded-release-assets
+          gh release download "${GITHUB_REF_NAME}" --dir downloaded-release-assets --pattern '*'
+          npm run verify:updater-release -- \
+            --assets-dir release-assets \
+            --compare-dir downloaded-release-assets \
+            --repository "${GITHUB_REPOSITORY}" \
+            --tag "${GITHUB_REF_NAME}" \
+            --pub-date "${{ steps.updater-manifest.outputs.pub_date }}"
+      - name: Publish the verified release as latest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh release view "${GITHUB_REF_NAME}" --json isDraft --jq .isDraft)" = "true"
+          gh release edit "${GITHUB_REF_NAME}" --draft=false --prerelease=false --latest
+          test "$(gh release view "${GITHUB_REF_NAME}" --json isDraft,isPrerelease --jq '[.isDraft, .isPrerelease] | any')" = "false"
+          test "$(gh release view --json tagName --jq .tagName)" = "${GITHUB_REF_NAME}"
