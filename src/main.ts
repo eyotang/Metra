@@ -50,6 +50,7 @@ const PANEL_GAP = 3;
 const ACTION_TIMEOUT_MS = 8_000;
 const PANEL_SHOW_TIMEOUT_MS = 1_000;
 const REFRESH_TIMEOUT_MS = 22_000;
+const UPDATE_INSTALL_TIMEOUT_MS = 6 * 60_000;
 const BUBBLE_IDLE_DELAY_MS = 3_000;
 const BUBBLE_DRAG_RELEASE_POLL_MS = 120;
 const BUBBLE_DRAG_RELEASE_PROBE_MAX_FAILURES = 3;
@@ -385,9 +386,19 @@ function bindAppUpdateAction(root: ParentNode = document): void {
     const task = (async () => {
       try {
         if (manualDownload) {
-          await invoke("open_app_update_download_page");
+          await invokeWithTimeout<void>(
+            "open_app_update_download_page",
+            undefined,
+            ACTION_TIMEOUT_MS,
+            t("update.download"),
+          );
         } else {
-          applyAppUpdateStatus(await invoke<AppUpdateStatus>("install_app_update"));
+          applyAppUpdateStatus(await invokeWithTimeout<AppUpdateStatus>(
+            "install_app_update",
+            undefined,
+            UPDATE_INSTALL_TIMEOUT_MS,
+            t("update.install"),
+          ));
         }
       } catch {
         // Update transport failures are deferred by the backend and must stay unobtrusive.
@@ -424,7 +435,7 @@ function applyAppUpdateStatus(updated: AppUpdateStatus): void {
 
 async function loadAppUpdateStatus(): Promise<void> {
   try {
-    applyAppUpdateStatus(await invoke<AppUpdateStatus>("get_app_update_status"));
+    applyAppUpdateStatus(await invokeWithTimeout<AppUpdateStatus>("get_app_update_status"));
   } catch {
     // This status is optional UI; updater/network failures must never interrupt usage data.
   }

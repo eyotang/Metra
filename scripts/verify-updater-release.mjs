@@ -107,7 +107,11 @@ function verifyRepositoryContract() {
     /Command::new\("rundll32\.exe"\)/,
     "Portable native links must not use a PATH-searchable helper executable",
   );
-  assert.match(manualAction, /invoke\("open_app_update_download_page"\)/);
+  assert.match(
+    manualAction,
+    /invokeWithTimeout<void>\(\s*"open_app_update_download_page",[\s\S]*?ACTION_TIMEOUT_MS/,
+    "manual download page opening must use the bounded IPC wrapper",
+  );
   assert.doesNotMatch(
     manualAction,
     /install_app_update/,
@@ -115,8 +119,8 @@ function verifyRepositoryContract() {
   );
   assert.match(
     updateAction,
-    /else \{[\s\S]*invoke<AppUpdateStatus>\("install_app_update"\)/,
-    "only the in-app branch may invoke installation",
+    /else \{[\s\S]*invokeWithTimeout<AppUpdateStatus>\(\s*"install_app_update",[\s\S]*?UPDATE_INSTALL_TIMEOUT_MS/,
+    "only the in-app branch may invoke installation with its long-running timeout",
   );
 
   assert.match(workflow, /concurrency:[\s\S]*metra-stable-release[\s\S]*cancel-in-progress/);

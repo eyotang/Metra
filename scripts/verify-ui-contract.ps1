@@ -68,7 +68,8 @@ $refreshFeedback = [regex]::Match($main, 'async function refreshWithFeedback[\s\
 if ($refreshFeedback -notmatch 'hasInlineProgress = view === "panel" && panelMode === "details"' -or $refreshFeedback -notmatch 'if \(hasInlineProgress\)[\s\S]*?\.action-toast[\s\S]*?else[\s\S]*?showToast') {
   $failures += "details refresh still duplicates inline progress with a loading toast"
 }
-if ($main -notmatch '"refresh_now", \{ includeCursor \}' -or $main -notmatch 'action === "rescan" \? true : undefined') {
+$rescanHandler = [regex]::Match($main, 'if \(action === "rescan"\) \{[\s\S]*?\n\s*\}').Value
+if ($refreshFeedback -notmatch 'includeCursor\?:\s*boolean' -or $main -notmatch '"refresh_now", \{ includeCursor \}' -or $main -notmatch 'querySelector\("#refresh"\)[\s\S]{0,160}?refreshWithFeedback\(\)' -or $rescanHandler -notmatch 'refreshWithFeedback\([^,\r\n]+,\s*true\)') {
   $failures += "manual refresh cannot skip disabled Cursor while rescan still forces detection"
 }
 if ($appRust -notmatch 'include_cursor\.unwrap_or_else' -or $appRust -notmatch 'service\s*\.cursor_compat') {
@@ -76,6 +77,9 @@ if ($appRust -notmatch 'include_cursor\.unwrap_or_else' -or $appRust -notmatch '
 }
 $directInvokes = [regex]::Matches($main, '\binvoke(?:<[^>]+>)?\(').Count
 if ($directInvokes -ne 3) { $failures += "unexpected IPC operations bypass the timeout wrapper" }
+if ($main -notmatch 'const UPDATE_INSTALL_TIMEOUT_MS = 6 \* 60_000' -or $main -notmatch '"install_app_update",[\s\S]{0,120}?UPDATE_INSTALL_TIMEOUT_MS') {
+  $failures += "application update installation does not use its bounded long-running timeout"
+}
 if ($main -notmatch 'const MENU_PANEL_HEIGHT = 480' -or $appRust -notmatch '"menu" => \(252\.0, 480\.0, PANEL_MODE_MENU\)') { $failures += "menu panel height is not fitted to four-language content" }
 $menuRenderer = [regex]::Match($main, 'function renderMenu\(\): void \{[\s\S]*?\n\}').Value
 if ($menuRenderer -notmatch 'menu-language-row[\s\S]{0,500}data-ui-language' -or $menuRenderer -match 'data-action="refresh"' -or $main -notmatch 'set_ui_language' -or $types -notmatch 'uiLanguage:\s*UiLanguage' -or $settingsRust -notmatch 'pub ui_language:\s*UiLanguage') {
@@ -227,7 +231,7 @@ if ($nativePosition -lt 0 -or $nativeShowIndex -lt 0 -or $nativePosition -gt $na
   $failures += "native panel command does not position before showing"
 }
 if ($failures.Count) {
-  $failures | ForEach-Object { Write-Error $_ }
+  $failures | ForEach-Object { [Console]::Error.WriteLine("UI contract: $_") }
   exit 1
 }
 
