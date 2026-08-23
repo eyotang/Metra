@@ -26,7 +26,7 @@ Metra is a lightweight cross-platform desktop bubble for checking Cursor, Codex,
 
 ## Development
 
-You need Rust stable, Node.js 22.13+, npm or pnpm, and the Tauri system dependencies for your platform.
+You need Rust stable, Node.js 24+, npm or pnpm, and the Tauri system dependencies for your platform.
 
 ```text
 npm install
