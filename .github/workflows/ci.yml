@@ -34,6 +34,8 @@ jobs:
         run: npm run check
       - name: Localization contract
         run: npm run verify:i18n
+      - name: Offline UI font contract
+        run: npm run verify:fonts
       - name: Dynamic menu and language listbox contract
         run: npm run verify:menu-layout
       - name: Package-manager contract
