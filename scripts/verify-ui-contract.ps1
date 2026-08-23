@@ -151,7 +151,8 @@ if ($main -notmatch '<button[^>]+class="bubble-config-dot color-trigger \$\{prov
 if ($main -notmatch '<span class="provider-dot \$\{provider\.provider\}"' -or $main -notmatch '<span class="provider-dot cursor"' -or $main -match '\$\{name\[0\]\}' -or $css -notmatch '\.provider-dot::after') {
   $failures += "provider cards repeat initials instead of using color dots"
 }
-if ($main -notmatch 'provider\.stale \? "stale" : provider\.status === "available" \? "available" : "unavailable"' -or $css -notmatch '\.status\.available' -or $css -notmatch '\.status\.unavailable' -or $css -notmatch '\.status\.stale' -or $css -notmatch '\.status\.pending') {
+$providerCard = [regex]::Match($main, 'function providerCard\([\s\S]*?\n\}').Value
+if ($providerCard -notmatch 'const statusTone = loading \? "pending" : provider\.stale \? "stale" : provider\.status === "available" \? "available" : provider\.status === "desktop_installed" \? "pending" : "unavailable"' -or $providerCard -notmatch 'class="status \$\{statusTone\}"' -or $css -notmatch '\.status\.available' -or $css -notmatch '\.status\.unavailable' -or $css -notmatch '\.status\.stale' -or $css -notmatch '\.status\.pending') {
   $failures += "provider availability is not rendered with semantic status badges"
 }
 if ($main -notmatch 'cursorBubbleLabel' -or $main -notmatch 'codexBubbleLabel' -or $main -notmatch 'claudeBubbleLabel' -or $main -notmatch 'cursorLabel,\s*codexLabel,\s*claudeLabel' -or $main -notmatch 'fallbackLabel:\s*"A"' -or $main -notmatch 'maxlength="3"') {
@@ -213,7 +214,7 @@ if ($main -notmatch 'const PANEL_SHOW_TIMEOUT_MS = 1_000') {
 if ($showPanel -notmatch 'invokeWithTimeout<number>\s*\(\s*"show_panel"') {
   $failures += "panel display is not delegated through one native bridge call"
 }
-if ($showPanel -match 'WebviewWindow|getByLabel|setSize|emitTo|positionPanel|panel\.show|panel\.setFocus') {
+if ($showPanel -match 'WebviewWindow|getByLabel|setSize|emitTo|positionPanel|\bpanel\.(?:show|setFocus)\s*\(') {
   $failures += "panel display still performs sequential frontend window bridge calls"
 }
 $showPanelInvokes = [regex]::Matches($showPanel, 'invokeWithTimeout').Count
