@@ -68,6 +68,9 @@ function verifyRepositoryContract() {
   const updateAction = frontendSource.match(/function bindAppUpdateAction\([\s\S]*?\n\}/)?.[0] ?? "";
   const manualAction = updateAction.match(/if \(manualDownload\) \{([\s\S]*?)\} else \{/)?.[1] ?? "";
   const releaseArtifactsJob = workflow.match(/release-artifacts:[\s\S]*?(?=\n  publish-release:)/)?.[0] ?? "";
+  const releaseCacheStep = releaseArtifactsJob.match(
+    /- name: Restore Rust cache[\s\S]*?(?=\n      - )/,
+  )?.[0] ?? "";
   const macBuildStep = workflow.match(
     /- name: Build unsigned Universal macOS DMG[\s\S]*?(?=\n      - name:)/,
   )?.[0] ?? "";
@@ -132,6 +135,21 @@ function verifyRepositoryContract() {
   assert.match(workflow, /release-artifacts:[\s\S]*if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
   assert.doesNotMatch(
     releaseArtifactsJob,
+    /^\s+needs:\s*verify$/m,
+    "release artifacts must build in parallel with verification",
+  );
+  assert.match(
+    releaseCacheStep,
+    /Swatinem\/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6/,
+    "both release platforms must use the pinned Rust dependency cache",
+  );
+  assert.doesNotMatch(
+    releaseCacheStep,
+    /if:\s*runner\.os/,
+    "the release Rust cache must run on both Windows and macOS",
+  );
+  assert.doesNotMatch(
+    releaseArtifactsJob,
     /workflow_dispatch/,
     "manual branch dispatches must not publish a stable release",
   );
@@ -186,7 +204,11 @@ function verifyRepositoryContract() {
   assert.match(workflow, /Verify Windows updater artifact signature[\s\S]*METRA_UPDATER_ARTIFACT/);
   assert.doesNotMatch(workflow, /Verify macOS updater artifact signature/);
   assert.match(releaseArtifactsJob, /shasum -a 256/);
-  assert.match(workflow, /publish-release:[\s\S]*needs: release-artifacts/);
+  assert.match(
+    workflow,
+    /publish-release:[\s\S]*needs:\s*\[verify, release-artifacts\]/,
+    "publication must wait for verification and both release artifact builds",
+  );
   assert.match(workflow, /publish-release:[\s\S]*contents: write/);
   assert.match(
     workflow,
