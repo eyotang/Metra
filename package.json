@@ -1,7 +1,7 @@
 {
   "name": "metra",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "packageManager": "pnpm@11.22.0",
   "engines": {
     "node": ">=24.0.0"
@@ -12,6 +12,7 @@
     "dev": "tauri dev",
     "vite": "vite",
     "build": "tauri build",
+    "build:linux": "tauri build --bundles deb",
     "build:macos-universal": "node scripts/build-macos-universal.mjs",
     "build:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1",
     "check": "tsc --noEmit",

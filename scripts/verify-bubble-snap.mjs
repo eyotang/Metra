@@ -1,3 +1,4 @@
+import { waitForBubbleWindowSize } from "../src/bubble-window-size.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
@@ -159,4 +160,20 @@ assert.match(appRust, /panel-visibility-changed/, "the bubble must know when pan
 assert.match(appRust, /fn next_panel_request\(/, "tray and bubble panel requests must share one native sequence");
 assert.match(appRust, /fn is_primary_mouse_button_pressed\(/, "native drag release confirmation command is missing");
 
+// Simulate GTK acknowledging a resize before the compositor applies it.
+const expected = { width: 64, height: 112 };
+let reads = 0;
+assert.equal(await waitForBubbleWindowSize(expected,
+  async () => ++reads < 3 ? { width: 112, height: 112 } : expected,
+  () => true, async () => {}), "ready");
+assert.equal(reads, 3);
+let current = true;
+assert.equal(await waitForBubbleWindowSize(expected,
+  async () => { current = false; return expected; },
+  () => current, async () => {}), "cancelled", "a superseding drag cancels stale positioning");
+reads = 0;
+assert.equal(await waitForBubbleWindowSize(expected,
+  async () => { reads += 1; return { width: 400, height: 400 }; },
+  () => true, async () => {}), "timeout", "an ignored native resize must not hang the queue");
+assert.equal(reads, 30);
 console.log("Bubble snap and idle geometry: PASS");

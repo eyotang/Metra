@@ -6,7 +6,7 @@ Metra 是一个轻量的跨平台桌面气泡，用来查看 Cursor、Codex 和 
 
 ## 功能
 
-- Windows / macOS 透明置顶气泡，支持自由拖动和多显示器；屏幕边缘吸附可在右键菜单中开启，默认关闭。
+- Windows / macOS 透明置顶气泡，支持自由拖动和多显示器；屏幕边缘吸附可在右键菜单中开启，默认关闭。Linux 已加入 X11 / XWayland 适配代码，Ubuntu 构建与待验收项目见 [Linux 适配说明](docs/linux.md)。
 - 开启自动吸边后，首次拖到屏幕边缘并松手就会立即缩成 32 px 半隐藏状态，这次拖动后无需等待闲置；移入、聚焦或点击会立即完整显示，唤醒后的普通再次半隐藏仍保留闲置延时。
 - 自动发现本机 `cursor-agent` / `agent`、`codex` 与 `claude` CLI。
 - Codex 使用官方 App Server 获取多额度窗口和 token 汇总。
@@ -99,13 +99,13 @@ API 按 UTC 自然日汇总用量，数据可能有最长约一小时的延迟�
 
 ## 发布签名
 
-推送 `v*` 标签会触发发布产物工作流。当前工作流生成 Windows NSIS 更新包，以及供手动下载的 Windows 便携版和未签名 Universal macOS DMG。macOS Runner 会核对版本、双架构、DMG 容器和 SHA-256 文件；没有 Apple 凭据时，不会声称产物具备 Developer ID 签名、Gatekeeper 信任或公证。
+推送 `v*` 标签会触发发布产物工作流。当前工作流在各自的 Runner 上并行生成三端产物：Windows x64 NSIS 更新包与便携版 EXE、macOS Universal DMG（Intel + Apple Silicon），以及 Linux x64 Debian 安装包。Linux 使用 Ubuntu 22.04 构建，校验包版本、amd64 架构并生成 SHA-256 文件；目前需要手动安装或升级，不加入应用内更新清单。macOS Runner 会核对版本、双架构、DMG 容器和 SHA-256 文件；没有 Apple 凭据时，不会声称产物具备 Developer ID 签名、Gatekeeper 信任或公证。
 
 自动更新产物需要一对匹配的签名密钥。绝不能将私钥提交到仓库：请把它上传到 GitHub Actions 的 `TAURI_SIGNING_PRIVATE_KEY` Secret，并另外保存一份安全的离线备份。如果私钥设置了密码，再将密码保存到 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`；公钥则保存在 `src-tauri/tauri.conf.json`。私钥丢失后，已安装客户端将无法接受后续更新。当前该密钥只签名 Windows NSIS 更新包；DMG 与 Windows 便携版均为手动下载资产，绝不会作为 updater 平台 URL。
 
 未来启用正式 macOS 自动更新时，还必须配置 `APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_ID`、`APPLE_PASSWORD` 和 `APPLE_TEAM_ID`。桥接版工作流届时必须强制要求 `arm64` + `x86_64` Universal 应用、`Developer ID Application`、hardened runtime、Gatekeeper 通过以及有效公证票据，才允许发布 Darwin 更新项。
 
-CI 会先创建 GitHub Release 草稿，上传 Windows 安装包和签名、手动下载包与唯一的 `latest.json`，再校验其中的 Windows 平台地址、版本、签名和必需产物是否完全一致。只有全部校验通过后，CI 才会发布草稿并将其设为 latest，避免客户端发现尚未组装完整的更新。
+CI 会先创建 GitHub Release 草稿，上传 Windows 安装包和签名、手动下载包与唯一的 `latest.json`，再校验其中的 Windows 平台地址、版本、签名和必需产物是否完全一致。只有三个平台的构建和全部校验通过后，CI 才会发布草稿并将其设为 latest，避免客户端发现尚未组装完整的更新。
 
 未签名 / ad-hoc macOS 构建目前作为手动下载兼容渠道。用户应只从 Metra 官方 Release 下载、核对发布的 SHA-256，并在加入 Developer ID 签名与公证前按文档执行 `xattr`。
 

@@ -41,6 +41,8 @@ export function readReleaseVersion(root = projectRoot) {
 
 export function releaseAssetNames(version) {
   return {
+    linuxDeb: `Metra-${version}-linux-x64.deb`,
+    linuxDebChecksum: `Metra-${version}-linux-x64.deb.sha256`,
     macDmg: `Metra-${version}-macos-universal.dmg`,
     macDmgChecksum: `Metra-${version}-macos-universal.dmg.sha256`,
     windowsInstaller: `Metra-${version}-windows-x64-setup.exe`,
@@ -95,19 +97,21 @@ function assertReleaseAssets(assetsDir, names, allowManifest) {
     }
   }
 
-  const checksumPath = join(assetsDir, names.macDmgChecksum);
-  const checksum = readFileSync(checksumPath, "utf8").trim();
-  const checksumMatch = checksum.match(/^([a-fA-F0-9]{64}) [ *](.+)$/);
-  if (!checksumMatch || checksumMatch[2] !== names.macDmg) {
-    throw new Error(
-      `${names.macDmgChecksum} must contain one SHA-256 checksum for ${names.macDmg}`,
-    );
-  }
-  const actualChecksum = createHash("sha256")
-    .update(readFileSync(join(assetsDir, names.macDmg)))
-    .digest("hex");
-  if (checksumMatch[1].toLowerCase() !== actualChecksum) {
-    throw new Error(`${names.macDmgChecksum} does not match ${names.macDmg}`);
+  for (const [artifact, checksumFile] of [
+    [names.macDmg, names.macDmgChecksum],
+    [names.linuxDeb, names.linuxDebChecksum],
+  ]) {
+    const checksum = readFileSync(join(assetsDir, checksumFile), "utf8").trim();
+    const checksumMatch = checksum.match(/^([a-fA-F0-9]{64}) [ *](.+)$/);
+    if (!checksumMatch || checksumMatch[2] !== artifact) {
+      throw new Error(`${checksumFile} must contain one SHA-256 checksum for ${artifact}`);
+    }
+    const actualChecksum = createHash("sha256")
+      .update(readFileSync(join(assetsDir, artifact)))
+      .digest("hex");
+    if (checksumMatch[1].toLowerCase() !== actualChecksum) {
+      throw new Error(`${checksumFile} does not match ${artifact}`);
+    }
   }
 }
 

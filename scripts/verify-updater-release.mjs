@@ -141,12 +141,12 @@ function verifyRepositoryContract() {
   assert.match(
     releaseCacheStep,
     /Swatinem\/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6/,
-    "both release platforms must use the pinned Rust dependency cache",
+    "all release platforms must use the pinned Rust dependency cache",
   );
   assert.doesNotMatch(
     releaseCacheStep,
     /if:\s*runner\.os/,
-    "the release Rust cache must run on both Windows and macOS",
+    "the release Rust cache must run on every platform",
   );
   assert.doesNotMatch(
     releaseArtifactsJob,
@@ -171,6 +171,10 @@ function verifyRepositoryContract() {
     /secrets\.APPLE_|APPLE_CERTIFICATE|APPLE_ID|APPLE_PASSWORD|APPLE_TEAM_ID/,
     "Apple credentials must not be required until signed macOS updates are enabled",
   );
+  assert.match(releaseArtifactsJob, /os: ubuntu-22\.04\s+artifact: linux-x64/);
+  assert.match(releaseArtifactsJob, /Build Linux Debian package[\s\S]*npm run build:linux/);
+  assert.match(releaseArtifactsJob, /dpkg-deb -f[\s\S]*Architecture[\s\S]*amd64/);
+  assert.match(releaseArtifactsJob, /sha256sum/);
   assert.match(workflow, /TAURI_SIGNING_PRIVATE_KEY_PASSWORD/);
   assert.equal(
     (releaseArtifactsJob.match(/^\s+TAURI_SIGNING_PRIVATE_KEY:\s*\$\{\{ secrets\./gm) ?? []).length,
@@ -207,7 +211,7 @@ function verifyRepositoryContract() {
   assert.match(
     workflow,
     /publish-release:[\s\S]*needs:\s*\[verify, release-artifacts\]/,
-    "publication must wait for verification and both release artifact builds",
+    "publication must wait for verification and every release artifact build",
   );
   assert.match(workflow, /publish-release:[\s\S]*contents: write/);
   assert.match(
@@ -254,7 +258,7 @@ function writeFixtureAssets(directory, version) {
   mkdirSync(directory, { recursive: true });
   const names = releaseAssetNames(version);
   for (const [kind, filename] of Object.entries(names)) {
-    if (kind === "macDmgChecksum") {
+    if (kind.endsWith("Checksum")) {
       continue;
     }
     const contents = kind === "windowsInstallerSignature"
@@ -262,12 +266,13 @@ function writeFixtureAssets(directory, version) {
       : `fixture:${filename}\n`;
     writeFileSync(join(directory, filename), contents);
   }
-  const macDmg = readFileSync(join(directory, names.macDmg));
-  const macDmgChecksum = createHash("sha256").update(macDmg).digest("hex");
-  writeFileSync(
-    join(directory, names.macDmgChecksum),
-    `${macDmgChecksum}  ${names.macDmg}\n`,
-  );
+  for (const [artifact, checksumFile] of [
+    [names.macDmg, names.macDmgChecksum],
+    [names.linuxDeb, names.linuxDebChecksum],
+  ]) {
+    const checksum = createHash("sha256").update(readFileSync(join(directory, artifact))).digest("hex");
+    writeFileSync(join(directory, checksumFile), `${checksum}  ${artifact}\n`);
+  }
   return names;
 }
 
@@ -300,9 +305,18 @@ function verifyDeterministicGeneration() {
     assert.match(manifest.platforms["windows-x86_64"].url, new RegExp(`${names.windowsInstaller.replaceAll(".", "\\.")}$`));
     assert.doesNotMatch(
       first,
-      /darwin|portable\.exe|\.dmg"/i,
+      /darwin|linux|portable\.exe|\.dmg"|\.deb"/i,
       "manual downloads must not be updater platforms",
     );
+
+    const linuxContents = readFileSync(join(assetsDir, names.linuxDeb));
+    rmSync(join(assetsDir, names.linuxDeb));
+    assert.throws(() => buildLatestManifest({ ...options, version }), /Release assets must match exactly/,
+      "a missing Linux build must prevent publishing");
+    writeFileSync(join(assetsDir, names.linuxDeb), "corrupted package");
+    assert.throws(() => buildLatestManifest({ ...options, version }), /does not match/,
+      "a Linux checksum mismatch must prevent publishing");
+    writeFileSync(join(assetsDir, names.linuxDeb), linuxContents);
 
     writeFileSync(join(assetsDir, names.windowsInstallerSignature), "\n");
     assert.throws(

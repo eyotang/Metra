@@ -14,6 +14,7 @@ import {
   type BubblePoint,
   type BubbleSize,
 } from "./bubble-geometry";
+import { waitForBubbleWindowSize } from "./bubble-window-size";
 import { decideBubbleGestureCompletion, probeBubbleRelease } from "./bubble-gesture";
 import { nextLanguageOptionIndex, type LanguageListboxNavigationKey } from "./language-listbox";
 import type { AppPayload, AppSettings, AppUpdateStatus, BubblePercentMode, ProviderName, ProviderSnapshot, ProviderStatus, QuotaKind, UiLanguage } from "./types";
@@ -1229,6 +1230,7 @@ class BubbleWindowController {
         t("bubble.action.updateFrame"),
       );
       this.requireAcceptedNativeOperation(accepted, operationToken);
+      await this.waitForNativeSize(size, operationToken);
     });
   }
 
@@ -1270,7 +1272,29 @@ class BubbleWindowController {
         t("bubble.action.updateFrame"),
       );
       this.requireAcceptedNativeOperation(accepted, operationToken);
+      if (!await this.waitForNativeSize(size, operationToken)) return;
+      // A WM may clamp the first move using the old width. Reapply only after
+      // resize is observed, retaining the same token so a new drag can cancel it.
+      this.rememberProgrammaticMove(rounded, operationToken, true);
+      const positioned = await invokeWithTimeout<boolean>(
+        "set_bubble_window_frame",
+        { session: this.nativeSession, token: operationToken, x: rounded.x, y: rounded.y },
+        ACTION_TIMEOUT_MS,
+        t("bubble.action.updateFrame"),
+      );
+      this.requireAcceptedNativeOperation(positioned, operationToken);
     });
+  }
+
+  private async waitForNativeSize(size: BubbleSize, token: number): Promise<boolean> {
+    const result = await waitForBubbleWindowSize(
+      size,
+      () => withTimeout(currentWindow.outerSize(), ACTION_TIMEOUT_MS, t("bubble.action.updateFrame")),
+      () => token === this.snapToken,
+      () => new Promise<void>((resolve) => window.setTimeout(resolve, 16)),
+    );
+    if (result === "timeout") throw t("bubble.error.updateFrame");
+    return result === "ready";
   }
 
   private async beginNativeWindowSession(): Promise<void> {
