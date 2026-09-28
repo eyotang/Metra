@@ -9,7 +9,7 @@ use std::{
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow};
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use tauri::{
     Runtime,
     menu::{Menu, MenuBuilder},
@@ -58,15 +58,15 @@ const CURSOR_SETTINGS_DEEP_LINK: &str = "cursor://anysphere.cursor-deeplink/sett
 const CURSOR_LOGIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const CURSOR_AGENT_LOGIN_ARGS: &[&str] = &["login"];
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 const TRAY_DETAILS_ID: &str = "tray-details";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 const TRAY_SETTINGS_ID: &str = "tray-settings";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 const TRAY_REFRESH_ID: &str = "tray-refresh";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 const TRAY_TOGGLE_BUBBLE_ID: &str = "tray-toggle-bubble";
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 const TRAY_QUIT_ID: &str = "tray-quit";
 
 #[derive(Clone, Copy)]
@@ -125,7 +125,7 @@ fn native_copy(locale: &str) -> NativeCopy {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 fn build_status_menu<R: Runtime, M: Manager<R>>(
     manager: &M,
     copy: NativeCopy,
@@ -191,9 +191,14 @@ fn apply_bubble_window_frame(
         return Err("悬浮球窗口操作不能从其他窗口调用".to_string());
     }
     let apply_size = || match (width, height) {
-        (Some(width), Some(height)) => window
-            .set_size(PhysicalSize::new(width, height))
-            .map_err(|_| "无法调整悬浮球尺寸".to_string()),
+        (Some(width), Some(height)) => {
+            #[cfg(target_os = "linux")]
+            crate::platform::constrain_bubble_size(window, width, height)
+                .map_err(|_| "无法调整悬浮球尺寸".to_string())?;
+            window
+                .set_size(PhysicalSize::new(width, height))
+                .map_err(|_| "无法调整悬浮球尺寸".to_string())
+        }
         (None, None) => Ok(()),
         _ => Err("悬浮球窗口尺寸参数不完整".to_string()),
     };
@@ -361,10 +366,16 @@ fn open_cursor_settings() -> Result<(), String> {
         command.arg(CURSOR_SETTINGS_DEEP_LINK);
         command
     };
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let mut command = Command::new("xdg-open");
+        command.arg(CURSOR_SETTINGS_DEEP_LINK);
+        command
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     return Err("当前系统暂不支持打开 Cursor 登录".into());
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         configure_login_command(&mut command);
         let mut child = command.spawn().map_err(|error| {
@@ -412,6 +423,7 @@ fn is_current_menu_request(requests: &PanelRequestState, request_id: u64) -> boo
         && requests.visible_mode.load(Ordering::Acquire) == PANEL_MODE_MENU
 }
 
+#[cfg(not(target_os = "linux"))]
 #[tauri::command]
 fn is_primary_mouse_button_pressed() -> bool {
     #[cfg(target_os = "macos")]
@@ -426,6 +438,25 @@ fn is_primary_mouse_button_pressed() -> bool {
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     false
+}
+
+#[cfg(target_os = "linux")]
+#[tauri::command]
+async fn is_primary_mouse_button_pressed(app: AppHandle) -> Result<bool, String> {
+    // GTK/GDK objects must remain on the UI thread. Never interpret a failed
+    // query as release: the frontend already has an unavailable-probe path.
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let _ = sender.send(crate::platform::primary_mouse_button_pressed());
+    })
+    .map_err(|error| error.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        receiver
+            .recv_timeout(Duration::from_secs(2))
+            .map_err(|_| "Unable to query Linux pointer state".to_string())?
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 fn claim_bubble_panel_request(requests: &PanelRequestState, request_id: u64) -> bool {
@@ -910,7 +941,7 @@ fn apply_runtime_locale(locale: &str, app: &AppHandle) -> Result<(), String> {
             .set_title(copy.panel_title)
             .map_err(|_| "Unable to localize the panel title".to_string())?;
     }
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     if let Some(tray) = app.tray_by_id("metra-status") {
         let menu = build_status_menu(app, copy)
             .map_err(|_| "Unable to localize the status menu".to_string())?;
@@ -980,7 +1011,7 @@ fn queue_refresh(app: AppHandle, service: Arc<RefreshService>) {
     });
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 fn setup_status_item(app: &mut tauri::App, locale: &str) -> tauri::Result<()> {
     let copy = native_copy(locale);
     let menu = build_status_menu(app, copy)?;
@@ -991,7 +1022,7 @@ fn setup_status_item(app: &mut tauri::App, locale: &str) -> tauri::Result<()> {
             {
                 tauri::include_image!("./icons/trayTemplate.png")
             }
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             {
                 tauri::include_image!("./icons/trayColor.png")
             }
@@ -1067,6 +1098,8 @@ fn start_scheduler(app: AppHandle, service: Arc<RefreshService>) {
 }
 
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    crate::platform::prepare_linux_backend();
     let _ = diagnostics::init();
     tauri::Builder::default()
         .manage(PanelRequestState::default())
@@ -1125,6 +1158,13 @@ pub fn run() {
             let settings = service.settings.lock().expect("settings lock").clone();
 
             if let Some(window) = app.get_webview_window("bubble") {
+                #[cfg(target_os = "linux")]
+                {
+                    window.set_resizable(true)?;
+                    let side = (56.0 * window.scale_factor()?).round() as u32;
+                    crate::platform::constrain_bubble_size(&window, side, side)?;
+                    window.set_size(PhysicalSize::new(side, side))?;
+                }
                 let position = if settings.bubble_position_version >= 1 {
                     settings.bubble_position
                 } else {
@@ -1166,6 +1206,13 @@ pub fn run() {
             app.manage(service.clone());
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             setup_status_item(app, settings.ui_language.explicit_locale().unwrap_or("en"))?;
+            // A missing AppIndicator host must not prevent the bubble from starting.
+            #[cfg(target_os = "linux")]
+            if let Err(error) =
+                setup_status_item(app, settings.ui_language.explicit_locale().unwrap_or("en"))
+            {
+                diagnostics::warn("tray.setup_failed", error.to_string());
+            }
             start_scheduler(app.handle().clone(), service);
             start_update_scheduler(
                 app.handle().clone(),

@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        os: [windows-latest, macos-latest, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -28,6 +28,11 @@ jobs:
           node-version: 24
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install Ubuntu native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - name: Restore Windows Rust cache
         if: runner.os == 'Windows'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -86,7 +91,17 @@ jobs:
       - name: Frontend build
         run: npm run vite -- build
       - name: Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --all-targets
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --all-targets
+      - name: Build Ubuntu Debian package
+        if: runner.os == 'Linux'
+        run: npm run build:linux
+      - name: Upload Ubuntu Debian package
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: metra-linux-deb
+          path: src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
 
   release-artifacts:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -99,6 +114,8 @@ jobs:
             artifact: windows-x64
           - os: macos-latest
             artifact: macos-universal
+          - os: ubuntu-22.04
+            artifact: linux-x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -109,6 +126,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.os == 'macos-latest' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
+      - name: Install Ubuntu native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -232,6 +254,25 @@ jobs:
             echo "It is excluded from latest.json and cannot be installed by the Tauri updater."
             echo "Users should verify ${release_dmg}.sha256 and expect a Gatekeeper warning."
           } >> "${GITHUB_STEP_SUMMARY}"
+      - name: Build Linux Debian package
+        if: runner.os == 'Linux'
+        run: npm run build:linux
+      - name: Verify and stage Linux release
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_version="$(node -p "require('./package.json').version")"
+          test "${GITHUB_REF_NAME}" = "v${app_version}"
+          deb_path="src-tauri/target/release/bundle/deb/Metra_${app_version}_amd64.deb"
+          test -s "${deb_path}"
+          test "$(dpkg-deb -f "${deb_path}" Version)" = "${app_version}"
+          test "$(dpkg-deb -f "${deb_path}" Architecture)" = "amd64"
+          test "$(dpkg-deb -f "${deb_path}" Package)" = "metra"
+          mkdir -p release-assets
+          release_deb="Metra-${app_version}-linux-x64.deb"
+          cp "${deb_path}" "release-assets/${release_deb}"
+          (cd release-assets && sha256sum "${release_deb}" > "${release_deb}.sha256")
       - uses: actions/upload-artifact@v7
         with:
           name: metra-release-${{ matrix.artifact }}
@@ -283,7 +324,7 @@ jobs:
         run: |
           set -euo pipefail
           export CURRENT_RELEASE_TAG="${GITHUB_REF_NAME}"
-          unsigned_macos_notice=$'<!-- metra-unsigned-macos-notice -->\n> [!WARNING]\n> **macOS:** The Universal DMG is currently unsigned and not notarized. It is offered only as a manual download, is excluded from `latest.json`, and may trigger Gatekeeper. Verify the accompanying `.sha256` file before installation. After copying `Metra.app` to `/Applications`, run `sudo xattr -d com.apple.quarantine /Applications/Metra.app` if macOS blocks launch.\n\n**Windows:** Only the NSIS installer uses the signed Tauri updater. The Portable EXE detects updates but must be replaced manually.'
+          unsigned_macos_notice=$'<!-- metra-unsigned-macos-notice -->\n> [!WARNING]\n> **macOS:** The Universal DMG is currently unsigned and not notarized. It is offered only as a manual download, is excluded from `latest.json`, and may trigger Gatekeeper. Verify the accompanying `.sha256` file before installation. After copying `Metra.app` to `/Applications`, run `sudo xattr -d com.apple.quarantine /Applications/Metra.app` if macOS blocks launch.\n\n**Windows:** Only the NSIS installer uses the signed Tauri updater. The Portable EXE detects updates but must be replaced manually.\n\n**Linux:** The x86_64 Debian package supports Ubuntu with X11/XWayland. Verify its accompanying `.sha256` file and install or upgrade it manually; Linux in-app updates are not enabled.'
           gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
             --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' |
             node -e '
