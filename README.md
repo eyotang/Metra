@@ -10,6 +10,7 @@ Metra is a lightweight cross-platform desktop bubble for checking Cursor, Codex,
 - With auto-dock enabled, the first release at a screen edge immediately enters a 32 px partially hidden peek state—there is no idle delay after that drag. Hovering, focusing, or clicking reveals the full bubble at once; after it is revealed, the normal idle delay still applies before it peeks again.
 - Automatically discovers local `cursor-agent` / `agent`, `codex`, and `claude` CLIs.
 - Uses the official Codex App Server to read multiple limit windows and token totals.
+- On macOS, discovers the CLI bundled with Codex / ChatGPT in both `Contents/Resources/codex` and `Contents/Resources/codex-cli/bin/codex`; a separate Homebrew installation is optional.
 - Opens Cursor's official sign-in flow when needed without silently enabling compatibility mode or installing a CLI. Reading exact personal usage still requires separate consent. Ultra shows Cursor Models, Other Models, Grok Bot weekly limits, and On-Demand separately; legacy plans such as Team keep the existing monetary layout.
 - Checks Claude Code sign-in through `claude auth status --json` and, when available, aggregates token counts from local sessions in read-only mode. When signed in with an Anthropic API key, an organization administrator can explicitly configure an Admin API key to retrieve the selected key actor's official UTC-day token usage and estimated cost. If an API key or custom gateway does not expose remaining quota, Metra reports that no limit data is available instead of inventing a percentage.
 - Lets you show or hide each provider, reorder providers with the six-dot handle, and customize both bubble labels and marker colors. The built-in 55-color palette is stored in SQLite with the rest of the settings.
@@ -25,6 +26,11 @@ Metra is a lightweight cross-platform desktop bubble for checking Cursor, Codex,
 </p>
 
 ## Development
+
+Omarchy 4 users can install the native Quickshell bar widget: a fixed-width,
+single-provider carousel, wheel navigation, and a passive hover usage panel.
+Run `npm run install:omarchy` after building, or extract the Omarchy release
+archive and run `node install.mjs`. See [the integration guide](integrations/omarchy/README.md).
 
 You need Rust stable, Node.js 24+, npm or pnpm, and the Tauri system dependencies for your platform.
 

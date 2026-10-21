@@ -269,6 +269,7 @@ function writeFixtureAssets(directory, version) {
   for (const [artifact, checksumFile] of [
     [names.macDmg, names.macDmgChecksum],
     [names.linuxDeb, names.linuxDebChecksum],
+    [names.omarchyArchive, names.omarchyArchiveChecksum],
   ]) {
     const checksum = createHash("sha256").update(readFileSync(join(directory, artifact))).digest("hex");
     writeFileSync(join(directory, checksumFile), `${checksum}  ${artifact}\n`);

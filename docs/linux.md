@@ -1,5 +1,7 @@
 # Ubuntu / Linux 悬浮球
 
+Omarchy 4 用户可使用[原生 Quickshell 状态栏插件](../integrations/omarchy/README.md)，支持固定宽度单项轮播、滚轮切换和 hover 详情。该模式直接运行 `metra --watch-json` 复用采集器，不启动图形应用，也不需要 XWayland。以下章节描述的是桌面悬浮球模式。
+
 Linux 适配使用 GTK 3 + WebKitGTK，复用现有悬浮球、详情面板、右键菜单和边缘吸附逻辑。启动时将 GDK 后端限制为 X11；Ubuntu Wayland 会话需要 XWayland。原生 Wayland 暂不支持，因为悬浮球需要全局窗口坐标和程序控制窗口位置，参见 [Tauri 的 Wayland 窗口定位问题](https://github.com/tauri-apps/tauri/issues/14913)。
 
 已接入 Linux 鼠标按键检测，避免按住拖动时被误判为松开；查询在 GTK 主线程执行，失败时沿用前端的拖动恢复逻辑。托盘提供详情、设置、刷新、显示/隐藏及退出操作；托盘创建失败会记录日志，但不会阻止悬浮球启动。GNOME 需要启用 AppIndicator 扩展才能显示托盘；没有托盘时可使用悬浮球右键菜单，再次启动 Metra 可找回被隐藏的悬浮球。

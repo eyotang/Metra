@@ -43,6 +43,8 @@ export function releaseAssetNames(version) {
   return {
     linuxDeb: `Metra-${version}-linux-x64.deb`,
     linuxDebChecksum: `Metra-${version}-linux-x64.deb.sha256`,
+    omarchyArchive: `Metra-${version}-omarchy-x64.tar.gz`,
+    omarchyArchiveChecksum: `Metra-${version}-omarchy-x64.tar.gz.sha256`,
     macDmg: `Metra-${version}-macos-universal.dmg`,
     macDmgChecksum: `Metra-${version}-macos-universal.dmg.sha256`,
     windowsInstaller: `Metra-${version}-windows-x64-setup.exe`,
@@ -100,6 +102,7 @@ function assertReleaseAssets(assetsDir, names, allowManifest) {
   for (const [artifact, checksumFile] of [
     [names.macDmg, names.macDmgChecksum],
     [names.linuxDeb, names.linuxDebChecksum],
+    [names.omarchyArchive, names.omarchyArchiveChecksum],
   ]) {
     const checksum = readFileSync(join(assetsDir, checksumFile), "utf8").trim();
     const checksumMatch = checksum.match(/^([a-fA-F0-9]{64}) [ *](.+)$/);

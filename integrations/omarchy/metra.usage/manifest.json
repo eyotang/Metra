@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "metra.usage",
+  "name": "Metra Usage",
+  "version": "0.2.2",
+  "author": "Metra",
+  "license": "MIT",
+  "description": "Cursor, Codex and Claude Code usage with a native hover panel.",
+  "kinds": ["service", "bar-widget"],
+  "entryPoints": { "service": "Service.qml", "barWidget": "Widget.qml" },
+  "barWidget": {
+    "displayName": "Metra Usage",
+    "category": "AI",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": { "hoverDelayMs": 180, "hideDelayMs": 320, "cycleIntervalMs": 5000 },
+    "schema": [
+      { "key": "cycleIntervalMs", "type": "integer", "label": "Carousel interval (ms)", "min": 2000, "max": 30000, "defaultValue": 5000 },
+      { "key": "hoverDelayMs", "type": "integer", "label": "Hover delay (ms)", "min": 0, "max": 1000, "defaultValue": 180 },
+      { "key": "hideDelayMs", "type": "integer", "label": "Hide delay (ms)", "min": 150, "max": 1500, "defaultValue": 320 }
+    ]
+  }
+}
