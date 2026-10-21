@@ -90,8 +90,15 @@ jobs:
         run: npm run verify:provider-navigation
       - name: Frontend build
         run: npm run vite -- build
+      - name: Omarchy presentation contract
+        run: npm run verify:omarchy
       - name: Rust tests
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --all-targets
+      - name: Headless Linux collector contract
+        if: runner.os == 'Linux'
+        run: |
+          cargo build --locked --manifest-path src-tauri/Cargo.toml
+          node scripts/verify-omarchy.mjs src-tauri/target/debug/metra
       - name: Build Ubuntu Debian package
         if: runner.os == 'Linux'
         run: npm run build:linux
@@ -257,6 +264,9 @@ jobs:
       - name: Build Linux Debian package
         if: runner.os == 'Linux'
         run: npm run build:linux
+      - name: Package native Omarchy widget
+        if: runner.os == 'Linux'
+        run: npm run package:omarchy
       - name: Verify and stage Linux release
         if: runner.os == 'Linux'
         shell: bash
@@ -324,7 +334,7 @@ jobs:
         run: |
           set -euo pipefail
           export CURRENT_RELEASE_TAG="${GITHUB_REF_NAME}"
-          unsigned_macos_notice=$'<!-- metra-unsigned-macos-notice -->\n> [!WARNING]\n> **macOS:** The Universal DMG is currently unsigned and not notarized. It is offered only as a manual download, is excluded from `latest.json`, and may trigger Gatekeeper. Verify the accompanying `.sha256` file before installation. After copying `Metra.app` to `/Applications`, run `sudo xattr -d com.apple.quarantine /Applications/Metra.app` if macOS blocks launch.\n\n**Windows:** Only the NSIS installer uses the signed Tauri updater. The Portable EXE detects updates but must be replaced manually.\n\n**Linux:** The x86_64 Debian package supports Ubuntu with X11/XWayland. Verify its accompanying `.sha256` file and install or upgrade it manually; Linux in-app updates are not enabled.'
+          unsigned_macos_notice=$'<!-- metra-unsigned-macos-notice -->\n> [!WARNING]\n> **macOS:** The Universal DMG is currently unsigned and not notarized. It is offered only as a manual download, is excluded from `latest.json`, and may trigger Gatekeeper. Verify the accompanying `.sha256` file before installation. After copying `Metra.app` to `/Applications`, run `sudo xattr -d com.apple.quarantine /Applications/Metra.app` if macOS blocks launch.\n\n**Windows:** Only the NSIS installer uses the signed Tauri updater. The Portable EXE detects updates but must be replaced manually.\n\n**Linux:** The x86_64 Debian package supports Ubuntu with X11/XWayland. Verify its accompanying `.sha256` file and install or upgrade it manually; Linux in-app updates are not enabled.\n\n**Omarchy 4:** Extract `Metra-<version>-omarchy-x64.tar.gz` and run `node install.mjs` to install the native Quickshell widget. It shows one provider at a time with horizontal rotation, wheel navigation, and a hover detail panel.\n\n**macOS CLI discovery:** Also detects the CLI in `Codex.app` and `ChatGPT.app` under `Contents/Resources/codex-cli/bin/codex`, including lowercase bundle names, while retaining the desktop bubble UI.'
           gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
             --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' |
             node -e '

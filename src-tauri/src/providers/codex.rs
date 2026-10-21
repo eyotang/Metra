@@ -452,10 +452,13 @@ fn codex_known_paths() -> Vec<PathBuf> {
     paths
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 fn push_macos_app_bundle_candidates(paths: &mut Vec<PathBuf>, applications: &std::path::Path) {
-    paths.push(applications.join("Codex.app/Contents/Resources/codex"));
-    paths.push(applications.join("ChatGPT.app/Contents/Resources/codex"));
+    for bundle in ["Codex.app", "codex.app", "ChatGPT.app", "chatgpt.app"] {
+        let resources = applications.join(bundle).join("Contents/Resources");
+        paths.push(resources.join("codex"));
+        paths.push(resources.join("codex-cli/bin/codex"));
+    }
 }
 
 #[cfg(windows)]
@@ -575,24 +578,29 @@ fn hide_window(command: &mut Command) {
 mod boundary_tests {
     use super::*;
 
-    #[cfg(target_os = "macos")]
     #[test]
-    fn discovery_finds_codex_bundled_with_chatgpt_app() {
-        let temp = tempfile::tempdir().unwrap();
-        let applications = temp.path().join("Applications");
-        let bundled_codex = applications.join("ChatGPT.app/Contents/Resources/codex");
-        std::fs::create_dir_all(bundled_codex.parent().unwrap()).unwrap();
-        std::fs::write(&bundled_codex, []).unwrap();
-        let mut known_paths = Vec::new();
-        push_macos_app_bundle_candidates(&mut known_paths, &applications);
-
-        let discovered =
-            find_executable_prefer_known(&["__metra_missing_codex_cli__"], &known_paths);
-
-        assert_eq!(
-            discovered.map(|value| value.path().to_path_buf()),
-            Some(bundled_codex)
-        );
+    fn discovery_finds_mac_bundled_cli_in_legacy_and_nested_layouts() {
+        for bundle in ["Codex.app", "codex.app", "ChatGPT.app", "chatgpt.app"] {
+            for suffix in ["codex", "codex-cli/bin/codex"] {
+                let temp = tempfile::tempdir().unwrap();
+                let applications = temp.path().join("Applications");
+                let bundled_codex = applications
+                    .join(bundle)
+                    .join("Contents/Resources")
+                    .join(suffix);
+                std::fs::create_dir_all(bundled_codex.parent().unwrap()).unwrap();
+                std::fs::write(&bundled_codex, []).unwrap();
+                let mut known_paths = Vec::new();
+                push_macos_app_bundle_candidates(&mut known_paths, &applications);
+                let discovered =
+                    find_executable_prefer_known(&["__metra_missing_codex_cli__"], &known_paths);
+                assert_eq!(
+                    discovered.and_then(|value| value.path().canonicalize().ok()),
+                    Some(bundled_codex.canonicalize().unwrap()),
+                    "must discover {bundle}/Contents/Resources/{suffix} without a PATH installation",
+                );
+            }
+        }
     }
 
     #[cfg(windows)]

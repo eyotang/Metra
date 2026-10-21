@@ -10,6 +10,7 @@ Metra 是一个轻量的跨平台桌面气泡，用来查看 Cursor、Codex 和 
 - 开启自动吸边后，首次拖到屏幕边缘并松手就会立即缩成 32 px 半隐藏状态，这次拖动后无需等待闲置；移入、聚焦或点击会立即完整显示，唤醒后的普通再次半隐藏仍保留闲置延时。
 - 自动发现本机 `cursor-agent` / `agent`、`codex` 与 `claude` CLI。
 - Codex 使用官方 App Server 获取多额度窗口和 token 汇总。
+- macOS 同时识别 Codex / ChatGPT 桌面应用内的 `Contents/Resources/codex` 与 `Contents/Resources/codex-cli/bin/codex`，无需另外安装 Homebrew CLI。
 - Cursor 未登录时可直接进入官方登录流程；该动作不会隐式开启兼容模式，也不会自动安装 CLI。登录后，用户仍需单独确认才会开启个人兼容模式读取精确用量。Ultra 会分别展示 Cursor Models、Other Models、Grok Bot 周额度和 On-Demand 四部分；Team 等旧套餐继续使用原有金额布局。
 - Claude Code 通过 `claude auth status --json` 检测登录；可用时只读汇总本地会话中的 token 数字。使用 Anthropic API Key 登录时，组织管理员可以显式配置 Admin API Key，以获取所选密钥主体在 UTC 当日的官方 token 用量和预估费用。API Key 或自定义网关不提供剩余额度时，界面会如实显示“暂无额度”，不会伪造百分比。
 - 悬浮球中的三个 Provider 支持独立开关显示、通过六点图标拖动排序，显示字符和标记颜色也可分别自定义；内置 55 色快捷色板，配置保存在 SQLite。
@@ -25,6 +26,14 @@ Metra 是一个轻量的跨平台桌面气泡，用来查看 Cursor、Codex 和 
 </p>
 
 ## 开发
+
+### Omarchy 原生状态栏
+
+Omarchy 4 可使用 Quickshell 原生用量插件：固定宽度一次显示一个服务，多个服务每 5 秒横向轮播，滚轮手动切换；鼠标移入展开全部额度详情，移入面板保持显示，移出延迟收起。界面跟随系统主题，采集过程不启动 GTK / WebKit，也不依赖 XWayland。
+
+从源码编译后运行 `npm run install:omarchy`，或下载 Release 中的 `Metra-<version>-omarchy-x64.tar.gz`，解压后运行 `node install.mjs`。插件沿用已有 Provider 显隐与顺序、刷新周期及 Cursor 兼容模式授权。详见 [Omarchy 安装与交互说明](integrations/omarchy/README.md)。
+
+### 桌面应用构建
 
 需要 Rust stable、Node.js 24+、npm 或 pnpm，以及 Tauri 对应平台的系统依赖。
 
