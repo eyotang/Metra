@@ -1232,7 +1232,7 @@ impl AppView {
         let mut center = div()
             .size_full()
             .rounded_full()
-            .bg(rgba(0x121a2b85))
+            .bg(rgba(0x121a2b66))
             .flex()
             .flex_col()
             .justify_center()
@@ -2082,11 +2082,11 @@ impl Render for AppView {
             .flex_col()
             .p(px(14.))
             .rounded(px(22.))
-            .bg(rgba(0x151c2bcc))
+            .bg(rgba(appearance::PANEL_GLASS))
             .text_color(rgb(0xe4e9f5))
             .text_size(px(11.))
             .border_1()
-            .border_color(rgba(0xffffff1d))
+            .border_color(rgba(0xffffff22))
             .child(header)
             .child(
                 div()
@@ -2241,16 +2241,25 @@ mod ui_tests {
                     surface
                         .background
                         .as_solid()
-                        .is_some_and(|color| color.a > 0. && color.a < 0.85)
+                        .is_some_and(|color| (0.45..=0.70).contains(&color.a))
                 }));
                 for surface in surfaces {
                     assert!(
                         surface
                             .background
                             .as_solid()
-                            .is_some_and(|color| color.a < 0.85),
-                        "panel paints an opaque full-window surface: {surface:?}"
+                            .is_some_and(|color| color.a <= 0.70),
+                        "panel hides the native blur behind a heavy surface: {surface:?}"
                     );
+                    let tint = surface.background.as_solid().unwrap();
+                    if tint.a > 0. {
+                        let original: gpui_kit::Hsla = gpui_kit::rgb(0x151c2b).into();
+                        assert_eq!(
+                            (tint.h, tint.s, tint.l),
+                            (original.h, original.s, original.l),
+                            "glass must retain the existing panel tint"
+                        );
+                    }
                     assert!(surface.corner_radii.top_left.0 >= 22. * scale);
                 }
             })
