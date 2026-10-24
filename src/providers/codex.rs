@@ -624,13 +624,13 @@ mod boundary_tests {
                 "Start-Sleep -Seconds 5\n"
             } else {
                 r#"$null = [Console]::In.ReadLine()
-Write-Output '{"id":0,"result":{"userAgent":"mock"}}'
+[Console]::Out.WriteLine('{"id":0,"result":{"userAgent":"mock"}}'); [Console]::Out.Flush()
 for ($i = 0; $i -lt 4; $i++) {
     $null = [Console]::In.ReadLine()
 }
-Write-Output '{"id":1,"result":{"account":{"type":"chatgpt","planType":"plus"}}}'
-Write-Output '{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":25,"windowDurationMins":300}}}}'
-Write-Output '{"id":3,"result":{"summary":{"lifetimeTokens":1234}}}'
+[Console]::Out.WriteLine('{"id":1,"result":{"account":{"type":"chatgpt","planType":"plus"}}}'); [Console]::Out.Flush()
+[Console]::Out.WriteLine('{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":25,"windowDurationMins":300}}}}'); [Console]::Out.Flush()
+[Console]::Out.WriteLine('{"id":3,"result":{"summary":{"lifetimeTokens":1234}}}'); [Console]::Out.Flush()
 "#
             };
             std::fs::write(&path, body).unwrap();
@@ -665,19 +665,19 @@ printf '%s\n' '{"id":1,"result":{"account":{"type":"chatgpt","planType":"plus"}}
         {
             let path = dir.join("flaky-codex.ps1");
             let final_rate_response = if recover_on_retry {
-                r#"Write-Output '{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":25,"windowDurationMins":300}}}}'"#
+                r#"[Console]::Out.WriteLine('{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":25,"windowDurationMins":300}}}}'); [Console]::Out.Flush()"#
             } else {
-                r#"Write-Output '{"id":2,"error":{"code":-32603,"message":"failed to fetch codex rate limits: error sending request"}}'"#
+                r#"[Console]::Out.WriteLine('{"id":2,"error":{"code":-32603,"message":"failed to fetch codex rate limits: error sending request"}}'); [Console]::Out.Flush()"#
             };
             let body = format!(
                 r#"$null = [Console]::In.ReadLine()
-Write-Output '{{"id":0,"result":{{"userAgent":"mock"}}}}'
+[Console]::Out.WriteLine('{{"id":0,"result":{{"userAgent":"mock"}}}}'); [Console]::Out.Flush()
 for ($i = 0; $i -lt 4; $i++) {{
     $null = [Console]::In.ReadLine()
 }}
-Write-Output '{{"id":1,"result":{{"account":{{"type":"chatgpt","planType":"plus"}}}}}}'
-Write-Output '{{"id":2,"error":{{"code":-32603,"message":"failed to fetch codex rate limits: error sending request"}}}}'
-Write-Output '{{"id":3,"result":{{"summary":{{"lifetimeTokens":1234}}}}}}'
+[Console]::Out.WriteLine('{{"id":1,"result":{{"account":{{"type":"chatgpt","planType":"plus"}}}}}}'); [Console]::Out.Flush()
+[Console]::Out.WriteLine('{{"id":2,"error":{{"code":-32603,"message":"failed to fetch codex rate limits: error sending request"}}}}'); [Console]::Out.Flush()
+[Console]::Out.WriteLine('{{"id":3,"result":{{"summary":{{"lifetimeTokens":1234}}}}}}'); [Console]::Out.Flush()
 $null = [Console]::In.ReadLine()
 {final_rate_response}
 "#
@@ -720,8 +720,7 @@ printf '%s\n' {final_rate_response}
         let provider = CodexProvider {
             executable_override: Some(write_fake_server(temp.path(), false)),
             cached_executable: Mutex::new(None),
-            // Windows PowerShell can take several seconds to start on shared runners.
-            timeout: Duration::from_secs(15),
+            timeout: Duration::from_secs(3),
         };
         let snapshot = provider.refresh();
         assert_eq!(
@@ -740,8 +739,7 @@ printf '%s\n' {final_rate_response}
         let provider = CodexProvider {
             executable_override: Some(write_flaky_rate_server(temp.path(), true)),
             cached_executable: Mutex::new(None),
-            // Windows PowerShell can take several seconds to start on shared runners.
-            timeout: Duration::from_secs(15),
+            timeout: Duration::from_secs(3),
         };
 
         let snapshot = provider.refresh();
@@ -761,8 +759,7 @@ printf '%s\n' {final_rate_response}
         let provider = CodexProvider {
             executable_override: Some(write_flaky_rate_server(temp.path(), false)),
             cached_executable: Mutex::new(None),
-            // Windows PowerShell can take several seconds to start on shared runners.
-            timeout: Duration::from_secs(15),
+            timeout: Duration::from_secs(3),
         };
 
         let snapshot = provider.refresh();
