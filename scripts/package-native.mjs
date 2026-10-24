@@ -44,7 +44,7 @@ try {
     copyFileSync(binary,join(staging,'usr/bin/metra'));
     copyFileSync(join(root,'assets/icons/128x128.png'),join(staging,'usr/share/icons/hicolor/128x128/apps/metra.png'));
     writeFileSync(join(staging,'usr/share/applications/dev.metra.desktop'),`[Desktop Entry]\nName=Metra\nComment=AI usage monitor\nExec=metra\nIcon=metra\nTerminal=false\nType=Application\nCategories=Utility;Monitor;\nStartupWMClass=dev.metra.desktop\n`);
-    writeFileSync(join(staging,'DEBIAN/control'),`Package: metra\nVersion: ${version}\nSection: utils\nPriority: optional\nArchitecture: ${arch}\nMaintainer: eyotang\nDepends: libgtk-3-0, libayatana-appindicator3-1, libvulkan1, libxkbcommon0, libfontconfig1\nDescription: Native GPUI Kit monitor for Cursor, Codex and Claude Code usage\n`);
+    writeFileSync(join(staging,'DEBIAN/control'),`Package: metra\nVersion: ${version}\nSection: utils\nPriority: optional\nArchitecture: ${arch}\nMaintainer: eyotang\nDepends: libgtk-3-0, libayatana-appindicator3-1, libvulkan1, libxdo3, libxkbcommon0, libxkbcommon-x11-0, libfontconfig1\nDescription: Native GPUI Kit monitor for Cursor, Codex and Claude Code usage\n`);
     const deb=join(output,`Metra-${version}-linux-${process.arch==='x64'?'x64':'arm64'}.deb`);
     run('dpkg-deb',['--build','--root-owner-group',staging,deb]);checksum(deb);
   } else throw new Error('Unsupported packaging platform');

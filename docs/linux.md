@@ -5,7 +5,7 @@
 Ubuntu 24.04 开发依赖：
 
 ```sh
-sudo apt install clang cmake pkg-config libgtk-3-dev libayatana-appindicator3-dev libvulkan-dev libxkbcommon-x11-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-randr0-dev libfontconfig1-dev libx11-xcb-dev libwayland-dev libasound2-dev
+sudo apt install clang cmake pkg-config libgtk-3-dev libayatana-appindicator3-dev libxdo-dev libvulkan-dev libxkbcommon-x11-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-randr0-dev libfontconfig1-dev libx11-xcb-dev libwayland-dev libasound2-dev
 cargo run
 cargo test --locked --all-targets
 ```
