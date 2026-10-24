@@ -47,6 +47,42 @@ fn codex_protocol_exposes_standard_and_spark_quota_summaries() {
 }
 
 #[test]
+fn cursor_modern_dashboard_recovers_usage_without_the_summary_endpoint() {
+    let snapshot = snapshot_from_payloads(
+        Some(&json!({"gpt-4": {"numRequests": 0, "maxRequestUsage": null, "numTokens": 0}})),
+        None,
+        Some(&json!({
+            "planUsage": {"limit": 2000, "remaining": 1200, "totalPercentUsed": 40},
+            "billingCycleEnd": "2099-12-31T00:00:00Z"
+        })),
+        Some("enterprise".into()),
+    )
+    .expect("modern Cursor dashboard usage");
+
+    assert_eq!(snapshot.quotas.len(), 1);
+    assert_eq!(snapshot.quotas[0].used_percent, 40.0);
+    assert_eq!(snapshot.quotas[0].remaining_percent, 60.0);
+    let cost = snapshot.cost.unwrap();
+    assert_eq!(cost.included_used_cents, Some(800));
+    assert_eq!(cost.included_limit_cents, Some(2000));
+    assert_eq!(cost.on_demand_limit_cents, None);
+}
+
+#[test]
+fn cursor_modern_dashboard_accepts_remaining_without_a_percentage() {
+    let snapshot = snapshot_from_payloads(
+        None,
+        None,
+        Some(&json!({"planUsage": {"limit": 2000, "remaining": 1500}})),
+        None,
+    )
+    .expect("modern Cursor remaining balance");
+
+    assert_eq!(snapshot.quotas[0].used_percent, 25.0);
+    assert_eq!(snapshot.cost.unwrap().included_used_cents, Some(500));
+}
+
+#[test]
 fn cursor_team_keeps_the_legacy_included_and_on_demand_layout() {
     let snapshot = snapshot_from_payloads(
         Some(&json!({"gpt-4": {"numRequests": 20, "maxRequestUsage": 100, "numTokens": 12345}})),
