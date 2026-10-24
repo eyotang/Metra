@@ -2,122 +2,60 @@
 
 [English](README.md) · **简体中文** · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-Metra 是一个轻量的跨平台桌面气泡，用来查看 Cursor、Codex 和 Claude Code 的登录状态、额度、重置时间、token 与可用费用信息。
+Metra 是基于 **Rust、GPUI 和 GPUI-KIT 0.8.0** 的原生桌面用量监控工具，用来查看 Cursor、Codex 和 Claude Code 的登录状态、额度、重置时间、Token 与可用费用信息。界面不再依赖浏览器或 WebView。
 
-## 功能
+- 默认仍为透明置顶悬浮球，支持拖动、多显示器和可选的屏幕边缘吸附；吸边后可缩为 32px 半隐藏状态。
+- 所有系统均提供“悬浮球 / 状态栏”展示方式，选择保存到 SQLite，重启恢复。状态栏每 5 秒轮播已启用服务；macOS 显示文字额度，Windows 使用数字托盘图标，Linux 随托盘宿主展示文字或数字。
+- 详情展示登录状态、额度窗口、重置时间、Token 和费用。设置保留服务显隐、排序、简称、55 色色板、语言、刷新间隔与开机启动。
+- 沿用系统配置目录中 `dev.metra.desktop/settings.db` 的现有配置，以及已确认的 Cursor 兼容模式授权。界面继续支持简体中文、English、日本語和한국어。
+- 用量采集和存储已与界面框架解耦。刷新失败保留上一次成功数据并标记过期；Cursor 凭据仅在用户明确确认兼容模式后读取。
+- Omarchy Quickshell 插件继续复用原来的 JSON 采集接口，可单独编译不含任何桌面依赖的采集器。
 
-- Windows / macOS 透明置顶气泡，支持自由拖动和多显示器；屏幕边缘吸附可在右键菜单中开启，默认关闭。Linux 已加入 X11 / XWayland 适配代码，Ubuntu 构建与待验收项目见 [Linux 适配说明](docs/linux.md)。
-- 开启自动吸边后，首次拖到屏幕边缘并松手就会立即缩成 32 px 半隐藏状态，这次拖动后无需等待闲置；移入、聚焦或点击会立即完整显示，唤醒后的普通再次半隐藏仍保留闲置延时。
-- 自动发现本机 `cursor-agent` / `agent`、`codex` 与 `claude` CLI。
-- Codex 使用官方 App Server 获取多额度窗口和 token 汇总。
-- macOS 同时识别 Codex / ChatGPT 桌面应用内的 `Contents/Resources/codex` 与 `Contents/Resources/codex-cli/bin/codex`，无需另外安装 Homebrew CLI。
-- Cursor 未登录时可直接进入官方登录流程；该动作不会隐式开启兼容模式，也不会自动安装 CLI。登录后，用户仍需单独确认才会开启个人兼容模式读取精确用量。Ultra 会分别展示 Cursor Models、Other Models、Grok Bot 周额度和 On-Demand 四部分；Team 等旧套餐继续使用原有金额布局。
-- Claude Code 通过 `claude auth status --json` 检测登录；可用时只读汇总本地会话中的 token 数字。使用 Anthropic API Key 登录时，组织管理员可以显式配置 Admin API Key，以获取所选密钥主体在 UTC 当日的官方 token 用量和预估费用。API Key 或自定义网关不提供剩余额度时，界面会如实显示“暂无额度”，不会伪造百分比。
-- 悬浮球中的三个 Provider 支持独立开关显示、通过六点图标拖动排序，显示字符和标记颜色也可分别自定义；内置 55 色快捷色板，配置保存在 SQLite。
-- 左键展开详情，并通过弹窗中的刷新图标更新用量；右键菜单顶部直接提供语言下拉框，同时可设置刷新间隔、开机启动、兼容模式、重新检测或退出，不再重复放置“立即更新”。
-- 刷新失败保留最后一次成功数据，并明确标记为过期。
-- 从 v0.1.39 起，包括 Windows 便携版在内的受支持发行形式会在启动后不久读取 GitHub Releases 中唯一的 `latest.json`，并在持续运行时每 24 小时再检查一次。Windows NSIS 安装版确认后可在应用内更新；macOS 与 Windows 便携版使用同一清单发现版本，再打开对应 Release 页面供用户手动下载。
-- 界面支持简体中文（`zh-CN`）、English、日本語与한국어；“自动检测”会跟随操作系统 / 浏览器语言，手动选择后立即生效并在重启后保留。
+## 开发与验证
 
-<p align="center">
-  <a href="docs/assets/readme/metra-readme-hero.png">
-    <img src="docs/assets/readme/metra-readme-hero-1920.jpg" alt="Metra 宣传海报：深色蓝黄光效中的 AI 用量悬浮球与经过脱敏的真实产品界面，展示 Cursor、Codex、Claude Code 和默认 C、X、A 字符。" width="100%">
-  </a>
-</p>
+安装当前稳定版 Rust，然后运行：
 
-## 开发
-
-### Omarchy 原生状态栏
-
-Omarchy 4 可使用 Quickshell 原生用量插件：固定宽度一次显示一个服务，多个服务每 5 秒横向轮播，滚轮手动切换；鼠标移入展开全部额度详情，移入面板保持显示，移出延迟收起。界面跟随系统主题，采集过程不启动 GTK / WebKit，也不依赖 XWayland。
-
-从源码编译后运行 `npm run install:omarchy`，或下载 Release 中的 `Metra-<version>-omarchy-x64.tar.gz`，解压后运行 `node install.mjs`。插件沿用已有 Provider 显隐与顺序、刷新周期及 Cursor 兼容模式授权。详见 [Omarchy 安装与交互说明](integrations/omarchy/README.md)。
-
-### 桌面应用构建
-
-需要 Rust stable、Node.js 24+、npm 或 pnpm，以及 Tauri 对应平台的系统依赖。
-
-```text
-npm install
-npm run check
-npm run verify:i18n
-npm test
-npm run dev
+```sh
+cargo run
+cargo test --locked --all-targets
+cargo build --release --locked
 ```
 
-发布构建：
+`cargo run -- --settings` 会直接打开设置；`METRA_CONFIG_DIR` 可以指定独立的测试配置目录。关闭面板后应用继续在后台运行，可通过托盘或设置退出。
 
-```text
-npm run build
+macOS 需要 Xcode 命令行工具。Windows 需要 Visual Studio C++ 构建工具和 Windows SDK。Linux 需要 X11 / XWayland、Vulkan 驱动，以及托盘使用的 GTK 3 / AppIndicator，详见 [Linux 说明](docs/linux.md)。
+
+无界面采集器：
+
+```sh
+cargo build --release --locked --no-default-features --target-dir target/collector
+target/collector/release/metra --usage-json
+target/collector/release/metra --watch-json
 ```
 
-在 Windows 上，请先完全退出所有正在运行的 Metra 实例，再从仓库根目录打开 PowerShell 并执行。检测到 Metra 仍在运行时，脚本会给出明确提示并停止，避免产物文件被占用：
+持续输出模式接受标准输入中的 `refresh` 指令，并在输入关闭时退出。JSON 结构与 [Omarchy 原生插件](integrations/omarchy/README.md) 保持兼容。
 
-```powershell
-npm install --global pnpm@11.22.0
-pnpm install --frozen-lockfile
-pnpm run build:portable
+## 打包与更新
+
+应用开发使用 Cargo；只有打包辅助脚本和 Omarchy 安装器需要 Node.js 24，无需安装 npm 依赖。
+
+```sh
+node scripts/package-native.mjs                 # 当前系统的原生安装包
+node scripts/package-native.mjs --universal     # macOS Apple Silicon + Intel DMG
+node integrations/omarchy/install.mjs           # 安装 Omarchy 插件
 ```
 
-项目已在 `package.json` 中锁定 `pnpm@11.22.0`，第一条命令会直接安装这个版本，不依赖 Corepack。仓库中的 `pnpm-workspace.yaml` 已显式包含根包，避免 pnpm 报出 `packages field missing or empty`。项目级 Cargo 配置也禁用了用户级 rustc wrapper，因此不会再调用全局 `sccache`。便携版产物位于 `src-tauri/target/release/Metra-<version>-portable.exe`。如需生成 Windows 安装包，请改用 `pnpm run build`，产物位于 `src-tauri/target/release/bundle`。
+产物位于 `release-assets/`。Windows 生成 NSIS 安装包和便携 EXE，打包需要 `makensis`，也可通过 `MAKENSIS` 指定路径；Linux 生成 `.deb`。macOS 包包含完整应用及资源。各系统的窗口、托盘和安装行为仍需对应平台的实际验收。
 
-构建 macOS 通用包请使用专用命令：
+更新检查继续读取 GitHub 中原有的 `latest.json`。Windows 安装版会在用户点击安装后校验原有 Minisign 签名，再启动安装程序；便携版、macOS 和 Linux 打开检测到版本的 Release 页面进行手动下载。后台检查失败不会打断用量查看。签名工具独立放在 `tools/release-sign`，为兼容现有 CI，继续接受 `TAURI_SIGNING_PRIVATE_KEY` 系列 Secret 名称。
 
-```text
-pnpm run build:macos-universal
-# 或
-npm run build:macos-universal
-```
+## 代码结构
 
-该命令会将 Cargo 和 rustc 固定到同一个 rustup `stable` 工具链，安装两个 macOS targets，禁用 `sccache`，再调用 Tauri 构建 `universal-apple-darwin`。手动运行 `pnpm run build -- --target universal-apple-darwin` 会多传一个 `--`；它可能进入 Cargo/rustc，导致 universal target 被当作 Rust target specification 解析。Homebrew Rust 遮蔽 rustup、造成 Cargo 与 rustc 来自不同工具链时也会构建失败。专用命令会同时规避这两个问题。
+- `src/app.rs`、`src/appearance.rs`：GPUI 原生窗口、GPUI-KIT 控件与 Metra 视觉样式。
+- `src/platform.rs`、`src/tray.rs`：窗口定位、开机启动及系统托盘。
+- `src/providers/`、`src/service.rs`：本机账户发现与后台用量采集。
+- `src/settings.rs`、`src/model.rs`：SQLite 配置和稳定数据结构。
+- `src/headless.rs`、`src/updater.rs`：JSON 输出及独立于界面框架的签名更新。
+- `assets/`、`tests/`：嵌入资源及采集、配置、模型和签名验证。
 
-## 更新检查与安装方式（v0.1.39 及以后）
-
-受支持的发行形式（包括 Windows 便携版）会在启动后不久读取 GitHub 最新 Release 中同一个 `latest.json`，持续运行时每 24 小时再检查一次。Windows NSIS 安装版由 Tauri 更新器读取匹配的安装包地址与签名；手动下载版本只读取顶层版本号和可选说明，再由经过校验的版本号生成固定 GitHub Release 页面，不需要伪造更新载荷。如果无法连接 GitHub，Metra 会静默等待下一个计划检查周期，不显示连接错误，也不会连续重试。发现新版本时，Metra 会显示新版本号和更新提示；只有用户明确确认后，才会开始对应的更新操作。
-
-由于 v0.1.38 本身不包含更新器，现有安装版与便携版用户都需要先手动升级到 v0.1.39。仅含 Windows 平台项的清单已经可以通知 v0.1.39 便携版，但 v0.1.39 macOS 仍要求清单存在 Darwin 更新载荷，因此 macOS 还需要手动安装一次 v0.1.40；从 v0.1.40 起，macOS 会独立读取清单版本号，不再要求存在 Darwin 安装项也能发现后续版本。
-
-Windows NSIS 安装版会校验 Tauri 更新签名、下载安装包并在应用内更新。macOS 的更新按钮会打开检测到版本的 GitHub Release 页面，由用户手动下载 Universal DMG。当前 macOS 产物没有 Developer ID 签名或公证；从官方 Release 下载并核对 SHA-256 文件后，将 Metra 复制到 `/Applications`，若 Gatekeeper 阻止启动，请执行 `sudo xattr -d com.apple.quarantine /Applications/Metra.app`。在 Apple 凭据尚未配置且上游 [Tauri 更新器安全问题 #3505](https://github.com/tauri-apps/plugins-workspace/issues/3505) 尚未修复前，暂不进行有风险的原地替换。Windows 便携版也会自动检测新版本，但绝不会自动下载或覆盖正在运行的程序；点击更新按钮只会打开检测到版本的 Release 页面，由用户手动下载新的便携版 EXE。
-
-以后具备 Apple Developer ID 凭据时，Metra 会先发布一个签名、公证且仍由用户手动安装 DMG 的桥接版本。待 macOS 更新器安全问题修复，并完成替换失败与回滚验证后，下一版只需在同一个 `latest.json` 中加入 `darwin-aarch64` 和 `darwin-x86_64`，二者共同指向一份已签名的 Universal `.app.tar.gz`，无需更换地址或引入第二份清单。
-
-## 可选：官方 Claude Code API 用量
-
-Anthropic 的 Claude Code Analytics API 仅接受组织级 Admin API Key（`sk-ant-admin...`）。普通 Claude API Key（`sk-ant-api...`）无法查询历史用量，个人账户也无法使用 Admin API。详见 [Claude Code Analytics API 文档](https://platform.claude.com/docs/en/manage-claude/claude-code-analytics-api)。
-
-请在启动 Metra 的进程环境中设置以下变量：
-
-```text
-ANTHROPIC_ADMIN_KEY=sk-ant-admin...
-METRA_CLAUDE_API_KEY_NAME=Claude Code Key
-```
-
-`METRA_CLAUDE_API_KEY_NAME` 必须与 Anthropic Console 中的 API Key 名称一致。当每日报告只有一个 API Key 主体时可以省略；出现多个主体时则必须设置。Claude Code Analytics 返回的是密钥名称而非密钥 ID，因此请确保该名称在组织内唯一。如果名称存在歧义，Metra 会拒绝显示结果，避免混入其他密钥的用量。更改任一环境变量后，请重启 Metra。
-
-API 按 UTC 自然日汇总用量，数据可能有最长约一小时的延迟，且返回的是 token 和预估费用，而不是 Pro / Max 剩余百分比。Admin API Key 具有组织级权限：仅应在可信设备上通过操作系统环境或密钥管理器注入，并定期轮换。Metra 不提供任何明文持久化这些密钥的机制。
-
-## 数据与隐私
-
-- SQLite 配置只保存刷新周期、界面语言偏好、气泡完整位置、自动吸边开关、Provider 顺序与显隐、字符与颜色、自启动和兼容模式授权状态；临时半隐藏坐标不会持久化。
-- Codex 凭据由已安装的 Codex CLI/App Server 管理，Metra 不直接读取或保存。
-- Cursor 个人兼容模式默认关闭。开启后只读查询 Cursor 的 `state.vscdb`，令牌仅存在于单次请求内存中并在使用后清除。
-- Cursor 网络请求只允许 HTTPS 的 `api2.cursor.sh` 和 `cursor.com`，禁止跨域重定向。
-- Claude Code 采集只调用登录状态命令，并从 `~/.claude/projects` 的 JSONL 中反序列化时间戳、消息 ID 和 usage 数字；不读取消息正文、API Key 或 Base URL。
-- `ANTHROPIC_ADMIN_KEY` 只会在 Rust 进程内短暂使用，不会写入 SQLite、发送到 WebView、记入日志，也不会传给 Metra 启动的任何子进程。官方请求固定发往 `https://api.anthropic.com` 并禁止重定向；响应中的用户主体信息会被忽略，仅缓存所选 API Key 的汇总数字。
-- 应用不记录邮箱、令牌、会话正文或完整接口响应。
-
-## 发布签名
-
-推送 `v*` 标签会触发发布产物工作流。当前工作流在各自的 Runner 上并行生成三端产物：Windows x64 NSIS 更新包与便携版 EXE、macOS Universal DMG（Intel + Apple Silicon），以及 Linux x64 Debian 安装包。Linux 使用 Ubuntu 22.04 构建，校验包版本、amd64 架构并生成 SHA-256 文件；目前需要手动安装或升级，不加入应用内更新清单。macOS Runner 会核对版本、双架构、DMG 容器和 SHA-256 文件；没有 Apple 凭据时，不会声称产物具备 Developer ID 签名、Gatekeeper 信任或公证。
-
-自动更新产物需要一对匹配的签名密钥。绝不能将私钥提交到仓库：请把它上传到 GitHub Actions 的 `TAURI_SIGNING_PRIVATE_KEY` Secret，并另外保存一份安全的离线备份。如果私钥设置了密码，再将密码保存到 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`；公钥则保存在 `src-tauri/tauri.conf.json`。私钥丢失后，已安装客户端将无法接受后续更新。当前该密钥只签名 Windows NSIS 更新包；DMG 与 Windows 便携版均为手动下载资产，绝不会作为 updater 平台 URL。
-
-未来启用正式 macOS 自动更新时，还必须配置 `APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_ID`、`APPLE_PASSWORD` 和 `APPLE_TEAM_ID`。桥接版工作流届时必须强制要求 `arm64` + `x86_64` Universal 应用、`Developer ID Application`、hardened runtime、Gatekeeper 通过以及有效公证票据，才允许发布 Darwin 更新项。
-
-CI 会先创建 GitHub Release 草稿，上传 Windows 安装包和签名、手动下载包与唯一的 `latest.json`，再校验其中的 Windows 平台地址、版本、签名和必需产物是否完全一致。只有三个平台的构建和全部校验通过后，CI 才会发布草稿并将其设为 latest，避免客户端发现尚未组装完整的更新。
-
-未签名 / ad-hoc macOS 构建目前作为手动下载兼容渠道。用户应只从 Metra 官方 Release 下载、核对发布的 SHA-256，并在加入 Developer ID 签名与公证前按文档执行 `xattr`。
-
-## License
-
-MIT
+项目使用 [MIT License](LICENSE)。GPUI-KIT 与 GPUI 使用 Apache-2.0；嵌入的 Inter 字体保留 `assets/fonts/` 内的 OFL 许可。

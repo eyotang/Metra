@@ -8,8 +8,8 @@ if (process.platform !== "linux" || process.arch !== "x64") {
   throw new Error("The Omarchy x64 release package must be built on Linux x64.");
 }
 const root = resolve(import.meta.dirname, "..");
-const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
-const binary = join(root, "src-tauri/target/release/metra");
+const version = readFileSync(join(root, "Cargo.toml"), "utf8").match(/^version\s*=\s*"([^\"]+)"/m)[1];
+const binary = process.env.METRA_COLLECTOR_BINARY ? resolve(root, process.env.METRA_COLLECTOR_BINARY) : join(root, "target/release/metra");
 if (!existsSync(binary)) throw new Error("Build the release binary first.");
 const temporary = mkdtempSync(join(tmpdir(), "metra-omarchy-"));
 try {

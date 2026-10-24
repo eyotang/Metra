@@ -52,7 +52,7 @@ To update it, rerun the installer with the new build or extracted release.
 ## Verification
 
 `npm run verify:omarchy` checks presentation rules. After building on Linux,
-`node scripts/verify-omarchy.mjs src-tauri/target/release/metra` also checks JSON
+`node scripts/verify-omarchy.mjs target/release/metra` also checks JSON
 output without a display, manual refresh acknowledgement and stdin shutdown.
 On an Omarchy desktop, `npm run verify:omarchy-ui` uses fixture data in a
 separate test shell to verify carousel timing, pause/resume, reverse navigation

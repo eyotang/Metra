@@ -1,298 +1,118 @@
-name: CI
-
+name: Native GPUI checks and releases
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
-
 permissions:
   contents: read
-
+env:
+  CARGO_BUILD_JOBS: 2
 concurrency:
-  group: ${{ startsWith(github.ref, 'refs/tags/v') && 'metra-stable-release' || format('metra-ci-{0}', github.ref) }}
+  group: metra-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-
 jobs:
   verify:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-22.04]
+        os: [macos-latest, windows-latest, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: npm
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install Ubuntu native dependencies
+      - name: Linux native libraries
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
-      - name: Restore Windows Rust cache
-        if: runner.os == 'Windows'
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: src-tauri -> target
-      - name: Install frontend dependencies
-        run: npm ci
-      - name: Type check
-        run: npm run check
-      - name: Localization contract
-        run: npm run verify:i18n
-      - name: Offline UI font contract
-        run: npm run verify:fonts
-      - name: Dynamic menu and language listbox contract
-        run: npm run verify:menu-layout
-      - name: Package-manager contract
-        run: npm run verify:package-manager
-      - name: Updater release contract
-        run: npm run verify:updater-release
-      - name: Windows PowerShell 5.1 syntax
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: |
-          $scripts = @('scripts/build-portable.ps1', 'scripts/verify-rendered-bubble.ps1')
-          foreach ($script in $scripts) {
-            $tokens = $null
-            $errors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile(
-              (Resolve-Path $script),
-              [ref]$tokens,
-              [ref]$errors
-            ) | Out-Null
-            if ($errors.Count -gt 0) {
-              $errors | ForEach-Object { Write-Error $_.Message }
-              exit 1
-            }
-          }
-      - name: Windows UI contract
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: ./scripts/verify-ui-contract.ps1
-      - name: Provider color contract
-        run: npm run verify:color
-      - name: Bubble visibility contract
-        run: npm run verify:visibility
-      - name: Bubble click gesture contract
-        run: npm run verify:bubble-click
-      - name: Bubble snap and idle geometry
-        run: npm run verify:bubble-snap
-      - name: Cursor Ultra contract
-        run: npm run verify:cursor-ultra
-      - name: Cursor login contract
-        run: npm run verify:cursor-login
-      - name: Provider card navigation behavior
-        run: npm run verify:provider-navigation
-      - name: Frontend build
-        run: npm run vite -- build
-      - name: Omarchy presentation contract
-        run: npm run verify:omarchy
-      - name: Rust tests
-        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --all-targets
-      - name: Headless Linux collector contract
+          sudo apt-get install -y clang cmake pkg-config libgtk-3-dev libayatana-appindicator3-dev libvulkan-dev libxkbcommon-x11-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-randr0-dev libfontconfig1-dev libx11-xcb-dev libwayland-dev libasound2-dev
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - run: cargo fmt --all -- --check
+      - run: cargo check --locked --all-targets
+      - run: cargo test --locked --features ui-tests --all-targets
+      - name: Build collector without the desktop framework
+        run: cargo build --locked --no-default-features --target-dir target/collector
+      - name: Omarchy presentation and headless protocol
         if: runner.os == 'Linux'
-        run: |
-          cargo build --locked --manifest-path src-tauri/Cargo.toml
-          node scripts/verify-omarchy.mjs src-tauri/target/debug/metra
-      - name: Build Ubuntu Debian package
-        if: runner.os == 'Linux'
-        run: npm run build:linux
-      - name: Upload Ubuntu Debian package
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v7
-        with:
-          name: metra-linux-deb
-          path: src-tauri/target/release/bundle/deb/*.deb
-          if-no-files-found: error
+        run: node scripts/verify-omarchy.mjs target/collector/debug/metra
+      - name: Omarchy presentation
+        if: runner.os != 'Linux'
+        run: node scripts/verify-omarchy.mjs
+      - name: Validate release signing tool
+        run: cargo test --locked --manifest-path tools/release-sign/Cargo.toml
 
   release-artifacts:
     if: startsWith(github.ref, 'refs/tags/v')
+    needs: verify
     environment: release
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            artifact: windows-x64
-          - os: macos-latest
-            artifact: macos-universal
-          - os: ubuntu-22.04
-            artifact: linux-x64
+        os: [macos-latest, windows-latest, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: npm
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.os == 'macos-latest' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
-      - name: Install Ubuntu native dependencies
+      - name: Linux native libraries
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
-      - name: Restore Rust cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: src-tauri -> target
-      - run: npm ci
-      - name: Validate updater signing secret
-        if: runner.os == 'Windows'
+          sudo apt-get install -y clang cmake pkg-config libgtk-3-dev libayatana-appindicator3-dev libvulkan-dev libxkbcommon-x11-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-randr0-dev libfontconfig1-dev libx11-xcb-dev libwayland-dev libasound2-dev
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - name: Require the release tag to match Cargo.toml
         shell: bash
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
-            echo "Missing required updater signing secret: TAURI_SIGNING_PRIVATE_KEY" >&2
-            exit 1
-          fi
-      - name: Build Windows NSIS application
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+          test "$GITHUB_REF_NAME" = "v$version"
+      - name: Universal macOS application and DMG
+        if: runner.os == 'macOS'
+        run: node scripts/package-native.mjs --universal
+      - name: Linux Debian package
+        if: runner.os == 'Linux'
+        run: node scripts/package-native.mjs
+      - name: Standalone Omarchy collector and widget
+        if: runner.os == 'Linux'
+        run: |
+          cargo build --release --locked --no-default-features --target-dir target/collector
+          METRA_COLLECTOR_BINARY=target/collector/release/metra node scripts/package-omarchy.mjs
+      - name: Windows installer and portable application
         if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          MAKENSIS: C:\Program Files (x86)\NSIS\makensis.exe
+        run: |
+          if (-not (Test-Path $env:MAKENSIS)) { choco install nsis --no-progress -y }
+          node scripts/package-native.mjs
+      - name: Sign Windows updater with the existing release key
+        if: runner.os == 'Windows'
+        shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run build -- --bundles nsis --config src-tauri/tauri.release.conf.json
-      - name: Verify rendered Windows bubble
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: ./scripts/verify-rendered-bubble.ps1 -Executable src-tauri/target/release/metra.exe
-      - name: Stage Windows installer and manual portable download
-        if: runner.os == 'Windows'
-        shell: pwsh
         run: |
-          $appVersion = (Get-Content -Raw -Encoding UTF8 package.json | ConvertFrom-Json).version
-          if ($env:GITHUB_REF_NAME -ne "v$appVersion") {
-            throw "Release tag $env:GITHUB_REF_NAME must match v$appVersion"
-          }
-
-          $installer = "src-tauri/target/release/bundle/nsis/Metra_${appVersion}_x64-setup.exe"
-          $signature = "$installer.sig"
-          $portable = "src-tauri/target/release/metra.exe"
-          foreach ($path in @($installer, $signature, $portable)) {
-            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-              throw "Missing Windows release artifact: $path"
-            }
-            if ((Get-Item -LiteralPath $path).Length -eq 0) {
-              throw "Windows release artifact is empty: $path"
-            }
-          }
-
-          $portableBytes = [System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $portable))
-          $portableText = [System.Text.Encoding]::ASCII.GetString($portableBytes)
-          $portableMarker = "__TAURI_BUNDLE_TYPE_VAR_UNK"
-          if ([regex]::Matches($portableText, [regex]::Escape($portableMarker)).Count -ne 1) {
-            throw "Portable executable does not contain exactly one unpatched Tauri bundle marker"
-          }
-
-          New-Item -ItemType Directory -Path release-assets -Force | Out-Null
-          Copy-Item -LiteralPath $installer -Destination "release-assets/Metra-${appVersion}-windows-x64-setup.exe"
-          Copy-Item -LiteralPath $signature -Destination "release-assets/Metra-${appVersion}-windows-x64-setup.exe.sig"
-          Copy-Item -LiteralPath $portable -Destination "release-assets/Metra-${appVersion}-windows-x64-portable.exe"
-      - name: Verify Windows updater artifact signature
-        if: runner.os == 'Windows'
-        shell: pwsh
-        working-directory: src-tauri
-        run: |
-          $appVersion = (Get-Content -Raw -Encoding UTF8 ../package.json | ConvertFrom-Json).version
-          $env:METRA_UPDATER_ARTIFACT = Join-Path $env:GITHUB_WORKSPACE "release-assets/Metra-${appVersion}-windows-x64-setup.exe"
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          cargo run --locked --manifest-path tools/release-sign/Cargo.toml -- "release-assets/Metra-$version-windows-x64-setup.exe"
+          $env:METRA_UPDATER_ARTIFACT = "release-assets/Metra-$version-windows-x64-setup.exe"
           $env:METRA_UPDATER_SIGNATURE = "$env:METRA_UPDATER_ARTIFACT.sig"
-          cargo test --locked --test updater_signature_contract release_artifact_matches_embedded_public_key -- --ignored --exact
-      - name: Build unsigned Universal macOS DMG
-        if: runner.os == 'macOS'
-        run: npm run build -- --target universal-apple-darwin --bundles app,dmg
-      - name: Verify and stage unsigned Universal macOS release
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
-          app_version="$(node -p "require('./package.json').version")"
-          bundle_root="src-tauri/target/universal-apple-darwin/release/bundle"
-          app_path="${bundle_root}/macos/Metra.app"
-          app_binary="${app_path}/Contents/MacOS/metra"
-          dmg_path="${bundle_root}/dmg/Metra_${app_version}_universal.dmg"
-
-          test "${GITHUB_REF_NAME}" = "v${app_version}"
-          test -d "${app_path}"
-          test -s "${dmg_path}"
-          test "$(plutil -extract CFBundleShortVersionString raw -o - "${app_path}/Contents/Info.plist")" = "${app_version}"
-          test "$(plutil -extract CFBundleVersion raw -o - "${app_path}/Contents/Info.plist")" = "${app_version}"
-          lipo "${app_binary}" -verify_arch arm64 x86_64
-
-          hdiutil verify "${dmg_path}"
-
-          assert_not_apple_signed_or_notarized() {
-            local artifact="$1"
-            local signature_details
-            local team_identifier
-            signature_details="$(codesign -d --verbose=4 "${artifact}" 2>&1 || true)"
-            if grep -q '^Authority=' <<<"${signature_details}"; then
-              echo "Manual macOS artifact unexpectedly contains a certificate authority: ${artifact}" >&2
-              exit 1
-            fi
-            team_identifier="$(sed -n 's/^TeamIdentifier=//p' <<<"${signature_details}")"
-            if [[ -n "${team_identifier}" && "${team_identifier}" != "not set" ]]; then
-              echo "Manual macOS artifact unexpectedly contains TeamIdentifier=${team_identifier}: ${artifact}" >&2
-              exit 1
-            fi
-            if xcrun stapler validate "${artifact}" >/dev/null 2>&1; then
-              echo "Manual macOS artifact unexpectedly contains a notarization ticket: ${artifact}" >&2
-              exit 1
-            fi
-          }
-          assert_not_apple_signed_or_notarized "${app_path}"
-          assert_not_apple_signed_or_notarized "${dmg_path}"
-
-          mkdir -p release-assets
-          release_dmg="Metra-${app_version}-macos-universal.dmg"
-          cp "${dmg_path}" "release-assets/${release_dmg}"
-          (cd release-assets && shasum -a 256 "${release_dmg}" > "${release_dmg}.sha256")
-
-          {
-            echo "### macOS release status"
-            echo
-            echo "The macOS DMG is intentionally unsigned and not notarized; it is a manual download only."
-            echo "It is excluded from latest.json and cannot be installed by the Tauri updater."
-            echo "Users should verify ${release_dmg}.sha256 and expect a Gatekeeper warning."
-          } >> "${GITHUB_STEP_SUMMARY}"
-      - name: Build Linux Debian package
-        if: runner.os == 'Linux'
-        run: npm run build:linux
-      - name: Package native Omarchy widget
-        if: runner.os == 'Linux'
-        run: npm run package:omarchy
-      - name: Verify and stage Linux release
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          app_version="$(node -p "require('./package.json').version")"
-          test "${GITHUB_REF_NAME}" = "v${app_version}"
-          deb_path="src-tauri/target/release/bundle/deb/Metra_${app_version}_amd64.deb"
-          test -s "${deb_path}"
-          test "$(dpkg-deb -f "${deb_path}" Version)" = "${app_version}"
-          test "$(dpkg-deb -f "${deb_path}" Architecture)" = "amd64"
-          test "$(dpkg-deb -f "${deb_path}" Package)" = "metra"
-          mkdir -p release-assets
-          release_deb="Metra-${app_version}-linux-x64.deb"
-          cp "${deb_path}" "release-assets/${release_deb}"
-          (cd release-assets && sha256sum "${release_deb}" > "${release_deb}.sha256")
+          cargo test --locked --no-default-features --test updater_signature_contract release_artifact_matches_embedded_public_key -- --ignored --exact
       - uses: actions/upload-artifact@v7
         with:
-          name: metra-release-${{ matrix.artifact }}
+          name: metra-release-${{ runner.os }}
           path: release-assets/*
           if-no-files-found: error
-          retention-days: 7
 
   publish-release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [verify, release-artifacts]
+    needs: release-artifacts
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -305,116 +125,17 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           pattern: metra-release-*
-          path: release-assets
           merge-multiple: true
-      - name: Generate deterministic latest.json
-        id: updater-manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-          pub_date="$(git show -s --format=%cI "${GITHUB_SHA}")"
-          echo "pub_date=${pub_date}" >> "${GITHUB_OUTPUT}"
-          npm run generate:updater-manifest -- \
-            --assets-dir release-assets \
-            --output release-assets/latest.json \
-            --repository "${GITHUB_REPOSITORY}" \
-            --tag "${GITHUB_REF_NAME}" \
-            --pub-date "${pub_date}"
-      - name: Verify staged release contract
-        run: >-
-          npm run verify:updater-release --
-          --assets-dir release-assets
-          --repository "${GITHUB_REPOSITORY}"
-          --tag "${GITHUB_REF_NAME}"
-          --pub-date "${{ steps.updater-manifest.outputs.pub_date }}"
-      - name: Create or reuse a draft release
-        shell: bash
+          path: release-assets
+      - name: Generate the compatible updater manifest
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          export CURRENT_RELEASE_TAG="${GITHUB_REF_NAME}"
-          unsigned_macos_notice=$'<!-- metra-unsigned-macos-notice -->\n> [!WARNING]\n> **macOS:** The Universal DMG is currently unsigned and not notarized. It is offered only as a manual download, is excluded from `latest.json`, and may trigger Gatekeeper. Verify the accompanying `.sha256` file before installation. After copying `Metra.app` to `/Applications`, run `sudo xattr -d com.apple.quarantine /Applications/Metra.app` if macOS blocks launch.\n\n**Windows:** Only the NSIS installer uses the signed Tauri updater. The Portable EXE detects updates but must be replaced manually.\n\n**Linux:** The x86_64 Debian package supports Ubuntu with X11/XWayland. Verify its accompanying `.sha256` file and install or upgrade it manually; Linux in-app updates are not enabled.\n\n**Omarchy 4:** Extract `Metra-<version>-omarchy-x64.tar.gz` and run `node install.mjs` to install the native Quickshell widget. It shows one provider at a time with horizontal rotation, wheel navigation, and a hover detail panel.\n\n**macOS CLI discovery:** Also detects the CLI in `Codex.app` and `ChatGPT.app` under `Contents/Resources/codex-cli/bin/codex`, including lowercase bundle names, while retaining the desktop bubble UI.'
-          gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
-            --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' |
-            node -e '
-              const fs = require("node:fs");
-              const stableTagPattern = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
-              const parseVersion = (tag) => {
-                if (!stableTagPattern.test(tag)) {
-                  throw new Error(`Invalid current stable release tag: ${tag}`);
-                }
-                return tag.slice(1).split(".").map(BigInt);
-              };
-              const compareVersions = (left, right) => {
-                for (let index = 0; index < 3; index += 1) {
-                  if (left[index] > right[index]) return 1;
-                  if (left[index] < right[index]) return -1;
-                }
-                return 0;
-              };
-              const currentTag = process.env.CURRENT_RELEASE_TAG;
-              const currentVersion = parseVersion(currentTag);
-              const publishedStableTags = fs.readFileSync(0, "utf8")
-                .split(/\r?\n/)
-                .filter((tag) => stableTagPattern.test(tag));
-              const highestPublishedStable = publishedStableTags.reduce((highest, tag) => {
-                if (!highest || compareVersions(parseVersion(tag), parseVersion(highest)) > 0) {
-                  return tag;
-                }
-                return highest;
-              }, null);
-              if (highestPublishedStable && compareVersions(currentVersion, parseVersion(highestPublishedStable)) <= 0) {
-                throw new Error(
-                  `Release ${currentTag} must be strictly newer than published stable release ${highestPublishedStable}`,
-                );
-              }
-            '
-
-          if release_state="$(gh release view "${GITHUB_REF_NAME}" --json isDraft,isPrerelease --jq '[.isDraft, .isPrerelease] | @tsv' 2>/dev/null)"; then
-            read -r is_draft is_prerelease <<<"${release_state}"
-            test "${is_draft}" = "true"
-            test "${is_prerelease}" = "false"
-            release_body="$(gh release view "${GITHUB_REF_NAME}" --json body --jq .body)"
-            if [[ "${release_body}" != *"<!-- metra-unsigned-macos-notice -->"* ]]; then
-              gh release edit "${GITHUB_REF_NAME}" --notes "${unsigned_macos_notice}"$'\n\n'"${release_body}"
-            fi
+          node scripts/generate-latest-json.mjs --assets-dir release-assets --output release-assets/latest.json --repository "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --pub-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            test "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)" = true
           else
-            gh release create "${GITHUB_REF_NAME}" \
-              --verify-tag \
-              --draft \
-              --latest=false \
-              --title "Metra ${GITHUB_REF_NAME#v}" \
-              --notes "${unsigned_macos_notice}" \
-              --generate-notes
+            gh release create "$GITHUB_REF_NAME" --draft --title "Metra ${GITHUB_REF_NAME#v}" --notes-file "docs/releases/${GITHUB_REF_NAME}.md"
           fi
-      - name: Upload release assets to the draft
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${GITHUB_REF_NAME}" release-assets/* --clobber
-      - name: Download and verify draft release assets
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir downloaded-release-assets
-          gh release download "${GITHUB_REF_NAME}" --dir downloaded-release-assets --pattern '*'
-          npm run verify:updater-release -- \
-            --assets-dir release-assets \
-            --compare-dir downloaded-release-assets \
-            --repository "${GITHUB_REPOSITORY}" \
-            --tag "${GITHUB_REF_NAME}" \
-            --pub-date "${{ steps.updater-manifest.outputs.pub_date }}"
-      - name: Publish the verified release as latest
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          test "$(gh release view "${GITHUB_REF_NAME}" --json isDraft --jq .isDraft)" = "true"
-          gh release view "${GITHUB_REF_NAME}" --json body --jq .body | grep -Fq '<!-- metra-unsigned-macos-notice -->'
-          gh release edit "${GITHUB_REF_NAME}" --draft=false --prerelease=false --latest
-          test "$(gh release view "${GITHUB_REF_NAME}" --json isDraft,isPrerelease --jq '[.isDraft, .isPrerelease] | any')" = "false"
-          test "$(gh release view --json tagName --jq .tagName)" = "${GITHUB_REF_NAME}"
+          gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest

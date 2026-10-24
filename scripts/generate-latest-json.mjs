@@ -8,10 +8,6 @@ import { fileURLToPath } from "node:url";
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 const stableVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
-function readJson(path) {
-  return JSON.parse(readFileSync(path, "utf8"));
-}
-
 function cargoPackageVersion(path) {
   const cargoToml = readFileSync(path, "utf8");
   const packageSection = cargoToml.match(/^\[package\]\s*$([\s\S]*?)(?=^\[|(?![\s\S]))/m)?.[1];
@@ -23,16 +19,7 @@ function cargoPackageVersion(path) {
 }
 
 export function readReleaseVersion(root = projectRoot) {
-  const versions = {
-    packageJson: readJson(join(root, "package.json")).version,
-    tauriConfig: readJson(join(root, "src-tauri", "tauri.conf.json")).version,
-    cargoPackage: cargoPackageVersion(join(root, "src-tauri", "Cargo.toml")),
-  };
-  const uniqueVersions = new Set(Object.values(versions));
-  if (uniqueVersions.size !== 1) {
-    throw new Error(`Release versions disagree: ${JSON.stringify(versions)}`);
-  }
-  const [version] = uniqueVersions;
+  const version = cargoPackageVersion(join(root, "Cargo.toml"));
   if (!stableVersionPattern.test(version)) {
     throw new Error(`Release version must be stable SemVer (x.y.z), received ${version}`);
   }
