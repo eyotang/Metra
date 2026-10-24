@@ -2,6 +2,7 @@
 /.pnpm-store/
 /dist/
 /src-tauri/target/
+/target/
 /release-assets/
 /.idea/
 /.vscode/
@@ -13,3 +14,5 @@ Desktop.ini
 *.p12
 *.p8
 *.key
+
+/tools/release-sign/target/

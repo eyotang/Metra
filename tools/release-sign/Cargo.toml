@@ -1,0 +1,10 @@
+[package]
+name = "metra-release-sign"
+version = "0.1.0"
+edition = "2024"
+publish = false
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+minisign = "0.10"
+zeroize = "1"

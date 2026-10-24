@@ -1,0 +1,57 @@
+[package]
+name = "metra"
+version = "0.3.0"
+description = "Native Cursor, Codex and Claude Code usage monitor built with GPUI Kit"
+authors = ["eyotang"]
+edition = "2024"
+license = "MIT"
+default-run = "metra"
+
+[lib]
+name = "metra_lib"
+
+[features]
+default = ["desktop"]
+ui-tests = ["desktop", "gpui-kit/test-support"]
+desktop = ["dep:gpui-kit", "dep:tray-icon", "dep:auto-launch", "dep:image", "dep:raw-window-handle", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:x11rb", "dep:gtk", "dep:windows-sys"]
+
+[dependencies]
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+dirs = "6"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+zeroize = "1"
+gpui-kit = { version = "=0.8.0", optional = true }
+tray-icon = { version = "0.24.2", optional = true }
+auto-launch = { version = "0.5", optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+raw-window-handle = { version = "0.6", optional = true }
+sys-locale = "0.3"
+minisign-verify = "0.2.5"
+tempfile = "3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { version = "0.13", optional = true }
+gtk = { version = "0.18", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6", optional = true }
+objc2-app-kit = { version = "0.3", optional = true }
+objc2-foundation = { version = "0.3", optional = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Graphics_Gdi", "Win32_UI_HiDpi"], optional = true }
+
+[profile.dev]
+debug = 0
+
+[profile.release]
+panic = "abort"
+codegen-units = 16
+lto = "thin"
+opt-level = "s"
+strip = true

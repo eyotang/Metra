@@ -1,0 +1,11 @@
+{
+  "开启个人兼容模式后可读取精确用量": "cursor.compatRequired",
+  "Claude Code 未提供套餐额度；Token 为本地会话统计": "claude.noLimitLocalTokens",
+  "Claude Code 当前登录方式未提供额度或 Token 统计": "claude.noUsageStats",
+  "API Key 登录；当前显示本机会话 Token。配置 ANTHROPIC_ADMIN_KEY 后可读取官方用量": "claude.adminConfigureWithLocal",
+  "API Key 登录；配置 ANTHROPIC_ADMIN_KEY 后可读取官方用量": "claude.adminConfigure",
+  "ANTHROPIC_ADMIN_KEY 不是有效文本": "claude.adminKeyInvalid",
+  "官方用量需要组织 Admin API Key；普通 ANTHROPIC_API_KEY 不具备用量查询权限": "claude.adminKeyInvalid",
+  "官方 API 今日用量按 UTC 统计，最多延迟 1 小时；累计 Token 为本机会话统计": "claude.officialUtcWithLocal",
+  "官方 API 今日用量按 UTC 统计，最多延迟 1 小时": "claude.officialUtc"
+}

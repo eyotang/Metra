@@ -11,10 +11,10 @@ const binaryArg = process.argv.indexOf("--binary");
 if (binaryArg >= 0 && !process.argv[binaryArg + 1]) throw new Error("--binary requires an executable path.");
 const binary = binaryArg >= 0
   ? resolve(process.argv[binaryArg + 1] || "")
-  : [join(source, "metra.usage/metra"), resolve(source, "../../src-tauri/target/release/metra")]
+  : [join(source, "metra.usage/metra"), resolve(source, "../../target/release/metra")]
     .find(existsSync);
 if (process.platform !== "linux") throw new Error("The Omarchy widget requires Linux.");
-if (!binary || !existsSync(binary)) throw new Error("Build first: npm run build -- --no-bundle");
+if (!binary || !existsSync(binary)) throw new Error("Build first: cargo build --release --locked");
 const ping = spawnSync("omarchy-shell", ["shell", "ping"], { encoding: "utf8", timeout: 5000 });
 if (ping.error || ping.status !== 0 || ping.stdout.trim() !== "ok") {
   throw new Error("A running Omarchy shell with plugin support is required.");
