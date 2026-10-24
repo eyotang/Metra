@@ -616,6 +616,10 @@ mod boundary_tests {
         assert!(paths.contains(&home.join("scoop/shims/codex")));
     }
 
+    // Windows PowerShell cold starts can exceed three seconds on shared CI runners.
+    const MOCK_APP_SERVER_TIMEOUT: Duration =
+        Duration::from_secs(if cfg!(windows) { 15 } else { 3 });
+
     fn write_fake_server(dir: &std::path::Path, silent: bool) -> PathBuf {
         #[cfg(windows)]
         {
@@ -720,7 +724,7 @@ printf '%s\n' {final_rate_response}
         let provider = CodexProvider {
             executable_override: Some(write_fake_server(temp.path(), false)),
             cached_executable: Mutex::new(None),
-            timeout: Duration::from_secs(3),
+            timeout: MOCK_APP_SERVER_TIMEOUT,
         };
         let snapshot = provider.refresh();
         assert_eq!(
@@ -739,7 +743,7 @@ printf '%s\n' {final_rate_response}
         let provider = CodexProvider {
             executable_override: Some(write_flaky_rate_server(temp.path(), true)),
             cached_executable: Mutex::new(None),
-            timeout: Duration::from_secs(3),
+            timeout: MOCK_APP_SERVER_TIMEOUT,
         };
 
         let snapshot = provider.refresh();
@@ -759,7 +763,7 @@ printf '%s\n' {final_rate_response}
         let provider = CodexProvider {
             executable_override: Some(write_flaky_rate_server(temp.path(), false)),
             cached_executable: Mutex::new(None),
-            timeout: Duration::from_secs(3),
+            timeout: MOCK_APP_SERVER_TIMEOUT,
         };
 
         let snapshot = provider.refresh();

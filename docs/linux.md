@@ -27,3 +27,5 @@ node integrations/omarchy/install.mjs --binary target/collector/release/metra
 ```
 
 详见 [Omarchy 安装说明](../integrations/omarchy/README.md)。
+
+应用窗口使用半透明材质，并向合成器请求毛玻璃模糊。原生模糊取决于桌面合成器支持；X11 使用 [KDE 的窗口模糊区域协议](https://github.com/KDE/kwindowsystem/blob/master/src/platforms/xcb/kwindoweffects.cpp)，不支持该协议的环境仍保留半透明效果。应用不会修改系统合成器设置。

@@ -5,6 +5,8 @@ use gpui_kit::component::{
 use gpui_kit::{self as gpui, *};
 use std::borrow::Cow;
 
+gpui::assets::icon_assets!(ControlIcons, [GripVertical]);
+
 pub struct Assets;
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> gpui::Result<Option<Cow<'static, [u8]>>> {
@@ -13,10 +15,15 @@ impl AssetSource for Assets {
                 "../assets/icons/128x128.png"
             ))));
         }
+        if let Some(icon) = ControlIcons.load(path)? {
+            return Ok(Some(icon));
+        }
         gpui::assets::Assets.load(path)
     }
     fn list(&self, path: &str) -> gpui::Result<Vec<SharedString>> {
-        gpui::assets::Assets.list(path)
+        let mut assets = gpui::assets::Assets.list(path)?;
+        assets.extend(ControlIcons.list(path)?);
+        Ok(assets)
     }
 }
 pub fn init(cx: &mut App) {
@@ -33,31 +40,38 @@ pub fn init(cx: &mut App) {
         theme.radius_lg = px(20.);
         theme.shadow = false;
         let colors = &mut theme.colors;
-        colors.background = rgb(0x151925).into();
+        colors.background = rgba(0x151c2bcc).into();
         colors.foreground = rgb(0xe6eaf5).into();
-        colors.border = rgb(0x303649).into();
-        colors.button = rgb(0x1c2030).into();
+        colors.border = rgba(0xffffff26).into();
+        colors.button = rgba(0xffffff0c).into();
         colors.button_foreground = rgb(0xa4aec5).into();
-        colors.button_hover = rgb(0x262b3e).into();
-        colors.button_active = rgb(0x302841).into();
+        colors.button_hover = rgba(0xffffff1a).into();
+        colors.button_active = rgba(0x8c78ee30).into();
         colors.primary = rgb(0x8c78ee).into();
         colors.primary_hover = rgb(0x9b8af5).into();
         colors.primary_active = rgb(0x7563d2).into();
         colors.primary_foreground = rgb(0xffffff).into();
-        colors.secondary = rgb(0x242938).into();
+        colors.secondary = rgba(0xffffff0c).into();
         colors.secondary_foreground = rgb(0xcbd2e5).into();
-        colors.accent = rgb(0x29253d).into();
+        colors.accent = rgba(0x8c78ee28).into();
         colors.accent_foreground = rgb(0xd3caff).into();
-        colors.muted = rgb(0x252a3b).into();
-        colors.muted_foreground = rgb(0x77829e).into();
-        colors.input = rgb(0x181d2b).into();
+        colors.muted = rgba(0xffffff0a).into();
+        colors.muted_foreground = rgb(0xa6b0c6).into();
+        colors.input = rgba(0x10172855).into();
         colors.ring = rgb(0x8d7ce0).into();
         colors.selection = rgba(0x8c78ee55).into();
         colors.switch_thumb = rgb(0xe8e5ff).into();
-        colors.popover = rgb(0x191d2b).into();
+        colors.popover = rgba(0x151c2bb3).into();
         colors.popover_foreground = rgb(0xe6eaf5).into();
+        colors.list_hover = rgba(0xffffff10).into();
+        colors.list_active = rgba(0x8c78ee30).into();
+        colors.group_box = rgba(0xffffff08).into();
+        colors.tab_bar = transparent_black();
+        colors.tab_bar_segmented = rgba(0xffffff08).into();
+        colors.scrollbar = transparent_black();
     });
 }
+
 pub fn segment(id: impl Into<ElementId>, label: impl Into<SharedString>, selected: bool) -> Button {
     Button::new(id)
         .small()
@@ -80,7 +94,7 @@ pub fn segment(id: impl Into<ElementId>, label: impl Into<SharedString>, selecte
         .text_color(if selected {
             rgb(0xd1c6ff)
         } else {
-            rgb(0x858fa8)
+            rgb(0xa6b0c6)
         })
 }
 pub fn icon_button(
@@ -102,7 +116,7 @@ pub fn icon_button(
 pub fn section_title(text: String) -> Div {
     div()
         .text_size(px(9.))
-        .text_color(rgb(0x69748f))
+        .text_color(rgb(0xa1acc3))
         .mb(px(7.))
         .child(text)
 }
@@ -117,7 +131,7 @@ pub fn setting_row(label: String, hint: Option<String>, control: impl IntoElemen
         text = text.child(
             div()
                 .text_size(px(8.5))
-                .text_color(rgb(0x6d7790))
+                .text_color(rgb(0xa1acc3))
                 .child(hint),
         );
     }
@@ -151,8 +165,20 @@ pub fn brand(subtitle: String) -> Div {
                 .child(
                     div()
                         .text_size(px(8.))
-                        .text_color(rgb(0x77829b))
+                        .text_color(rgb(0xa1acc3))
                         .child(subtitle),
                 ),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Assets;
+    use gpui_kit::AssetSource;
+
+    #[test]
+    fn provider_drag_handle_icon_is_embedded() {
+        let path = gpui_kit::assets::IconName::GripVertical.path();
+        assert!(Assets.load(&path).unwrap().is_some());
+    }
 }
