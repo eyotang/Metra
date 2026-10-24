@@ -1679,6 +1679,133 @@ impl AppView {
         }
         list.into_any_element()
     }
+    fn update_banner(&self, cx: &mut Context<Self>, payload: &AppPayload) -> Option<AnyElement> {
+        let update = self.updater.status();
+        let version = update.version?;
+        let t = I18n::new(payload.settings.ui_language);
+        let install = self.updater.supports_install();
+        let title = t.format(
+            if update.downloading {
+                "update.downloadingTitle"
+            } else {
+                "update.availableTitle"
+            },
+            &[("version", version.clone())],
+        );
+        let notes = update
+            .notes
+            .filter(|notes| !notes.trim().is_empty())
+            .unwrap_or_else(|| {
+                if install {
+                    String::new()
+                } else {
+                    t.t("update.manualDescription")
+                }
+            });
+        let mut copy = div()
+            .flex()
+            .flex_col()
+            .gap(px(2.))
+            .flex_1()
+            .min_w_0()
+            .child(
+                div()
+                    .text_size(px(10.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .truncate()
+                    .text_color(rgb(0xe2e6f3))
+                    .child(title.clone()),
+            )
+            .child(
+                div()
+                    .text_size(px(8.5))
+                    .truncate()
+                    .text_color(rgb(0x9aa3b8))
+                    .child(t.format(
+                        "update.versionPath",
+                        &[
+                            ("current", env!("CARGO_PKG_VERSION").into()),
+                            ("next", version.clone()),
+                        ],
+                    )),
+            );
+        if !notes.is_empty() {
+            copy = copy.child(
+                div()
+                    .text_size(px(8.5))
+                    .truncate()
+                    .text_color(rgb(0x9aa3b8))
+                    .child(notes),
+            );
+        }
+        Some(
+            div()
+                .id("app-update-region")
+                .test_support()
+                .role(Role::Status)
+                .aria_label(title)
+                .w_full()
+                .flex_shrink_0()
+                .mb(px(10.))
+                .p(px(8.))
+                .min_h(px(50.))
+                .max_h(px(86.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .rounded(px(13.))
+                .border_1()
+                .border_color(rgba(0x8067ff35))
+                .bg(linear_gradient(
+                    115.,
+                    linear_color_stop(rgba(0x8067ff17), 0.),
+                    linear_color_stop(rgba(0x45cbb00d), 1.),
+                ))
+                .child(
+                    div()
+                        .size(px(24.))
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(8.))
+                        .bg(rgba(0x8067ff24))
+                        .text_color(rgb(0xc9bfff))
+                        .child("↑"),
+                )
+                .child(copy)
+                .child(
+                    Button::new("update")
+                        .primary()
+                        .small()
+                        .flex_shrink_0()
+                        .label(t.t(if install {
+                            "update.install"
+                        } else {
+                            "update.download"
+                        }))
+                        .bg(rgba(0x8067ff24))
+                        .border_color(rgba(0x8067ff55))
+                        .text_color(rgb(0xd5ceff))
+                        .loading(update.downloading)
+                        .disabled(update.downloading)
+                        .on_click(cx.listener(move |_view, _, _, cx| {
+                            #[cfg(windows)]
+                            if _view.desktop.read(cx).updater.supports_install() {
+                                _view.desktop.read(cx).install_update();
+                            } else if let Some(url) = crate::updater::release_page(&version) {
+                                cx.open_url(&url);
+                            }
+                            #[cfg(not(windows))]
+                            if let Some(url) = crate::updater::release_page(&version) {
+                                cx.open_url(&url);
+                            }
+                        })),
+                )
+                .into_any_element(),
+        )
+    }
+
     fn details(&mut self, cx: &mut Context<Self>, payload: &AppPayload) -> AnyElement {
         let t = I18n::new(payload.settings.ui_language);
         let mut body = div()
@@ -1937,41 +2064,6 @@ impl AppView {
                         ),
                 ),
         );
-        let update = self.updater.status();
-        if let Some(version) = update.version {
-            body = body.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .p_3()
-                    .bg(rgba(0x7563d230))
-                    .rounded_lg()
-                    .child(format!("Metra {version}"))
-                    .child(
-                        Button::new("update")
-                            .primary()
-                            .label(t.t(if self.updater.supports_install() {
-                                "native.installUpdate"
-                            } else {
-                                "native.openRelease"
-                            }))
-                            .disabled(update.downloading)
-                            .on_click(cx.listener(move |_view, _, _, cx| {
-                                #[cfg(windows)]
-                                if _view.desktop.read(cx).updater.supports_install() {
-                                    _view.desktop.read(cx).install_update();
-                                } else if let Some(url) = crate::updater::release_page(&version) {
-                                    cx.open_url(&url);
-                                }
-                                #[cfg(not(windows))]
-                                if let Some(url) = crate::updater::release_page(&version) {
-                                    cx.open_url(&url);
-                                }
-                            })),
-                    ),
-            );
-        }
         body.into_any_element()
     }
 }
@@ -2087,15 +2179,20 @@ impl Render for AppView {
             .text_size(px(11.))
             .border_1()
             .border_color(rgba(0xffffff22))
-            .child(header)
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scrollbar()
-                    .id("panel-scroll")
-                    .child(content),
-            );
+            .child(header);
+        if self.mode == View::Details
+            && let Some(update) = self.update_banner(cx, &payload)
+        {
+            panel = panel.child(update);
+        }
+        panel = panel.child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scrollbar()
+                .id("panel-scroll")
+                .child(content),
+        );
         if let Some(message) = message {
             panel = panel.child(
                 div()
@@ -2198,6 +2295,44 @@ mod ui_tests {
             desktop,
             window,
         }
+    }
+
+    #[gpui_kit::test]
+    fn available_update_is_visible_above_the_provider_list(cx: &mut TestAppContext) {
+        let h = harness(cx, View::Details);
+        cx.update(|cx| {
+            h.desktop
+                .read(cx)
+                .updater
+                .set_test_status(crate::updater::UpdateStatus {
+                    version: Some("99.0.0".into()),
+                    ..Default::default()
+                });
+        });
+        cx.update_window(h.window, |_, window, cx| {
+            window.render_frame(cx);
+            let update = window.find("update");
+            assert!(
+                update.visible(),
+                "updates must be visible without scrolling"
+            );
+            let providers = window.find(("provider-settings", 0usize)).bounds();
+            assert!(update.bounds().bottom() <= providers.top());
+            let pinned = window.find("app-update-region").bounds();
+            window.scroll(
+                ("provider-settings", 0usize),
+                gpui_kit::ScrollDelta::Pixels(point(px(0.), px(-800.))),
+                cx,
+            );
+            window.render_frame(cx);
+            assert!(
+                window.find(("provider-settings", 0usize)).bounds().top() < providers.top(),
+                "the provider list must actually scroll in this regression"
+            );
+            assert_eq!(window.find("app-update-region").bounds(), pinned);
+            assert!(window.find("update").visible());
+        })
+        .unwrap();
     }
 
     #[gpui_kit::test]

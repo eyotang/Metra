@@ -90,6 +90,11 @@ fn client() -> Result<reqwest::blocking::Client, String> {
         .map_err(|error| error.to_string())
 }
 impl Updater {
+    #[cfg(all(test, feature = "ui-tests"))]
+    pub(crate) fn set_test_status(&self, status: UpdateStatus) {
+        *self.status.lock().expect("update status") = status;
+    }
+
     pub fn status(&self) -> UpdateStatus {
         self.status.lock().expect("update status").clone()
     }
