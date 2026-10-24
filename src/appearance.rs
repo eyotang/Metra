@@ -7,6 +7,8 @@ use std::borrow::Cow;
 
 gpui::assets::icon_assets!(ControlIcons, [GripVertical]);
 
+pub const PANEL_GLASS: u32 = 0x151c2bad;
+
 pub struct Assets;
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> gpui::Result<Option<Cow<'static, [u8]>>> {
@@ -40,7 +42,7 @@ pub fn init(cx: &mut App) {
         theme.radius_lg = px(20.);
         theme.shadow = false;
         let colors = &mut theme.colors;
-        colors.background = rgba(0x151c2bcc).into();
+        colors.background = rgba(PANEL_GLASS).into();
         colors.foreground = rgb(0xe6eaf5).into();
         colors.border = rgba(0xffffff26).into();
         colors.button = rgba(0xffffff0c).into();

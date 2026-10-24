@@ -64,6 +64,7 @@ fn snapshot_from_payloads_with_on_demand(
                 .and_then(|value| value.pointer("/individualUsage/plan"))
                 .and_then(Value::as_object)
         });
+    let modern_included_percent = plan_usage.and_then(included_percent);
     let mut quotas = Vec::new();
     let cursor_models_percent = is_ultra
         .then(|| {
@@ -120,7 +121,14 @@ fn snapshot_from_payloads_with_on_demand(
             .with_kind(QuotaKind::GrokBot),
         );
     }
-    if !is_ultra && let Some((used, maximum)) = request_quota {
+    if !is_ultra && let Some(used_percent) = modern_included_percent {
+        quotas.push(QuotaWindow::from_used_percent(
+            "Included",
+            used_percent,
+            None,
+            billing_end(dashboard, summary),
+        ));
+    } else if !is_ultra && let Some((used, maximum)) = request_quota {
         quotas.push(QuotaWindow::from_used_percent(
             "Agent 请求",
             used * 100.0 / maximum,
@@ -142,9 +150,7 @@ fn snapshot_from_payloads_with_on_demand(
             billing_end(dashboard, summary),
         ));
     }
-    let included_used = plan_usage
-        .and_then(|value| first_number(value, &["includedSpend", "used"]))
-        .map(as_cents);
+    let included_used = plan_usage.and_then(included_spend).map(as_cents);
     let included_limit = plan_usage
         .and_then(|value| number(value.get("limit")))
         .map(as_cents)
@@ -153,7 +159,10 @@ fn snapshot_from_payloads_with_on_demand(
     let on_demand_enabled = ultra_on_demand_enabled(is_ultra, summary, dashboard, hard_limit);
     let on_demand_used_cents = on_demand_events_cents.or_else(|| on_demand_used.map(as_cents));
     let on_demand_limit_cents = on_demand_limit.map(as_cents).filter(|limit| *limit > 0);
-    if !is_ultra && (included_used.is_some() || on_demand_used_cents.is_some()) {
+    if !is_ultra
+        && modern_included_percent.is_none()
+        && (included_used.is_some() || on_demand_used_cents.is_some())
+    {
         let total_limit_cents = included_limit
             .unwrap_or(CURSOR_PRO_INCLUDED_FALLBACK_CENTS)
             .saturating_add(on_demand_limit_cents.unwrap_or(CURSOR_ON_DEMAND_FALLBACK_CENTS));
@@ -255,6 +264,29 @@ fn first_number(object: &Map<String, Value>, keys: &[&str]) -> Option<f64> {
     keys.iter().find_map(|key| number(object.get(*key)))
 }
 
+fn included_percent(usage: &Map<String, Value>) -> Option<f64> {
+    if number(usage.get("limit")) == Some(0.) {
+        return None;
+    }
+    number(usage.get("totalPercentUsed")).or_else(|| {
+        let limit = number(usage.get("limit"))?;
+        let remaining = number(usage.get("remaining"))?;
+        (limit > 0.).then_some((limit - remaining).max(0.) * 100. / limit)
+    })
+}
+
+fn included_spend(usage: &Map<String, Value>) -> Option<f64> {
+    first_number(usage, &["includedSpend", "used"]).or_else(|| {
+        let limit = number(usage.get("limit"))?;
+        if limit <= 0. {
+            return None;
+        }
+        number(usage.get("remaining"))
+            .map(|remaining| (limit - remaining).max(0.))
+            .or_else(|| number(usage.get("totalPercentUsed")).map(|used| limit * used / 100.))
+    })
+}
+
 fn pool_used_percent(
     usage: &Map<String, Value>,
     percent_key: &str,
@@ -269,11 +301,12 @@ fn pool_used_percent(
 }
 
 fn number(value: Option<&Value>) -> Option<f64> {
-    match value? {
+    let parsed = match value? {
         Value::Number(number) => number.as_f64(),
         Value::String(raw) => raw.parse().ok(),
         _ => None,
-    }
+    };
+    parsed.filter(|number| number.is_finite())
 }
 
 fn as_cents(value: f64) -> u64 {
@@ -613,6 +646,10 @@ impl CursorProvider {
 
     fn collect_compat(&self, plan: Option<String>) -> Result<ProviderSnapshot, String> {
         let token = Zeroizing::new(read_access_token()?);
+        let plan = cursor_state_db()
+            .ok()
+            .and_then(|path| cached_membership_type_from(&path, &token))
+            .or(plan);
         let client = Client::builder()
             .redirect(Policy::none())
             .connect_timeout(Duration::from_secs(5))
@@ -962,6 +999,31 @@ fn cursor_state_db() -> Result<PathBuf, String> {
 
 fn read_access_token() -> Result<String, String> {
     read_access_token_from(&cursor_state_db()?)
+}
+
+fn cached_membership_type_from(path: &Path, token: &str) -> Option<String> {
+    let user_id = extract_cursor_user_id(token)?;
+    let connection = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .ok()?;
+    let read = |key: &str| {
+        connection
+            .query_row(
+                "SELECT CAST(value AS TEXT) FROM ItemTable WHERE key = ?1 LIMIT 1",
+                [key],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+    };
+    // Cursor binds this cached membership to an account; never reuse another account's plan.
+    let auth_id = read("cursorAuth/stripeMembershipAuthId")?;
+    if cursor_user_id_in(&auth_id).as_deref() != Some(user_id.as_str()) {
+        return None;
+    }
+    let plan = read("cursorAuth/stripeMembershipType")?;
+    (!plan.trim().is_empty()).then(|| plan.trim().to_ascii_lowercase())
 }
 
 fn read_access_token_from(path: &Path) -> Result<String, String> {
@@ -1549,6 +1611,40 @@ mod desktop_detection_tests {
 #[cfg(test)]
 mod sqlite_boundary_tests {
     use super::*;
+
+    #[test]
+    fn cached_membership_is_bound_to_the_authenticated_account() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("state.vscdb");
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute("CREATE TABLE ItemTable (key TEXT UNIQUE, value BLOB)", [])
+            .unwrap();
+        for (key, value) in [
+            ("cursorAuth/stripeMembershipAuthId", "auth0|user_other"),
+            ("cursorAuth/stripeMembershipType", "Enterprise"),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO ItemTable VALUES (?1, ?2)",
+                    (key, value.as_bytes()),
+                )
+                .unwrap();
+        }
+        let payload = URL_SAFE_NO_PAD.encode(br#"{"sub":"auth0|user_expected"}"#);
+        let token = format!("header.{payload}.signature");
+        assert_eq!(cached_membership_type_from(&path, &token), None);
+        connection
+            .execute(
+                "UPDATE ItemTable SET value = ?1 WHERE key = 'cursorAuth/stripeMembershipAuthId'",
+                ["auth0|user_expected"],
+            )
+            .unwrap();
+        assert_eq!(
+            cached_membership_type_from(&path, &token).as_deref(),
+            Some("enterprise")
+        );
+    }
 
     #[test]
     fn token_store_reads_only_the_exact_cursor_key() {

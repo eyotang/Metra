@@ -19,7 +19,10 @@ fn live_cursor_compat_fetches_usage() {
         snapshot.message.unwrap_or_default()
     );
     assert!(
-        !snapshot.quotas.is_empty() || snapshot.cost.is_some(),
+        !snapshot.quotas.is_empty()
+            || snapshot.cost.as_ref().is_some_and(|cost| {
+                cost.included_used_cents.is_some() || cost.on_demand_used_cents.is_some()
+            }),
         "Cursor returned no quota or cost data"
     );
     assert!(
