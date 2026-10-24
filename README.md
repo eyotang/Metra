@@ -4,6 +4,7 @@
 
 Metra is a native desktop monitor for Cursor, Codex and Claude Code usage, built in Rust with **GPUI and GPUI-KIT 0.8.0**. The application renders without a browser or WebView.
 
+- Frosted, translucent application windows use native platform blur; the system tray retains its platform presentation. Linux blur depends on compositor support.
 - A draggable, always-on-top floating bubble remains the default. Optional edge snapping folds the bubble to a 32px strip.
 - Status bar mode cycles enabled providers every five seconds. macOS displays text usage; Windows uses numeric tray icons; Linux supports both where the panel host permits them.
 - Details show login state, quota windows, reset times, token totals and available costs. Settings preserve provider visibility, order, labels, colors, language, refresh interval and startup preferences.
@@ -34,6 +35,8 @@ target/collector/release/metra --watch-json
 ```
 
 The watch process accepts `refresh` lines on stdin and exits when stdin closes. Its JSON schema remains compatible with the [Omarchy integration](integrations/omarchy/README.md).
+
+Use suitable GPUI-KIT controls before introducing custom controls. Settings use the library's button groups, list items, switches, inputs, selectors, preset color swatches in a popover, and scrollbars. Keep the circular floating overlay, edge snapping and platform tray integration custom where the library does not provide an equivalent; Omarchy's host requires its native Quickshell widget. Custom layouts may compose GPUI elements without replacing standard control behavior.
 
 ## Packaging and releases
 

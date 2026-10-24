@@ -13,10 +13,13 @@ use crate::{
     updater::Updater,
 };
 use gpui_kit::component::{
-    Disableable, IconName, IndexPath, Sizable,
-    button::{Button, ButtonVariants},
+    Disableable, ElementExt, IconName, IndexPath, Placement, Sizable,
+    button::{Button, ButtonGroup, ButtonVariants},
     input::{Input, InputEvent, InputState},
+    list::ListItem,
+    popover::Popover,
     progress::Progress,
+    scroll::ScrollableElement,
     select::{Select, SelectEvent, SelectState},
     switch::Switch,
 };
@@ -60,7 +63,7 @@ enum Change {
     Label(Provider, String),
     Color(Provider, String),
     Reorder(Provider, i32),
-    MoveBefore(Provider, Provider),
+    MoveProvider(Provider, Provider, Placement),
 }
 enum Event {
     Refreshed,
@@ -355,12 +358,13 @@ impl Desktop {
         let state = cx.entity();
         let service = self.service.clone();
         let updater = self.updater.clone();
-        match gpui::open_window(
+        match open_overlay(
             overlay_options(
                 Bounds::new(origin, size(px(BUBBLE_SIZE), px(BUBBLE_SIZE))),
                 false,
                 display.map(|display| display.id()),
             ),
+            px(BUBBLE_SIZE / 2.),
             cx,
             |window, cx| {
                 cx.new(|cx| AppView::new(state, View::Bubble, service, updater, window, cx))
@@ -437,8 +441,9 @@ impl Desktop {
         };
         let height = height.min(f32::from(work.size.height) - 24.);
         let origin = clamp_origin(origin, size(px(width), px(height)), work);
-        match gpui::open_window(
+        match open_overlay(
             overlay_options(Bounds::new(origin, size(px(width), px(height))), true, None),
+            px(22.),
             cx,
             |window, cx| cx.new(|cx| AppView::new(state, mode, service, updater, window, cx)),
         ) {
@@ -502,7 +507,7 @@ impl Desktop {
                 Provider::Codex => settings.codex_bubble_color = color.clone(),
                 Provider::Claude => settings.claude_bubble_color = color.clone(),
             },
-            Change::MoveBefore(provider, target) => {
+            Change::MoveProvider(provider, target, placement) => {
                 if provider != target {
                     settings
                         .bubble_provider_order
@@ -512,6 +517,7 @@ impl Desktop {
                         .iter()
                         .position(|candidate| candidate == target)
                         .unwrap_or(0);
+                    let index = index + usize::from(*placement == Placement::Bottom);
                     settings.bubble_provider_order.insert(index, *provider);
                 }
             }
@@ -651,6 +657,26 @@ impl Desktop {
     }
 }
 
+fn open_overlay<V: Render>(
+    options: WindowOptions,
+    radius: Pixels,
+    cx: &mut App,
+    build: impl FnOnce(&mut Window, &mut App) -> Entity<V>,
+) -> gpui::Result<(AnyWindowHandle, Entity<V>)> {
+    let (handle, view) = gpui::open_window(options, cx, build)?;
+    handle.update(cx, |_, window, cx| {
+        gpui::base::Root::update(window, cx, |root, _, cx| {
+            // Kit's root defaults to an opaque theme surface, even in transparent windows.
+            root.style().background = Some(transparent_black().into());
+            cx.notify();
+        });
+        if let Err(error) = platform::finish_overlay_material(window, radius) {
+            diagnostics::warn("overlay.material_failed", error);
+        }
+    })?;
+    Ok((handle, view))
+}
+
 fn overlay_options(
     bounds: Bounds<Pixels>,
     focus: bool,
@@ -667,7 +693,8 @@ fn overlay_options(
         is_resizable: false,
         is_minimizable: false,
         display_id,
-        window_background: WindowBackgroundAppearance::Transparent,
+        window_background: WindowBackgroundAppearance::Blurred,
+        window_decorations: Some(WindowDecorations::Server),
         app_id: Some("dev.metra.desktop".into()),
         ..Default::default()
     }
@@ -736,7 +763,7 @@ impl Render for ProviderDrag {
             .px(px(10.))
             .py(px(6.))
             .rounded(px(8.))
-            .bg(rgb(0x28243d))
+            .bg(rgba(0x28243db3))
             .text_color(rgb(0xd5ceff))
             .text_size(px(11.))
             .child(provider_name(self.0))
@@ -753,7 +780,8 @@ struct AppView {
     language: Entity<SelectState<Vec<SharedString>>>,
     language_locale: &'static str,
     subscriptions: Vec<Subscription>,
-    color_provider: Option<Provider>,
+    provider_bounds: [Bounds<Pixels>; 3],
+    provider_focus: [FocusHandle; 3],
     drag_origin: Option<Point<Pixels>>,
     moved: bool,
     dragging: bool,
@@ -863,7 +891,8 @@ impl AppView {
             language,
             language_locale: I18n::new(payload.settings.ui_language).locale,
             subscriptions,
-            color_provider: None,
+            provider_bounds: [Bounds::default(); 3],
+            provider_focus: std::array::from_fn(|_| cx.focus_handle()),
             drag_origin: None,
             moved: false,
             dragging: false,
@@ -941,8 +970,17 @@ impl AppView {
             ));
         }
         if mode == View::Bubble {
+            let mut material_size = window.bounds().size;
             view.subscriptions
-                .push(cx.observe_window_bounds(window, |view, window, cx| {
+                .push(cx.observe_window_bounds(window, move |view, window, cx| {
+                    let bounds = window.bounds();
+                    if bounds.size != material_size {
+                        material_size = bounds.size;
+                        let radius = bounds.size.width.min(bounds.size.height) / 2.;
+                        if let Err(error) = platform::finish_overlay_material(window, radius) {
+                            diagnostics::warn("overlay.material_failed", error);
+                        }
+                    }
                     let mut position = platform::save_position(window);
                     if view.peek && view.dock_right {
                         position.x -= px(BUBBLE_SIZE - PEEK_SIZE);
@@ -1087,6 +1125,7 @@ impl AppView {
         let accessible_desktop = self.desktop.clone();
         let mut body = div()
             .id("metra-bubble")
+            .test_support()
             .role(Role::Button)
             .aria_label(accessible_label)
             .focusable()
@@ -1106,8 +1145,8 @@ impl AppView {
             .rounded_full()
             .bg(linear_gradient(
                 138.,
-                linear_color_stop(rgb(0x8d72ff), 0.),
-                linear_color_stop(rgb(0x28d1b3), 1.),
+                linear_color_stop(rgba(0x8d72ffcc), 0.),
+                linear_color_stop(rgba(0x28d1b3cc), 1.),
             ))
             .p(px(3.))
             .flex()
@@ -1193,7 +1232,7 @@ impl AppView {
         let mut center = div()
             .size_full()
             .rounded_full()
-            .bg(rgb(0x171b2b))
+            .bg(rgba(0x121a2b85))
             .flex()
             .flex_col()
             .justify_center()
@@ -1276,74 +1315,77 @@ impl AppView {
                     .h(px(32.))
                     .rounded(px(10.))
                     .border_1()
-                    .border_color(rgb(0x353b4e))
-                    .bg(rgb(0x171b29))
+                    .border_color(rgba(0xffffff26))
+                    .bg(rgba(0x131b2a66))
                     .w(px(116.))
                     .menu_width(px(116.)),
             );
-        let mut intervals = div().flex().gap(px(5.));
+        let mut intervals = ButtonGroup::new("refresh-intervals").w_full().gap(px(5.));
         for minutes in REFRESH_INTERVALS {
-            intervals = intervals.child(
-                appearance::segment(
-                    ("interval", minutes as usize),
-                    if minutes == 60 {
-                        "1h".into()
-                    } else {
-                        format!("{minutes}m")
-                    },
-                    s.refresh_minutes == minutes,
-                )
-                .on_click(
-                    cx.listener(move |view, _, _, cx| view.dispatch(Change::Refresh(minutes), cx)),
-                ),
-            );
+            intervals = intervals.child(appearance::segment(
+                ("interval", minutes as usize),
+                if minutes == 60 {
+                    "1h".into()
+                } else {
+                    format!("{minutes}m")
+                },
+                s.refresh_minutes == minutes,
+            ));
         }
-        let display = div()
-            .flex()
+        let intervals = intervals.on_click(cx.listener(|view, indices: &Vec<usize>, _, cx| {
+            if let Some(minutes) = indices
+                .first()
+                .and_then(|index| REFRESH_INTERVALS.get(*index))
+            {
+                view.dispatch(Change::Refresh(*minutes), cx);
+            }
+        }));
+        let display = ButtonGroup::new("display-mode")
+            .w_full()
             .gap(px(5.))
-            .child(
-                appearance::segment(
-                    "display-bubble",
-                    t.t("menu.displayBubble"),
-                    s.display_mode == DisplayMode::Bubble,
-                )
-                .on_click(cx.listener(|view, _, _, cx| {
-                    view.dispatch(Change::Display(DisplayMode::Bubble), cx)
-                })),
-            )
-            .child(
-                appearance::segment(
-                    "display-status",
-                    t.t("menu.displayStatusBar"),
-                    s.display_mode == DisplayMode::StatusBar,
-                )
-                .on_click(cx.listener(|view, _, _, cx| {
-                    view.dispatch(Change::Display(DisplayMode::StatusBar), cx)
-                })),
-            );
-        let percentage = div()
-            .flex()
+            .child(appearance::segment(
+                "display-bubble",
+                t.t("menu.displayBubble"),
+                s.display_mode == DisplayMode::Bubble,
+            ))
+            .child(appearance::segment(
+                "display-status",
+                t.t("menu.displayStatusBar"),
+                s.display_mode == DisplayMode::StatusBar,
+            ))
+            .on_click(cx.listener(|view, indices: &Vec<usize>, _, cx| {
+                if let Some(index) = indices.first() {
+                    let mode = if *index == 0 {
+                        DisplayMode::Bubble
+                    } else {
+                        DisplayMode::StatusBar
+                    };
+                    view.dispatch(Change::Display(mode), cx);
+                }
+            }));
+        let percentage = ButtonGroup::new("percentage-mode")
+            .w_full()
             .gap(px(5.))
-            .child(
-                appearance::segment(
-                    "percent-used",
-                    t.t("menu.used"),
-                    s.bubble_percent_mode == BubblePercentMode::Used,
-                )
-                .on_click(cx.listener(|view, _, _, cx| {
-                    view.dispatch(Change::Percent(BubblePercentMode::Used), cx)
-                })),
-            )
-            .child(
-                appearance::segment(
-                    "percent-remaining",
-                    t.t("menu.remaining"),
-                    s.bubble_percent_mode == BubblePercentMode::Remaining,
-                )
-                .on_click(cx.listener(|view, _, _, cx| {
-                    view.dispatch(Change::Percent(BubblePercentMode::Remaining), cx)
-                })),
-            );
+            .child(appearance::segment(
+                "percent-used",
+                t.t("menu.used"),
+                s.bubble_percent_mode == BubblePercentMode::Used,
+            ))
+            .child(appearance::segment(
+                "percent-remaining",
+                t.t("menu.remaining"),
+                s.bubble_percent_mode == BubblePercentMode::Remaining,
+            ))
+            .on_click(cx.listener(|view, indices: &Vec<usize>, _, cx| {
+                if let Some(index) = indices.first() {
+                    let mode = if *index == 0 {
+                        BubblePercentMode::Used
+                    } else {
+                        BubblePercentMode::Remaining
+                    };
+                    view.dispatch(Change::Percent(mode), cx);
+                }
+            }));
         div()
             .flex()
             .flex_col()
@@ -1437,6 +1479,16 @@ impl AppView {
             )
             .into_any_element()
     }
+    fn reorder_key(&mut self, provider: Provider, event: &KeyDownEvent, cx: &mut Context<Self>) {
+        let direction = match event.keystroke.key.as_str() {
+            "up" => -1,
+            "down" => 1,
+            _ => return,
+        };
+        self.dispatch(Change::Reorder(provider, direction), cx);
+        cx.stop_propagation();
+    }
+
     fn provider_settings(&mut self, cx: &mut Context<Self>, payload: &AppPayload) -> AnyElement {
         let s = &payload.settings;
         let t = I18n::new(s.ui_language);
@@ -1455,11 +1507,11 @@ impl AppView {
                 .child(
                     div()
                         .text_size(px(8.))
-                        .text_color(rgb(0x69748f))
+                        .text_color(rgb(0xa1acc3))
                         .child(t.t("config.subtitle")),
                 ),
         );
-        for (index, provider) in s.bubble_provider_order.iter().copied().enumerate() {
+        for provider in s.bubble_provider_order.iter().copied() {
             let entry = status_bar::entries(
                 &payload.snapshot,
                 &AppSettings {
@@ -1468,19 +1520,58 @@ impl AppView {
                 },
             )
             .remove(0);
-            let row = div()
-                .id(("provider-settings", index))
+            let provider_index = provider_index(provider);
+            let view = cx.weak_entity();
+            let color_view = view.clone();
+            let current_color = entry.color.clone();
+            let focus = self.provider_focus[provider_index].clone();
+            let mut drag_handle = Button::new(("provider-drag", provider_index))
+                .ghost()
+                .small()
+                .w(px(14.))
+                .h(px(26.))
+                .icon(gpui::assets::IconName::GripVertical)
+                .accessibility_label(t.format(
+                    "config.dragProviderOrder",
+                    &[("provider", provider_name(provider).into())],
+                ))
+                .tooltip(t.t("config.dragOrder"))
+                .cursor(CursorStyle::OpenHand)
+                .on_key_down(
+                    cx.listener(move |view, event, _, cx| view.reorder_key(provider, event, cx)),
+                )
+                .on_click(move |_, window, cx| focus.focus(window, cx));
+            drag_handle
+                .interactivity()
                 .on_drag(ProviderDrag(provider), |drag, _, _, cx| {
                     cx.new(|_| ProviderDrag(drag.0))
-                })
-                .on_drop(cx.listener(move |view, drag: &ProviderDrag, _, cx| {
-                    view.dispatch(Change::MoveBefore(drag.0, provider), cx)
+                });
+            let row = ListItem::new(("provider-settings", provider_index))
+                .track_focus(&self.provider_focus[provider_index])
+                .on_key_down(cx.listener(move |view, event: &KeyDownEvent, window, cx| {
+                    if view.provider_focus[provider_index].is_focused(window) {
+                        view.reorder_key(provider, event, cx);
+                    }
                 }))
-                .flex()
-                .items_center()
+                .accessibility_label(provider_name(provider))
+                .on_prepaint(move |bounds, _, cx| {
+                    let _ =
+                        view.update(cx, |view, _| view.provider_bounds[provider_index] = bounds);
+                })
+                .on_drop(cx.listener(move |view, drag: &ProviderDrag, window, cx| {
+                    let bounds = view.provider_bounds[provider_index];
+                    let placement = if window.mouse_position().y < bounds.center().y {
+                        Placement::Top
+                    } else {
+                        Placement::Bottom
+                    };
+                    view.dispatch(Change::MoveProvider(drag.0, provider, placement), cx);
+                }))
+                .drag_over::<ProviderDrag>(|style, _, _, _| style.bg(rgba(0x8c78ee20)))
                 .gap(px(6.))
                 .h(px(38.))
                 .px(px(7.))
+                .py_0()
                 .rounded(px(10.))
                 .bg(rgba(0xffffff04))
                 .border_1()
@@ -1488,115 +1579,113 @@ impl AppView {
                 .child(
                     div()
                         .flex()
-                        .flex_col()
+                        .items_center()
+                        .gap(px(6.))
+                        .w_full()
+                        .child(drag_handle)
                         .child(
-                            appearance::icon_button(
-                                ("up", index),
-                                IconName::ChevronUp,
-                                t.t("native.moveUp"),
-                            )
-                            .size(px(14.))
-                            .disabled(index == 0)
-                            .on_click(cx.listener(
-                                move |view, _, _, cx| {
-                                    view.dispatch(Change::Reorder(provider, -1), cx)
-                                },
-                            )),
+                            Popover::new(("provider-color", provider_index))
+                                .trigger(
+                                    Button::new(("color", provider_index))
+                                        .ghost()
+                                        .small()
+                                        .size(px(20.))
+                                        .label("●")
+                                        .text_color(color(&entry.color))
+                                        .tooltip(t.format(
+                                            "config.chooseColor",
+                                            &[("provider", provider_name(provider).into())],
+                                        )),
+                                )
+                                .content(move |_, _, cx| {
+                                    let popup = cx.weak_entity();
+                                    div()
+                                        .id("provider-color-palette")
+                                        .w(px(220.))
+                                        .flex()
+                                        .flex_wrap()
+                                        .gap(px(4.))
+                                        .children(BUBBLE_COLOR_PALETTE.iter().enumerate().map(
+                                            |(index, value)| {
+                                                let value = value.to_string();
+                                                let selected = value == current_color;
+                                                let view = color_view.clone();
+                                                let popup = popup.clone();
+                                                let swatch = gpui::base::ColorSwatch::new(
+                                                    ("color-option", index),
+                                                    color(&value),
+                                                )
+                                                .selected(selected)
+                                                .size(px(20.))
+                                                .rounded(px(5.))
+                                                .bg(color(&value))
+                                                .border_1()
+                                                .border_color(if selected {
+                                                    rgb(0xffffff)
+                                                } else {
+                                                    rgb(0x43495b)
+                                                })
+                                                .on_click(move |_, _, window, cx| {
+                                                    let _ = view.update(cx, |view, cx| {
+                                                        view.dispatch(
+                                                            Change::Color(provider, value.clone()),
+                                                            cx,
+                                                        )
+                                                    });
+                                                    let _ = popup.update(cx, |state, cx| {
+                                                        state.dismiss(window, cx)
+                                                    });
+                                                });
+                                                div()
+                                                    .id(("swatch", index))
+                                                    .test_support()
+                                                    .size(px(20.))
+                                                    .child(swatch)
+                                            },
+                                        ))
+                                }),
                         )
                         .child(
-                            appearance::icon_button(
-                                ("down", index),
-                                IconName::ChevronDown,
-                                t.t("native.moveDown"),
-                            )
-                            .size(px(14.))
-                            .disabled(index == 2)
-                            .on_click(cx.listener(
-                                move |view, _, _, cx| {
-                                    view.dispatch(Change::Reorder(provider, 1), cx)
-                                },
-                            )),
+                            div()
+                                .flex_1()
+                                .text_size(px(10.))
+                                .child(provider_name(provider)),
+                        )
+                        .child(
+                            Input::new(&self.labels[provider_index])
+                                .id(("provider-label", provider_index))
+                                .aria_label(t.format(
+                                    "config.bubbleLabel",
+                                    &[("provider", provider_name(provider).into())],
+                                ))
+                                .small()
+                                .w(px(35.))
+                                .h(px(25.)),
+                        )
+                        .child(
+                            Switch::new(("visible", provider_index))
+                                .small()
+                                .accessibility_label(t.format(
+                                    "config.providerVisible",
+                                    &[("provider", provider_name(provider).into())],
+                                ))
+                                .checked(s.bubble_visible_providers.contains(&provider))
+                                .on_change(cx.listener(move |view, visible: &bool, _, cx| {
+                                    view.dispatch(Change::Visible(provider, *visible), cx)
+                                })),
                         ),
-                )
-                .child(
-                    Button::new(("color", index))
-                        .ghost()
-                        .small()
-                        .size(px(20.))
-                        .label("●")
-                        .text_color(color(&entry.color))
-                        .tooltip(t.format(
-                            "config.chooseColor",
-                            &[("provider", provider_name(provider).into())],
-                        ))
-                        .on_click(cx.listener(move |view, _, _, cx| {
-                            view.color_provider = if view.color_provider == Some(provider) {
-                                None
-                            } else {
-                                Some(provider)
-                            };
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .text_size(px(10.))
-                        .child(provider_name(provider)),
-                )
-                .child(
-                    Input::new(&self.labels[provider_index(provider)])
-                        .small()
-                        .w(px(35.))
-                        .h(px(25.)),
-                )
-                .child(
-                    Switch::new(("visible", index))
-                        .small()
-                        .accessibility_label(t.format(
-                            "config.providerVisible",
-                            &[("provider", provider_name(provider).into())],
-                        ))
-                        .checked(s.bubble_visible_providers.contains(&provider))
-                        .on_change(cx.listener(move |view, visible: &bool, _, cx| {
-                            view.dispatch(Change::Visible(provider, *visible), cx)
-                        })),
                 );
             list = list.child(row);
-            if self.color_provider == Some(provider) {
-                let mut palette = div()
-                    .flex()
-                    .flex_wrap()
-                    .gap(px(3.))
-                    .p(px(7.))
-                    .rounded(px(10.))
-                    .bg(rgb(0x1b2030));
-                for (index, value) in BUBBLE_COLOR_PALETTE.iter().enumerate() {
-                    let value = value.to_string();
-                    let change = Change::Color(provider, value.clone());
-                    palette = palette.child(
-                        Button::new(("swatch", index))
-                            .ghost()
-                            .small()
-                            .size(px(23.))
-                            .label("●")
-                            .text_color(color(&value))
-                            .tooltip(value)
-                            .on_click(cx.listener(move |view, _, _, cx| {
-                                view.dispatch(change.clone(), cx);
-                                view.color_provider = None;
-                                cx.notify();
-                            })),
-                    );
-                }
-                list = list.child(palette);
-            }
         }
         list.into_any_element()
     }
     fn details(&mut self, cx: &mut Context<Self>, payload: &AppPayload) -> AnyElement {
         let t = I18n::new(payload.settings.ui_language);
-        let mut body = div().flex().flex_col().gap(px(11.));
+        let mut body = div()
+            .flex()
+            .flex_col()
+            .gap(px(11.))
+            .child(self.provider_settings(cx, payload));
         if payload.snapshot.refreshing {
             body = body.child(
                 Progress::new("refreshing")
@@ -1636,8 +1725,8 @@ impl AppView {
                 .rounded(px(14.))
                 .bg(linear_gradient(
                     150.,
-                    linear_color_stop(rgb(0x202536), 0.),
-                    linear_color_stop(rgb(0x171c2a), 1.),
+                    linear_color_stop(rgba(0xffffff0b), 0.),
+                    linear_color_stop(rgba(0xffffff04), 1.),
                 ))
                 .border_1()
                 .border_color(rgba(0xffffff0c))
@@ -1827,7 +1916,6 @@ impl AppView {
             }
             body = body.child(card);
         }
-        body = body.child(self.provider_settings(cx, payload));
         body = body.child(
             div()
                 .flex()
@@ -1857,7 +1945,7 @@ impl AppView {
                     .flex_col()
                     .gap_2()
                     .p_3()
-                    .bg(rgb(0x25233e))
+                    .bg(rgba(0x7563d230))
                     .rounded_lg()
                     .child(format!("Metra {version}"))
                     .child(
@@ -1994,11 +2082,7 @@ impl Render for AppView {
             .flex_col()
             .p(px(14.))
             .rounded(px(22.))
-            .bg(linear_gradient(
-                155.,
-                linear_color_stop(rgb(0x191d2c), 0.),
-                linear_color_stop(rgb(0x0f121d), 1.),
-            ))
+            .bg(rgba(0x151c2bcc))
             .text_color(rgb(0xe4e9f5))
             .text_size(px(11.))
             .border_1()
@@ -2006,10 +2090,10 @@ impl Render for AppView {
             .child(header)
             .child(
                 div()
-                    .id("panel-scroll")
                     .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
+                    .overflow_y_scrollbar()
+                    .id("panel-scroll")
                     .child(content),
             );
         if let Some(message) = message {
@@ -2042,33 +2126,39 @@ mod tests {
 
 #[cfg(all(test, feature = "ui-tests"))]
 mod ui_tests {
-    use super::{Desktop, View};
+    use super::{AppView, Desktop, View};
     use crate::{
+        model::Provider,
         service::RefreshService,
-        settings::{BubblePercentMode, SettingsStore},
+        settings::{BUBBLE_COLOR_PALETTE, BubblePercentMode, SettingsStore},
         updater::Updater,
     };
-    use gpui_kit::test::TestWindowExt;
-    use gpui_kit::{AppContext, TestAppContext};
+    use gpui_kit::test::{TestEventExt, TestWindowExt};
+    use gpui_kit::{AnyWindowHandle, AppContext, Entity, TestAppContext, Window, point, px, size};
     use std::{
         fs::File,
         sync::{Arc, atomic::AtomicBool, mpsc},
         time::Instant,
     };
 
-    #[gpui_kit::test]
-    fn native_settings_render_and_persist_control_changes(cx: &mut TestAppContext) {
+    struct Harness {
+        _directory: tempfile::TempDir,
+        service: Arc<RefreshService>,
+        desktop: Entity<Desktop>,
+        window: AnyWindowHandle,
+    }
+
+    fn harness(cx: &mut TestAppContext, mode: View) -> Harness {
         let directory = tempfile::tempdir().unwrap();
         let service = Arc::new(RefreshService::new(SettingsStore::new(
             directory.path().join("settings.db"),
         )));
-        let shared = service.clone();
-        let (desktop, panel) = cx.update(|cx| {
+        let (desktop, window) = cx.update(|cx| {
             gpui_kit::init(cx);
             crate::appearance::init(cx);
             let (sender, receiver) = mpsc::channel();
             let desktop = cx.new(|_| Desktop {
-                service,
+                service: service.clone(),
                 updater: Arc::new(Updater::default()),
                 sender,
                 receiver,
@@ -2087,28 +2177,212 @@ mod ui_tests {
                 activation_file: directory.path().join("activate"),
                 _instance_lock: File::create(directory.path().join("lock")).unwrap(),
             });
-            // Opening while Desktop is leased must not make the renderer read that entity.
-            desktop.update(cx, |desktop, cx| desktop.open_panel(View::Settings, cx));
-            let panel = desktop.read(cx).panel.unwrap();
-            (desktop, panel)
+            // Opening while Desktop is leased must not make rendering read that entity.
+            desktop.update(cx, |desktop, cx| {
+                if mode == View::Bubble {
+                    desktop.open_bubble(cx);
+                } else {
+                    desktop.open_panel(mode, cx);
+                }
+            });
+            let window = if mode == View::Bubble {
+                desktop.read(cx).bubble.unwrap()
+            } else {
+                desktop.read(cx).panel.unwrap()
+            };
+            (desktop, window)
         });
-        cx.update_window(panel, |_, window, cx| {
+        Harness {
+            _directory: directory,
+            service,
+            desktop,
+            window,
+        }
+    }
+
+    #[gpui_kit::test]
+    fn native_settings_render_and_persist_control_changes(cx: &mut TestAppContext) {
+        let h = harness(cx, View::Settings);
+        cx.update_window(h.window, |_, window, cx| {
             window.render_frame(cx);
             assert!(window.find("display-bubble").visible());
-            assert!(window.find("display-status").bounds().size.width < gpui_kit::px(130.));
+            assert!(window.find("display-status").bounds().size.width < px(130.));
             window.click("percent-used", cx);
         })
         .unwrap();
-        cx.update(|cx| {
-            assert_eq!(
-                shared.payload().settings.bubble_percent_mode,
-                BubblePercentMode::Used
-            );
-            assert_eq!(
-                shared.store.load().bubble_percent_mode,
-                BubblePercentMode::Used
-            );
-            desktop.update(cx, |desktop, cx| desktop.open_bubble(cx));
-        });
+        assert_eq!(
+            h.service.payload().settings.bubble_percent_mode,
+            BubblePercentMode::Used
+        );
+        assert_eq!(
+            h.service.store.load().bubble_percent_mode,
+            BubblePercentMode::Used
+        );
+    }
+
+    #[gpui_kit::test]
+    fn every_panel_has_translucent_backing_and_no_opaque_rectangle(cx: &mut TestAppContext) {
+        for mode in [View::Settings, View::Details, View::Consent] {
+            let h = harness(cx, mode);
+            cx.update_window(h.window, |_, window, cx| {
+                window.render_frame(cx);
+                let scale = window.scale_factor();
+                let size = window.bounds().size;
+                let surfaces = window
+                    .painted_quads()
+                    .into_iter()
+                    .filter(|quad| {
+                        quad.bounds.size.width.0 >= f32::from(size.width) * scale
+                            && quad.bounds.size.height.0 >= f32::from(size.height) * scale
+                    })
+                    .collect::<Vec<_>>();
+                assert!(!surfaces.is_empty());
+                assert!(surfaces.iter().any(|surface| {
+                    surface
+                        .background
+                        .as_solid()
+                        .is_some_and(|color| color.a > 0. && color.a < 0.85)
+                }));
+                for surface in surfaces {
+                    assert!(
+                        surface
+                            .background
+                            .as_solid()
+                            .is_some_and(|color| color.a < 0.85),
+                        "panel paints an opaque full-window surface: {surface:?}"
+                    );
+                    assert!(surface.corner_radii.top_left.0 >= 22. * scale);
+                }
+            })
+            .unwrap();
+        }
+    }
+
+    fn assert_round_surface(window: &Window) {
+        let scale = window.scale_factor();
+        let width = f32::from(window.bounds().size.width) * scale;
+        let height = f32::from(window.bounds().size.height) * scale;
+        let radius = width.min(height) / 2.;
+        let full_surfaces = window
+            .painted_quads()
+            .into_iter()
+            .filter(|quad| quad.bounds.size.width.0 >= width && quad.bounds.size.height.0 >= height)
+            .collect::<Vec<_>>();
+        assert!(!full_surfaces.is_empty());
+        assert!(
+            full_surfaces.iter().all(|quad| {
+                quad.corner_radii.top_left.0 >= radius && quad.corner_radii.bottom_right.0 >= radius
+            }),
+            "bubble paints a rectangular surface behind its round outline: {full_surfaces:?}"
+        );
+    }
+
+    #[gpui_kit::test]
+    fn bubble_hover_keeps_round_surface_and_expands_the_docked_capsule(cx: &mut TestAppContext) {
+        let h = harness(cx, View::Bubble);
+        cx.update_window(h.window, |_, window, cx| {
+            window.render_frame(cx);
+            window.hover("metra-bubble", cx);
+            window.render_frame(cx);
+            assert_round_surface(window);
+        })
+        .unwrap();
+        cx.update_window(h.window, |_, window, cx| {
+            let view = gpui_kit::base::Root::read(window, cx)
+                .view()
+                .clone()
+                .downcast::<AppView>()
+                .unwrap();
+            view.update(cx, |view, cx| {
+                view.peek = true;
+                view.dock_right = false;
+                cx.notify();
+            });
+            window.resize(size(px(32.), px(56.)));
+            window.pointer_move(point(px(80.), px(80.)), None, cx);
+            window.render_frame(cx);
+            assert_round_surface(window);
+            window.hover("metra-bubble", cx);
+            window.render_frame(cx);
+            assert_eq!(window.bounds().size, size(px(56.), px(56.)));
+            assert_round_surface(window);
+        })
+        .unwrap();
+        cx.update(|cx| assert!(h.desktop.read(cx).bubble.is_some()));
+    }
+
+    #[gpui_kit::test]
+    fn provider_drag_handle_reorders_both_directions_and_persists(cx: &mut TestAppContext) {
+        let h = harness(cx, View::Details);
+        cx.update_window(h.window, |_, window, cx| {
+            window.render_frame(cx);
+            let from = window.find(("provider-drag", 0usize)).bounds().center();
+            let target = window.find(("provider-settings", 2usize)).bounds();
+            window.drag(from, point(target.center().x, target.bottom() - px(4.)), cx);
+        })
+        .unwrap();
+        assert_eq!(
+            h.service.store.load().bubble_provider_order,
+            vec![Provider::Codex, Provider::Claude, Provider::Cursor]
+        );
+        cx.update_window(h.window, |_, window, cx| {
+            window.render_frame(cx);
+            let from = window.find(("provider-drag", 0usize)).bounds().center();
+            let target = window.find(("provider-settings", 1usize)).bounds();
+            window.drag(from, point(target.center().x, target.top() + px(4.)), cx);
+        })
+        .unwrap();
+        assert_eq!(
+            h.service.store.load().bubble_provider_order,
+            vec![Provider::Cursor, Provider::Codex, Provider::Claude]
+        );
+        cx.update_window(h.window, |_, window, cx| {
+            window.render_frame(cx);
+            window.click(("provider-drag", 0usize), cx);
+            window.press("down", cx);
+        })
+        .unwrap();
+        assert_eq!(
+            h.service.store.load().bubble_provider_order,
+            vec![Provider::Codex, Provider::Cursor, Provider::Claude]
+        );
+        cx.update_window(h.window, |_, window, cx| {
+            window.render_frame(cx);
+            window.click(("provider-label", 0usize), cx);
+            window.press("up", cx);
+        })
+        .unwrap();
+        assert_eq!(
+            h.service.store.load().bubble_provider_order,
+            vec![Provider::Codex, Provider::Cursor, Provider::Claude]
+        );
+    }
+
+    #[gpui_kit::test]
+    fn preset_color_popover_saves_selection_and_dismisses(cx: &mut TestAppContext) {
+        let h = harness(cx, View::Details);
+        cx.update_window(h.window, |_, window, cx| {
+            window.render_frame(cx);
+            window.click(("color", 0usize), cx);
+        })
+        .unwrap();
+        cx.update_window(h.window, |_, window, cx| {
+            window.render_frame(cx);
+            window.click(("swatch", 10usize), cx);
+        })
+        .unwrap();
+        assert_eq!(
+            h.service.store.load().cursor_bubble_color,
+            BUBBLE_COLOR_PALETTE[10]
+        );
+        cx.update_window(h.window, |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find(("swatch", 10usize)).is_none());
+            window.click(("color", 0usize), cx);
+            window.press("escape", cx);
+            window.render_frame(cx);
+            assert!(window.try_find(("swatch", 10usize)).is_none());
+        })
+        .unwrap();
     }
 }

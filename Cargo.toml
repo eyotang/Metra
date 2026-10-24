@@ -1,6 +1,6 @@
 [package]
 name = "metra"
-version = "0.3.0"
+version = "0.3.1"
 description = "Native Cursor, Codex and Claude Code usage monitor built with GPUI Kit"
 authors = ["eyotang"]
 edition = "2024"
@@ -13,7 +13,7 @@ name = "metra_lib"
 [features]
 default = ["desktop"]
 ui-tests = ["desktop", "gpui-kit/test-support"]
-desktop = ["dep:gpui-kit", "dep:tray-icon", "dep:auto-launch", "dep:image", "dep:raw-window-handle", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:x11rb", "dep:gtk", "dep:windows-sys"]
+desktop = ["dep:gpui-kit", "dep:tray-icon", "dep:auto-launch", "dep:image", "dep:raw-window-handle", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:objc2-quartz-core", "dep:x11rb", "dep:gtk", "dep:windows-sys"]
 
 [dependencies]
 base64 = "0.22"
@@ -42,6 +42,7 @@ gtk = { version = "0.18", optional = true }
 objc2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", optional = true }
 objc2-foundation = { version = "0.3", optional = true }
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["CALayer", "objc2-core-foundation", "objc2-core-graphics"], optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Graphics_Gdi", "Win32_UI_HiDpi"], optional = true }
