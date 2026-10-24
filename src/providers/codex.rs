@@ -720,10 +720,16 @@ printf '%s\n' {final_rate_response}
         let provider = CodexProvider {
             executable_override: Some(write_fake_server(temp.path(), false)),
             cached_executable: Mutex::new(None),
-            timeout: Duration::from_secs(3),
+            // Windows PowerShell can take several seconds to start on shared runners.
+            timeout: Duration::from_secs(15),
         };
         let snapshot = provider.refresh();
-        assert_eq!(snapshot.status, ProviderStatus::Available);
+        assert_eq!(
+            snapshot.status,
+            ProviderStatus::Available,
+            "mock app server failed: {:?}",
+            snapshot.message
+        );
         assert_eq!(snapshot.quotas[0].remaining_percent, 75.0);
         assert_eq!(snapshot.tokens.unwrap().lifetime, Some(1234));
     }
@@ -734,12 +740,18 @@ printf '%s\n' {final_rate_response}
         let provider = CodexProvider {
             executable_override: Some(write_flaky_rate_server(temp.path(), true)),
             cached_executable: Mutex::new(None),
-            timeout: Duration::from_secs(3),
+            // Windows PowerShell can take several seconds to start on shared runners.
+            timeout: Duration::from_secs(15),
         };
 
         let snapshot = provider.refresh();
 
-        assert_eq!(snapshot.status, ProviderStatus::Available);
+        assert_eq!(
+            snapshot.status,
+            ProviderStatus::Available,
+            "mock app server failed: {:?}",
+            snapshot.message
+        );
         assert_eq!(snapshot.quotas[0].remaining_percent, 75.0);
     }
 
@@ -749,12 +761,18 @@ printf '%s\n' {final_rate_response}
         let provider = CodexProvider {
             executable_override: Some(write_flaky_rate_server(temp.path(), false)),
             cached_executable: Mutex::new(None),
-            timeout: Duration::from_secs(3),
+            // Windows PowerShell can take several seconds to start on shared runners.
+            timeout: Duration::from_secs(15),
         };
 
         let snapshot = provider.refresh();
 
-        assert_eq!(snapshot.status, ProviderStatus::NetworkError);
+        assert_eq!(
+            snapshot.status,
+            ProviderStatus::NetworkError,
+            "mock app server failed: {:?}",
+            snapshot.message
+        );
         assert!(
             snapshot
                 .message
