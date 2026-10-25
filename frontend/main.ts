@@ -20,6 +20,8 @@ const bubble = new URLSearchParams(location.search).get('view') === 'bubble';
 document.body.className = bubble ? 'bubble-window' : 'panel-window';
 document.documentElement.classList.add('wa-dark');
 let state: Payload;
+let visible: boolean | undefined;
+let bubbleRenderKey: string | undefined;
 let busy = false;
 const pending = new Set<string>();
 const progressSeen = new Set<string>();
@@ -31,7 +33,6 @@ let orderDrag: { nodes: ChildNode[]; order: Provider[]; provider: Provider; star
 let pointer: { x: number; y: number; dragging: boolean; reset: boolean } | null = null;
 let hoverChanges = 0;
 let dragFinishedAt = -Infinity;
-let now = Date.now();
 const names: Record<Provider, string> = { cursor: 'Cursor', codex: 'Codex', claude: 'Claude Code' };
 const t = (key: string, args: Record<string, string | number> = {}): string => Object.entries(args).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), state.translations[key] ?? key);
 const color = (p: Provider) => state.settings[`${p}BubbleColor`];
@@ -56,6 +57,7 @@ function iconButton(action: string, text: string, glyph: string, disabled = fals
     ?loading=${actionLoading(action)} @click=${() => perform(action)}>${icon(glyph, text)}</wa-button>`;
 }
 function notify(message: string) {
+  if (!visible || document.hidden) return;
   clearTimeout(noticeTimer);
   patch(html`<wa-callout variant="brand" size="s">${message}</wa-callout>`, notice);
   notice.classList.add('visible');
@@ -126,7 +128,7 @@ function providerCard(p: Provider) {
     ${loading ? html`<wa-progress-bar class="detecting" indeterminate label=${t('provider.connectingTitle', { provider: names[p] })}></wa-progress-bar>` : nothing}
     <p class="meta">${s.plan ?? t('plan.unknown')}<span>${date(s.capturedAt)}</span></p>
     ${s.quotas.length ? s.quotas.map(q => {
-      const minutes = q.resetsAt ? Math.max(0, Math.ceil((new Date(q.resetsAt).getTime() - now) / 60000)) : 0;
+      const minutes = q.resetsAt ? Math.max(0, Math.ceil((new Date(q.resetsAt).getTime() - Date.now()) / 60000)) : 0;
       return html`<section class="quota"><div class="line"><span>${q.label}</span><strong>${t('quota.remaining', { value: Math.round(q.remainingPercent) })}</strong></div>
         <wa-progress-bar value=${q.remainingPercent} label=${q.label}></wa-progress-bar>
         <div class="quota-meta"><span>${t('quota.used', { value: Math.round(q.usedPercent) })}</span>
@@ -235,7 +237,14 @@ function renderBubble() {
     })}</span></button>`;
 }
 function render() {
-  if (!state || orderDrag) return;
+  if (!state || !visible || document.hidden || orderDrag) return;
+  if (bubble) {
+    const key = JSON.stringify([state.entries, state.peek, state.locale,
+      state.settings.bubblePercentMode, state.settings.bubbleSnapEnabled,
+      t('bubble.usageSeparator'), t('bubble.ariaLabel'), t('bubble.snapHint'), t('bubble.freeHint')]);
+    if (key === bubbleRenderKey) return;
+    bubbleRenderKey = key;
+  }
   document.documentElement.lang = state.locale;
   root.setAttribute('aria-busy', String(busy));
   if (bubble) { patch(renderBubble(), root); return; }
@@ -333,6 +342,11 @@ if (bubble) {
 }
 async function start() {
   try {
+    await listen<boolean>('metra-visibility', event => {
+      visible = event.payload;
+      if (!visible) cancelProviderDrag();
+      render();
+    });
     await listen<Payload>('metra-state', event => {
       state = event.payload;
       if (state.snapshot.refreshing || state.refreshingProviders.length) {
@@ -342,10 +356,13 @@ async function start() {
       render();
     });
     await listen<string>('metra-error', event => notify(event.payload));
-    state = await invoke<Payload>('get_state'); render();
+    state = await invoke<Payload>('get_state');
+    const initiallyVisible = await invoke<boolean>('get_view_visible');
+    visible ??= initiallyVisible;
+    render();
   } catch (error) {
     patch(html`<section class="startup-error"><h1>Metra</h1><p>${String(error)}</p><wa-button @click=${() => location.reload()}>Retry / 重试</wa-button></section>`, root);
   }
 }
+document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
 void start();
-setInterval(() => { now = Date.now(); render(); }, 30000);
