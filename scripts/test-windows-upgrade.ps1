@@ -26,6 +26,7 @@ function Stop-Installed {
   Installed-Processes | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 }
 try {
+  if (-not (Get-Process explorer -ErrorAction SilentlyContinue)) { Start-Process explorer.exe }
   $legacy = Join-Path $work 'Metra-0.4.1-setup.exe'
   Invoke-WebRequest 'https://github.com/eyotang/Metra/releases/download/v0.4.1/Metra-0.4.1-windows-x64-setup.exe' -OutFile $legacy
   Run-Installer $legacy
