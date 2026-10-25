@@ -428,3 +428,20 @@ test('bubbles only render changes to their displayed data', async ({ page }) => 
   await page.evaluate(() => (window as any).visibility(true));
   await expect(page.locator('#bubble')).toContainText('93%');
 });
+
+test('a narrow capsule hides labels even before the peek state arrives', async ({ page }) => {
+  await setup(page, { peek: false, entries: fixture.entries.map((entry, i) => ({ ...entry, value: i === 0 ? 100 : entry.value })) });
+  await page.setViewportSize({ width: 32, height: 56 });
+  await page.goto('/?view=bubble');
+  await expect(page.locator('#bubble')).toBeVisible();
+  await expect(page.locator('.bubble-label').first()).toBeHidden();
+  for (const value of ['100%', '70%', '—']) await expect(page.locator('.bubble-entry strong').filter({ hasText: value })).toBeVisible();
+  const fits = await page.locator('.bubble-entry strong').evaluateAll(values => values.every(value => {
+    const text = value.getBoundingClientRect(); const window = document.documentElement.getBoundingClientRect();
+    return text.left >= 0 && text.right <= window.width;
+  }));
+  expect(fits).toBe(true);
+  await page.screenshot({ path: test.info().outputPath('capsule-before-peek-event.png') });
+  await page.setViewportSize({ width: 56, height: 56 });
+  await expect(page.locator('.bubble-label').first()).toBeVisible();
+});

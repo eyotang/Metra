@@ -405,6 +405,13 @@ nav {
 .bubble.peek .bubble-entry strong {
   font-size:8px
 }
+/* Native resizing can precede the asynchronous peek-state event. */
+@media (max-width:40px) {
+  .bubble .bubble-label { display:none }
+  .bubble .bubble-inner { padding:3px 1px }
+  .bubble .bubble-entry { justify-content:center }
+  .bubble .bubble-entry strong { font-size:8px }
+}
 .bubble:focus-visible {
   outline:-webkit-focus-ring-color auto 1px;
   outline-offset:-3px
