@@ -1,24 +1,40 @@
 {
   "name": "metra",
   "private": true,
-  "version": "0.4.1",
+  "version": "0.5.0",
   "type": "module",
   "engines": {
     "node": ">=24"
   },
   "scripts": {
-    "dev": "cargo run",
-    "check": "cargo check --locked --all-targets",
-    "build": "cargo build --release --locked",
-    "test": "cargo test --locked --all-targets",
+    "dev": "tauri dev",
+    "check": "tsc --noEmit && cargo check --locked --all-targets",
+    "build": "tauri build",
+    "test": "npm run test:ui && cargo test --locked --all-targets",
     "build:linux": "node scripts/package-native.mjs",
     "build:macos-universal": "node scripts/package-native.mjs --universal",
-    "build:portable": "cargo build --release --locked",
+    "build:portable": "tauri build --no-bundle",
     "package": "node scripts/package-native.mjs",
     "generate:updater-manifest": "node scripts/generate-latest-json.mjs",
     "verify:omarchy": "node scripts/verify-omarchy.mjs",
     "verify:omarchy-ui": "node scripts/verify-omarchy-ui.mjs",
     "install:omarchy": "node integrations/omarchy/install.mjs",
-    "package:omarchy": "node scripts/package-omarchy.mjs"
+    "package:omarchy": "node scripts/package-omarchy.mjs",
+    "frontend:dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
+    "frontend:build": "tsc --noEmit && vite build",
+    "test:ui": "playwright test",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@awesome.me/webawesome": "^3.14.0",
+    "@tauri-apps/api": "^2",
+    "lit": "^3.3.3",
+    "lucide": "^1.61.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56",
+    "@tauri-apps/cli": "^2",
+    "typescript": "^5.9",
+    "vite": "^7"
   }
 }

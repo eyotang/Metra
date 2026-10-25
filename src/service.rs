@@ -82,6 +82,15 @@ impl RefreshService {
     }
 
     pub fn refresh(&self, include_cursor: bool) -> DashboardSnapshot {
+        self.refresh_with_progress(include_cursor, |_, _| {})
+    }
+
+    /// Reports each provider independently, publishing its merged snapshot before completion.
+    pub fn refresh_with_progress(
+        &self,
+        include_cursor: bool,
+        progress: impl Fn(Provider, bool) + Sync,
+    ) -> DashboardSnapshot {
         let started = Instant::now();
         diagnostics::info("refresh.start", format!("include_cursor={include_cursor}"));
         if self.refreshing.swap(true, Ordering::AcqRel) {
@@ -92,42 +101,44 @@ impl RefreshService {
             let mut snapshot = self.snapshot.lock().expect("snapshot lock");
             snapshot.refreshing = true;
         }
-        let (cursor, codex, claude) = std::thread::scope(|scope| {
-            let cursor = include_cursor.then(|| scope.spawn(|| self.cursor.refresh()));
-            let codex = scope.spawn(|| self.codex.refresh());
-            let claude = scope.spawn(|| self.claude.refresh());
-            (
-                cursor.map(|worker| {
-                    worker.join().unwrap_or_else(|_| {
+        let refresh_one = |provider, collector: &dyn UsageProvider| {
+            let result =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| collector.refresh()))
+                    .unwrap_or_else(|_| {
                         ProviderSnapshot::unavailable(
-                            Provider::Cursor,
+                            provider,
                             ProviderStatus::ProtocolError,
-                            "Cursor 采集器异常",
+                            match provider {
+                                Provider::Cursor => "Cursor 采集器异常",
+                                Provider::Codex => "Codex 采集器异常",
+                                Provider::Claude => "Claude Code 采集器异常",
+                            },
                         )
-                    })
-                }),
-                codex.join().unwrap_or_else(|_| {
-                    ProviderSnapshot::unavailable(
-                        Provider::Codex,
-                        ProviderStatus::ProtocolError,
-                        "Codex 采集器异常",
-                    )
-                }),
-                claude.join().unwrap_or_else(|_| {
-                    ProviderSnapshot::unavailable(
-                        Provider::Claude,
-                        ProviderStatus::ProtocolError,
-                        "Claude Code 采集器异常",
-                    )
-                }),
-            )
+                    });
+            {
+                let mut snapshot = self.snapshot.lock().expect("snapshot lock");
+                let current = match provider {
+                    Provider::Cursor => &mut snapshot.cursor,
+                    Provider::Codex => &mut snapshot.codex,
+                    Provider::Claude => &mut snapshot.claude,
+                };
+                *current = merge_snapshot(current.clone(), result);
+            }
+            progress(provider, false);
+        };
+        if include_cursor {
+            progress(Provider::Cursor, true);
+        }
+        progress(Provider::Codex, true);
+        progress(Provider::Claude, true);
+        std::thread::scope(|scope| {
+            if include_cursor {
+                scope.spawn(|| refresh_one(Provider::Cursor, self.cursor.as_ref()));
+            }
+            scope.spawn(|| refresh_one(Provider::Codex, self.codex.as_ref()));
+            scope.spawn(|| refresh_one(Provider::Claude, self.claude.as_ref()));
         });
         let mut current = self.snapshot.lock().expect("snapshot lock");
-        if let Some(cursor) = cursor {
-            current.cursor = merge_snapshot(current.cursor.clone(), cursor);
-        }
-        current.codex = merge_snapshot(current.codex.clone(), codex);
-        current.claude = merge_snapshot(current.claude.clone(), claude);
         current.refreshing = false;
         self.refreshing.store(false, Ordering::Release);
         diagnostics::info(
@@ -150,6 +161,13 @@ impl RefreshService {
     }
 
     pub fn refresh_cursor_login_status(&self) -> DashboardSnapshot {
+        self.refresh_cursor_login_status_with_progress(|_, _| {})
+    }
+
+    pub fn refresh_cursor_login_status_with_progress(
+        &self,
+        progress: impl Fn(Provider, bool),
+    ) -> DashboardSnapshot {
         let _refresh_guard = self
             .cursor_login_refresh_lock
             .lock()
@@ -160,6 +178,7 @@ impl RefreshService {
             "cursor.login.recheck.start",
             format!("compat_enabled={compat_enabled}"),
         );
+        progress(Provider::Cursor, true);
         let refreshed = if compat_enabled {
             self.cursor.refresh()
         } else {
@@ -175,7 +194,10 @@ impl RefreshService {
                 current.cursor.status
             ),
         );
-        current.clone()
+        let result = current.clone();
+        drop(current);
+        progress(Provider::Cursor, false);
+        result
     }
 
     pub fn update_settings(
@@ -406,5 +428,86 @@ mod refresh_selection_tests {
         assert!(result.is_err());
         assert_eq!(service.payload().settings, before);
         assert!(!service.cursor_compat.load(Ordering::Relaxed));
+    }
+    #[test]
+    fn provider_progress_publishes_fast_results_before_a_slow_provider_finishes() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        struct BlockingProvider(Mutex<mpsc::Receiver<()>>);
+        impl UsageProvider for BlockingProvider {
+            fn account_status(&self) -> ProviderSnapshot {
+                provider_snapshot(Provider::Cursor, "account")
+            }
+            fn detect(&self) -> Detection {
+                Detection {
+                    executable: None,
+                    status: ProviderStatus::Available,
+                    detail: None,
+                }
+            }
+            fn refresh(&self) -> ProviderSnapshot {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(5))
+                    .unwrap();
+                provider_snapshot(Provider::Cursor, "completed")
+            }
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let (release, wait) = mpsc::channel();
+        let make_provider = |provider| {
+            Arc::new(CountingProvider {
+                provider,
+                refresh_calls: Arc::new(AtomicUsize::new(0)),
+                account_calls: Arc::new(AtomicUsize::new(0)),
+            })
+        };
+        let service = Arc::new(RefreshService {
+            cursor: Arc::new(BlockingProvider(Mutex::new(wait))),
+            codex: make_provider(Provider::Codex),
+            claude: make_provider(Provider::Claude),
+            settings: Mutex::new(AppSettings::default()),
+            snapshot: Mutex::new(DashboardSnapshot {
+                cursor: provider_snapshot(Provider::Cursor, "old"),
+                codex: provider_snapshot(Provider::Codex, "old"),
+                claude: provider_snapshot(Provider::Claude, "old"),
+                refreshing: false,
+            }),
+            refreshing: AtomicBool::new(false),
+            cursor_compat: Arc::new(AtomicBool::new(false)),
+            cursor_login_refresh_lock: Mutex::new(()),
+            store: SettingsStore::new(temp.path().join("settings.db")),
+        });
+        let (events, received) = mpsc::channel();
+        let worker_service = service.clone();
+        let worker = std::thread::spawn(move || {
+            worker_service.refresh_with_progress(true, |provider, running| {
+                // Reading the payload here also verifies callbacks run without holding its lock.
+                events
+                    .send((provider, running, worker_service.payload()))
+                    .unwrap();
+            })
+        });
+        loop {
+            let (provider, running, payload) =
+                received.recv_timeout(Duration::from_secs(3)).unwrap();
+            if provider == Provider::Codex && !running {
+                assert_eq!(payload.snapshot.codex.plan.as_deref(), Some("refreshed"));
+                assert_eq!(payload.snapshot.cursor.plan.as_deref(), Some("old"));
+                assert!(payload.snapshot.refreshing);
+                break;
+            }
+        }
+        release.send(()).unwrap();
+        let result = worker.join().unwrap();
+        assert_eq!(result.cursor.plan.as_deref(), Some("completed"));
+        assert!(!result.refreshing);
+        let remaining = received.try_iter().collect::<Vec<_>>();
+        assert!(
+            remaining
+                .iter()
+                .any(|(provider, running, _)| *provider == Provider::Cursor && !running)
+        );
     }
 }

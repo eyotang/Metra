@@ -3,7 +3,7 @@ use crate::{
     settings::{AppSettings, BubblePercentMode},
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub(crate) struct StatusEntry {
     pub provider: Provider,
     pub label: String,

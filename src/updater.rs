@@ -90,11 +90,6 @@ fn client() -> Result<reqwest::blocking::Client, String> {
         .map_err(|error| error.to_string())
 }
 impl Updater {
-    #[cfg(all(test, feature = "ui-tests"))]
-    pub(crate) fn set_test_status(&self, status: UpdateStatus) {
-        *self.status.lock().expect("update status") = status;
-    }
-
     pub fn status(&self) -> UpdateStatus {
         self.status.lock().expect("update status").clone()
     }
@@ -125,7 +120,10 @@ impl Updater {
                 status.error = None;
                 *self.manifest.lock().expect("update manifest") = manifest;
             }
-            Err(error) => crate::diagnostics::warn("updater.check_failed", error),
+            Err(error) => {
+                crate::diagnostics::warn("updater.check_failed", &error);
+                self.status.lock().expect("update status").error = Some(error);
+            }
         }
         self.checking.store(false, Ordering::Release);
     }
@@ -197,7 +195,7 @@ impl Updater {
                 let mut command = std::process::Command::new(&installer);
                 crate::providers::scrub_sensitive_child_environment(&mut command);
                 command
-                    .arg("/S")
+                    .args(["/S", "/R", "/UPDATE"])
                     .spawn()
                     .map_err(|error| error.to_string())?;
                 // The installer owns its staged files until it finishes after this process exits.

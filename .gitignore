@@ -16,3 +16,7 @@ Desktop.ini
 *.key
 
 /tools/release-sign/target/
+
+/gen/
+/test-results/
+/playwright-report/

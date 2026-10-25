@@ -249,5 +249,6 @@
   "native.openRelease": "업데이트 다운로드",
   "native.refreshing": "사용량 새로고침 중…",
   "native.included": "포함 사용량",
-  "native.ondemand": "종량제 비용"
+  "native.ondemand": "종량제 비용",
+  "native.upToDate": "Metra는 최신 버전입니다"
 }

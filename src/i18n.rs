@@ -51,6 +51,12 @@ impl I18n {
             }),
         }
     }
+    pub fn catalog(self) -> BTreeMap<String, String> {
+        catalogs()
+            .get(self.locale)
+            .unwrap_or(&catalogs()["en"])
+            .clone()
+    }
     pub fn t(self, key: &str) -> String {
         catalogs()
             .get(self.locale)
