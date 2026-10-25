@@ -27,7 +27,7 @@ let noticeTimer: ReturnType<typeof setTimeout>;
 let hoverTimer: ReturnType<typeof setTimeout>;
 let draggedProvider: Provider | null = null;
 let pointer: { x: number; y: number; dragging: boolean } | null = null;
-let dragFinishedAt = 0;
+let dragFinishedAt = -Infinity;
 let now = Date.now();
 const names: Record<Provider, string> = { cursor: 'Cursor', codex: 'Codex', claude: 'Claude Code' };
 const t = (key: string, args: Record<string, string | number> = {}): string => Object.entries(args).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), state.translations[key] ?? key);
@@ -275,9 +275,11 @@ if (bubble) {
     clearTimeout(hoverTimer);
     hoverTimer = setTimeout(() => { if (!pointer?.dragging) void invoke('bubble_hover', { hovered: false }).catch(e => notify(String(e))); }, 500);
   });
-  root.addEventListener('pointerdown', event => { if (event.button === 0) pointer = { x: event.screenX, y: event.screenY, dragging: false }; });
+  // Only detect motion before starting the native drag; global screen coordinates
+  // are unavailable in some WebKitGTK environments.
+  root.addEventListener('pointerdown', event => { if (event.button === 0) pointer = { x: event.clientX, y: event.clientY, dragging: false }; });
   root.addEventListener('pointermove', event => {
-    if (!pointer || pointer.dragging || Math.hypot(event.screenX - pointer.x, event.screenY - pointer.y) < 4) return;
+    if (!pointer || pointer.dragging || Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) < 4) return;
     pointer.dragging = true; clearTimeout(hoverTimer);
     void invoke('drag_bubble').catch(e => notify(String(e))).finally(() => { pointer = null; dragFinishedAt = performance.now(); });
   });

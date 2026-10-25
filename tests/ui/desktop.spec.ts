@@ -111,7 +111,11 @@ test('languages switch live and retain provider preferences', async ({ page }) =
   }
 });
 test('edge capsule preserves values, expands on hover and supports keyboard opening', async ({ page }) => {
-  await setup(page, { peek: true }); await page.setViewportSize({ width: 32, height: 56 }); await page.goto('/?view=bubble');
+  // Activation must work immediately after startup, before any drag has occurred.
+  await page.addInitScript(() => Object.defineProperty(performance, 'now', { value: () => 100 }));
+  await setup(page, { peek: true }); await page.setViewportSize({ width: 32, height: 56 });
+  // Start outside the capsule; Chromium on Linux starts at (0, 0), inside its root.
+  await page.mouse.move(100, 100); await page.goto('/?view=bubble');
   await expect(page.locator('#bubble')).toHaveClass(/peek/);
   await expect(page.locator('.bubble-label').first()).toBeHidden();
   await expect(page.locator('.bubble-entry').first()).toContainText('77%');
@@ -123,7 +127,13 @@ test('edge capsule preserves values, expands on hover and supports keyboard open
   expect(await page.evaluate(() => (window as any).calls.some((c: any) => c.cmd === 'open_panel' && c.args.mode === 'details'))).toBe(true);
   await page.screenshot({ path: test.info().outputPath('bubble.png') });
 });
-test('dragging invokes native move without accidentally opening details', async ({ page }) => {
+test('dragging works without screen coordinates and does not open details', async ({ page }) => {
+  // Embedded WebKit can withhold global screen coordinates; local pointer motion still works.
+  await page.addInitScript(() => {
+    Object.defineProperties(MouseEvent.prototype, {
+      screenX: { get: () => 0 }, screenY: { get: () => 0 },
+    });
+  });
   await setup(page); await page.setViewportSize({ width: 56, height: 56 }); await page.goto('/?view=bubble');
   await expect(page.locator('#bubble')).toBeVisible();
   await page.mouse.move(15, 20); await page.mouse.down(); await page.mouse.move(25, 30); await page.mouse.up();
