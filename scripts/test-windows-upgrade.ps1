@@ -27,13 +27,14 @@ function Stop-Installed {
 }
 try {
   if (-not (Get-Process explorer -ErrorAction SilentlyContinue)) { Start-Process explorer.exe }
-  $legacy = Join-Path $work 'Metra-0.4.1-setup.exe'
-  Invoke-WebRequest 'https://github.com/eyotang/Metra/releases/download/v0.4.1/Metra-0.4.1-windows-x64-setup.exe' -OutFile $legacy
+  $legacy = Join-Path $work 'Metra-0.2.2-setup.exe'
+  Invoke-WebRequest 'https://github.com/eyotang/Metra/releases/download/v0.2.2/Metra-0.2.2-windows-x64-setup.exe' -OutFile $legacy
   Run-Installer $legacy
   Stop-Installed
   Start-Sleep -Milliseconds 500
   $setup = (Resolve-Path "release-assets/Metra-$version-windows-x64-setup.exe").Path
-  # This is exactly what the released v0.4.1 updater invokes: /S, without /R.
+  # Keep the /S-only contract used by installed v0.4.1 clients, while fetching
+  # the retained v0.2.2 release as the legacy installation baseline.
   Run-Installer $setup
   $deadline = (Get-Date).AddSeconds(30)
   while ((Installed-Processes).Count -eq 0 -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 250 }
@@ -67,7 +68,7 @@ except (sqlite3.Error, OSError):
   }
   $installedVersion = (Get-ItemProperty 'HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall/Metra').DisplayVersion
   if ($installedVersion -ne $version) { throw "Unexpected installed version: $installedVersion" }
-  Write-Output "v0.4.1 -> ${version}: legacy /S restart and status-bar settings preserved"
+  Write-Output "v0.2.2 -> ${version}: legacy /S restart and status-bar settings preserved"
 } finally {
   if (Test-Path $installed) { Write-Output "Installed executable version: $((Get-Item $installed).VersionInfo.ProductVersion)" }
   Installed-Processes | Select-Object ProcessId, ParentProcessId, CreationDate, ExecutablePath | Format-List

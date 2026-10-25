@@ -131,7 +131,7 @@ jobs:
       - name: Windows installer and portable application
         if: runner.os == 'Windows'
         run: node scripts/package-native.mjs
-      - name: Upgrade from v0.4.1 using its legacy silent updater contract
+      - name: Upgrade from retained v0.2.2 using legacy silent updater arguments
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/test-windows-upgrade.ps1
