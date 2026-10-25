@@ -23,7 +23,8 @@
     "frontend:dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
     "frontend:build": "tsc --noEmit && vite build",
     "test:ui": "playwright test",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "install:local": "node scripts/install-macos-local.mjs"
   },
   "dependencies": {
     "@awesome.me/webawesome": "^3.14.0",
