@@ -1,56 +1,138 @@
+//! Tauri desktop shell. Collectors and persisted settings remain UI-independent.
 use crate::{
-    appearance, diagnostics,
+    diagnostics,
+    geometry::WorkArea,
     i18n::I18n,
-    model::{Provider, ProviderSnapshot, ProviderStatus},
+    model::Provider,
     platform,
     service::{AppPayload, RefreshService},
     settings::{
-        AppSettings, BUBBLE_COLOR_PALETTE, BubblePercentMode, DisplayMode, REFRESH_INTERVALS,
-        SavedPosition, SettingsStore, UiLanguage,
+        AppSettings, BUBBLE_COLOR_PALETTE, BubblePercentMode, DisplayMode, SavedPosition,
+        SettingsStore, UiLanguage,
     },
-    status_bar,
-    tray::StatusTray,
-    updater::Updater,
+    status_bar, tray,
+    updater::{UpdateStatus, Updater},
 };
-use gpui_kit::component::{
-    Disableable, ElementExt, IconName, IndexPath, Placement, Sizable,
-    button::{Button, ButtonGroup, ButtonVariants},
-    input::{Input, InputEvent, InputState},
-    list::ListItem,
-    popover::Popover,
-    progress::Progress,
-    scroll::ScrollableElement,
-    select::{Select, SelectEvent, SelectState},
-    switch::Switch,
-};
-use gpui_kit::{self as gpui, *};
+use serde::{Deserialize, Serialize};
 use std::{
     fs::{File, OpenOptions},
-    path::PathBuf,
     sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-        mpsc::{self, Receiver, Sender},
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
-use tray_icon::{
-    MouseButton as TrayButton, MouseButtonState as TrayButtonState, TrayIconEvent, menu::MenuEvent,
+use tauri::{
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
 };
 
-const BUBBLE_SIZE: f32 = 56.;
-const PEEK_SIZE: f32 = 32.;
-const PANEL_WIDTH: f32 = 340.;
-const MENU_WIDTH: f32 = 270.;
+type Result<T> = std::result::Result<T, String>;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum View {
-    Bubble,
-    Details,
-    Settings,
-    Consent,
+struct Desktop {
+    service: Arc<RefreshService>,
+    updater: Arc<Updater>,
+    panel: Mutex<String>,
+    peek: AtomicBool,
+    native_glass: AtomicBool,
+    dragging: AtomicBool,
+    login_running: AtomicBool,
+    refreshing_providers: AtomicU8,
+    tray_cycle: AtomicUsize,
+    #[cfg(feature = "desktop-smoke")]
+    tray_observed_provider: AtomicU8,
+    settings_gate: Mutex<()>,
+    bubble_gate: Mutex<()>,
+    refresh_gate: Mutex<()>,
+    last_refresh: Mutex<Instant>,
+    _instance_lock: File,
 }
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopPayload {
+    #[serde(flatten)]
+    data: AppPayload,
+    entries: Vec<status_bar::StatusEntry>,
+    locale: String,
+    translations: std::collections::BTreeMap<String, String>,
+    palette: &'static [&'static str],
+    update: UpdateStatus,
+    can_install: bool,
+    version: &'static str,
+    panel: String,
+    peek: bool,
+    native_glass: bool,
+    login_running: bool,
+    refreshing_providers: Vec<Provider>,
+}
+impl Desktop {
+    fn payload(&self) -> DesktopPayload {
+        let mut data = self.service.payload();
+        let t = I18n::new(data.settings.ui_language);
+        for snapshot in [
+            &mut data.snapshot.cursor,
+            &mut data.snapshot.codex,
+            &mut data.snapshot.claude,
+        ] {
+            snapshot.message = snapshot
+                .message
+                .as_deref()
+                .map(|message| t.message(message));
+        }
+        DesktopPayload {
+            entries: status_bar::entries(&data.snapshot, &data.settings),
+            locale: t.locale.into(),
+            translations: t.catalog(),
+            data,
+            palette: &BUBBLE_COLOR_PALETTE,
+            update: self.updater.status(),
+            can_install: self.updater.supports_install(),
+            version: env!("CARGO_PKG_VERSION"),
+            panel: self.panel.lock().expect("panel mode").clone(),
+            peek: self.peek.load(Ordering::Acquire),
+            native_glass: self.native_glass.load(Ordering::Acquire),
+            login_running: self.login_running.load(Ordering::Acquire),
+            refreshing_providers: [Provider::Cursor, Provider::Codex, Provider::Claude]
+                .into_iter()
+                .filter(|provider| {
+                    self.refreshing_providers.load(Ordering::Acquire) & provider_mask(*provider)
+                        != 0
+                })
+                .collect(),
+        }
+    }
+}
+fn publish(app: &AppHandle) {
+    let state = app.state::<Desktop>();
+    let _ = app.emit("metra-state", state.payload());
+    update_tray(app, state.tray_cycle.load(Ordering::Relaxed));
+}
+fn update_tray(app: &AppHandle, cycle: usize) {
+    let state = app.state::<Desktop>();
+    match tray::update(app, &state.service.payload(), cycle) {
+        Ok(_provider) => {
+            #[cfg(feature = "desktop-smoke")]
+            state
+                .tray_observed_provider
+                .store(_provider.map(provider_mask).unwrap_or(0), Ordering::Relaxed);
+        }
+        Err(error) => diagnostics::warn("tray.update_failed", error),
+    }
+}
+
+fn report(app: &AppHandle, result: Result<()>) {
+    if let Err(error) = result {
+        diagnostics::warn("desktop.operation_failed", &error);
+        let _ = app.emit("metra-error", error);
+    }
+}
+#[tauri::command]
+fn get_state(state: State<'_, Desktop>) -> DesktopPayload {
+    state.payload()
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "camelCase")]
 enum Change {
     Display(DisplayMode),
     Percent(BubblePercentMode),
@@ -59,523 +141,387 @@ enum Change {
     Snap(bool),
     Autostart(bool),
     Compat(bool),
-    Visible(Provider, bool),
-    Label(Provider, String),
-    Color(Provider, String),
-    Reorder(Provider, i32),
-    MoveProvider(Provider, Provider, Placement),
+    Visible { provider: Provider, visible: bool },
+    Label { provider: Provider, label: String },
+    Color { provider: Provider, color: String },
+    Order(Vec<Provider>),
 }
-enum Event {
-    Refreshed,
-    Message(String),
-    LoginFinished(bool),
-    UpdateReady,
-    #[cfg(windows)]
-    InstallerStarted,
-}
-struct DesktopGlobal(Entity<Desktop>);
-impl Global for DesktopGlobal {}
-
-struct Desktop {
-    service: Arc<RefreshService>,
-    updater: Arc<Updater>,
-    sender: Sender<Event>,
-    receiver: Receiver<Event>,
-    tray: Option<StatusTray>,
-    bubble: Option<AnyWindowHandle>,
-    panel: Option<AnyWindowHandle>,
-    panel_mode: View,
-    cycle: usize,
-    last_refresh: Instant,
-    last_cycle: Instant,
-    last_second: Instant,
-    started: Instant,
-    update_checked: bool,
-    message: Option<(String, Instant)>,
-    login_running: Arc<AtomicBool>,
-    activation_file: PathBuf,
-    _instance_lock: File,
-}
-
-pub fn run() {
-    let _ = diagnostics::init();
-    let config = match crate::settings::config_dir() {
-        Ok(config) => config,
-        Err(error) => {
-            eprintln!("{error}");
-            return;
-        }
-    };
-    if let Err(error) = std::fs::create_dir_all(&config) {
-        eprintln!("{error}");
-        return;
-    }
-    let lock = match OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(config.join("instance.lock"))
-    {
-        Ok(lock) => lock,
-        Err(error) => {
-            eprintln!("{error}");
-            return;
-        }
-    };
-    if lock.try_lock().is_err() {
-        let _ = std::fs::write(config.join("activate"), b"show");
-        return;
-    }
-    let service = Arc::new(RefreshService::new(SettingsStore::new(
-        config.join("settings.db"),
-    )));
-    #[cfg(target_os = "linux")]
-    let application = gpui::platform::linux(WindowingModes::X11);
-    #[cfg(not(target_os = "linux"))]
-    let application = gpui::application();
-    let application = application.with_assets(appearance::Assets);
-    application.on_reopen(|cx| {
-        if let Some(state) = cx.try_global::<DesktopGlobal>() {
-            let state = state.0.clone();
-            state.update(cx, |state, cx| state.open_panel(View::Details, cx));
-        }
-    });
-    application.run(move |cx| {
-        gpui::init(cx);
-        appearance::init(cx);
-        cx.set_app_identity("dev.metra.desktop", "Metra");
-        cx.set_quit_mode(QuitMode::Explicit);
-        #[cfg(target_os = "macos")]
-        cx.set_activation_policy(ActivationPolicy::Accessory);
-        let (sender, receiver) = mpsc::channel();
-        let desktop = cx.new(|cx| {
-            let payload = service.payload();
-            let tray = StatusTray::new(&payload)
-                .map_err(|error| diagnostics::warn("tray.setup_failed", error))
-                .ok();
-            let mut desktop = Desktop {
-                service,
-                updater: Arc::new(Updater::default()),
-                sender,
-                receiver,
-                tray,
-                bubble: None,
-                panel: None,
-                panel_mode: View::Details,
-                cycle: 0,
-                last_refresh: Instant::now(),
-                last_cycle: Instant::now(),
-                last_second: Instant::now(),
-                started: Instant::now(),
-                update_checked: false,
-                message: None,
-                login_running: Arc::new(AtomicBool::new(false)),
-                activation_file: config.join("activate"),
-                _instance_lock: lock,
-            };
-            if desktop.service.payload().settings.display_mode == DisplayMode::Bubble
-                || desktop.tray.is_none()
-            {
-                desktop.open_bubble(cx);
-            }
-            if std::env::args().any(|arg| arg == "--settings") {
-                desktop.open_panel(View::Settings, cx);
-            }
-            desktop.refresh(false);
-            cx.spawn(async move |weak, cx| {
-                loop {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(100))
-                        .await;
-                    if weak.update(cx, |desktop, cx| desktop.tick(cx)).is_err() {
-                        break;
-                    }
-                }
-            })
-            .detach();
-            desktop
-        });
-        cx.set_global(DesktopGlobal(desktop));
-    });
-}
-
-impl Desktop {
-    fn refresh(&mut self, recheck_login: bool) {
-        if self.service.refreshing.load(Ordering::Acquire) {
-            return;
-        }
-        self.last_refresh = Instant::now();
-        let service = self.service.clone();
-        let sender = self.sender.clone();
-        std::thread::spawn(move || {
-            crate::providers::discovery::invalidate_shell_cache();
-            if recheck_login {
-                service.refresh_cursor_login_status();
-            } else {
-                // CursorProvider enforces compatibility consent before reading credentials.
-                service.refresh(true);
-            }
-            let _ = sender.send(Event::Refreshed);
-        });
-    }
-    fn tick(&mut self, cx: &mut Context<Self>) {
-        #[cfg(target_os = "linux")]
-        while gtk::events_pending() {
-            gtk::main_iteration_do(false);
-        }
-        let mut changed = false;
-        while let Ok(event) = self.receiver.try_recv() {
-            changed = true;
-            match event {
-                Event::Refreshed | Event::UpdateReady => {}
-                Event::Message(message) => self.message = Some((message, Instant::now())),
-                Event::LoginFinished(success) => {
-                    self.login_running.store(false, Ordering::Release);
-                    if success {
-                        self.refresh(true);
-                    } else {
-                        self.message = Some(("Cursor 登录未完成，请重试".into(), Instant::now()));
-                    }
-                }
-                #[cfg(windows)]
-                Event::InstallerStarted => {
-                    cx.quit();
-                    return;
-                }
-            }
-        }
-        while let Ok(event) = MenuEvent::receiver().try_recv() {
-            match event.id.as_ref() {
-                "details" => self.open_panel(View::Details, cx),
-                "settings" => self.open_panel(View::Settings, cx),
-                "refresh" => self.refresh(false),
-                "display" => {
-                    let mode =
-                        if self.service.payload().settings.display_mode == DisplayMode::Bubble {
-                            DisplayMode::StatusBar
-                        } else {
-                            DisplayMode::Bubble
-                        };
-                    self.change(Change::Display(mode), cx);
-                }
-                "quit" => cx.quit(),
-                _ => {}
-            }
-        }
-        while let Ok(event) = TrayIconEvent::receiver().try_recv() {
-            if matches!(
-                event,
-                TrayIconEvent::Click {
-                    button: TrayButton::Left,
-                    button_state: TrayButtonState::Up,
-                    ..
-                }
-            ) {
-                self.toggle_details(cx);
-            }
-        }
-        if self.activation_file.is_file() {
-            let _ = std::fs::remove_file(&self.activation_file);
-            self.open_panel(View::Details, cx);
-        }
-        let settings = self.service.payload().settings;
-        if self.last_refresh.elapsed() >= Duration::from_secs(settings.refresh_minutes * 60) {
-            self.refresh(false);
-            changed = true;
-        }
-        if self.last_cycle.elapsed() >= Duration::from_secs(5) && self.panel.is_none() {
-            self.cycle = self.cycle.wrapping_add(1);
-            self.last_cycle = Instant::now();
-            changed = true;
-        }
-        if !cfg!(debug_assertions)
-            && ((!self.update_checked && self.started.elapsed() >= Duration::from_secs(20))
-                || (self.update_checked
-                    && self.started.elapsed() >= Duration::from_secs(24 * 60 * 60)))
-        {
-            self.check_update();
-            self.started = Instant::now();
-            self.update_checked = true;
-        }
-        if self
-            .message
-            .as_ref()
-            .is_some_and(|(_, since)| since.elapsed() > Duration::from_secs(6))
-        {
-            self.message = None;
-            changed = true;
-        }
-        if self.last_second.elapsed() >= Duration::from_secs(1) {
-            self.last_second = Instant::now();
-            changed = true;
-        }
-        if changed {
-            if let Some(tray) = &mut self.tray {
-                tray.update(&self.service.payload(), self.cycle);
-            }
-            cx.notify();
-        }
-    }
-    fn open_bubble(&mut self, cx: &mut Context<Self>) {
-        if self.bubble.is_some() {
-            return;
-        }
-        let mut settings = self.service.payload().settings;
-        if settings.bubble_position_version < 2
-            && let Some(position) = &mut settings.bubble_position
-        {
-            let logical = platform::logical_screen_point(position.x as f32, position.y as f32);
-            position.x = f32::from(logical.x).round() as i32;
-            position.y = f32::from(logical.y).round() as i32;
-        }
-        let display = cx
-            .displays()
-            .into_iter()
-            .find(|display| {
-                settings.bubble_position.is_some_and(|position| {
-                    display
-                        .bounds()
-                        .contains(&platform::position(position.x, position.y))
-                })
-            })
-            .or_else(|| cx.primary_display());
-        let work = display
-            .as_ref()
-            .map(|display| display.visible_bounds())
-            .unwrap_or(Bounds::new(
-                point(px(0.), px(0.)),
-                size(px(1280.), px(800.)),
-            ));
-        let origin = settings
-            .bubble_position
-            .map(|position| platform::position(position.x, position.y))
-            .unwrap_or(point(
-                work.right() - px(BUBBLE_SIZE + 8.),
-                work.bottom() - px(BUBBLE_SIZE + 8.),
-            ));
-        let origin = clamp_origin(origin, size(px(BUBBLE_SIZE), px(BUBBLE_SIZE)), work);
-        let state = cx.entity();
-        let service = self.service.clone();
-        let updater = self.updater.clone();
-        match open_overlay(
-            overlay_options(
-                Bounds::new(origin, size(px(BUBBLE_SIZE), px(BUBBLE_SIZE))),
-                false,
-                display.map(|display| display.id()),
-            ),
-            px(BUBBLE_SIZE / 2.),
-            cx,
-            |window, cx| {
-                cx.new(|cx| AppView::new(state, View::Bubble, service, updater, window, cx))
-            },
-        ) {
-            Ok((handle, _)) => self.bubble = Some(handle),
-            Err(error) => self.message = Some((error.to_string(), Instant::now())),
-        }
-    }
-    fn toggle_details(&mut self, cx: &mut Context<Self>) {
-        if self.panel_mode == View::Details
-            && let Some(panel) = self.panel.take()
-        {
-            let _ = panel.update(cx, |_, window, _| window.remove_window());
-            cx.notify();
-        } else {
-            self.open_panel(View::Details, cx);
-        }
-    }
-    fn open_panel(&mut self, mode: View, cx: &mut Context<Self>) {
-        if let Some(panel) = self.panel.take() {
-            let _ = panel.update(cx, |_, window, _| window.remove_window());
-        }
-        self.panel_mode = mode;
-        let state = cx.entity();
-        let service = self.service.clone();
-        let updater = self.updater.clone();
-        let payload = self.service.payload();
-        let display = cx.primary_display();
-        let mut work = display
-            .as_ref()
-            .map(|display| display.visible_bounds())
-            .unwrap_or(Bounds::new(
-                point(px(0.), px(0.)),
-                size(px(1280.), px(800.)),
-            ));
-        let mut origin = point(
-            work.right() - px(PANEL_WIDTH + 12.),
-            work.origin.y + px(12.),
-        );
-        if payload.settings.display_mode == DisplayMode::Bubble {
-            if let Some(bubble) = self.bubble {
-                let _ = bubble.update(cx, |_, window, cx| {
-                    let bounds = window.bounds();
-                    if let Some(display) = window.display(cx) {
-                        work = display.visible_bounds();
-                    }
-                    origin = point(bounds.origin.x - px(PANEL_WIDTH + 8.), bounds.origin.y);
-                });
-            }
-        } else if let Some((x, y)) = self.tray.as_ref().and_then(StatusTray::position) {
-            let logical = platform::logical_screen_point(x, y);
-            let (x, y) = (f32::from(logical.x), f32::from(logical.y));
-            if let Some(display) = cx
-                .displays()
-                .into_iter()
-                .find(|display| display.bounds().contains(&point(px(x), px(y))))
-            {
-                work = display.visible_bounds();
-            }
-            origin = point(px(x) - px(PANEL_WIDTH), px(y) + px(24.));
-        }
-        let width = if mode == View::Settings {
-            MENU_WIDTH
-        } else {
-            PANEL_WIDTH
-        };
-        let height: f32 = if mode == View::Consent {
-            260.
-        } else if mode == View::Settings {
-            528.
-        } else {
-            500.
-        };
-        let height = height.min(f32::from(work.size.height) - 24.);
-        let origin = clamp_origin(origin, size(px(width), px(height)), work);
-        match open_overlay(
-            overlay_options(Bounds::new(origin, size(px(width), px(height))), true, None),
-            px(22.),
-            cx,
-            |window, cx| cx.new(|cx| AppView::new(state, mode, service, updater, window, cx)),
-        ) {
-            Ok((handle, _)) => {
-                self.panel = Some(handle);
-                cx.activate(true);
-            }
-            Err(error) => self.message = Some((error.to_string(), Instant::now())),
-        }
-        cx.notify();
-    }
-    fn change(&mut self, change: Change, cx: &mut Context<Self>) {
-        let previous = self.service.payload().settings;
-        if let Change::Visible(provider, false) = change
-            && previous.bubble_visible_providers.len() <= 1
-            && previous.bubble_visible_providers.contains(&provider)
-        {
-            self.message = Some((
-                I18n::new(previous.ui_language).t("config.keepOne"),
-                Instant::now(),
-            ));
-            cx.notify();
-            return;
-        }
-        if matches!(change, Change::Display(DisplayMode::StatusBar)) && self.tray.is_none() {
-            self.message = Some(("状态栏不可用，请使用悬浮球".into(), Instant::now()));
-            cx.notify();
-            return;
-        }
-        if let Change::Autostart(enabled) = change
-            && let Err(error) = platform::set_autostart(enabled)
-        {
-            self.message = Some((error, Instant::now()));
-            cx.notify();
-            return;
-        }
-        let result = self.service.update_settings(|settings| match &change {
-            Change::Display(mode) => settings.display_mode = *mode,
-            Change::Percent(mode) => settings.bubble_percent_mode = *mode,
-            Change::Refresh(minutes) => settings.refresh_minutes = *minutes,
-            Change::Language(language) => settings.ui_language = *language,
-            Change::Snap(enabled) => settings.bubble_snap_enabled = *enabled,
-            Change::Autostart(enabled) => settings.autostart = *enabled,
-            Change::Compat(enabled) => settings.cursor_compat_enabled = *enabled,
-            Change::Visible(provider, visible) => {
+impl Change {
+    fn apply(&self, settings: &mut AppSettings) {
+        match self {
+            Self::Display(v) => settings.display_mode = *v,
+            Self::Percent(v) => settings.bubble_percent_mode = *v,
+            Self::Refresh(v) => settings.refresh_minutes = *v,
+            Self::Language(v) => settings.ui_language = *v,
+            Self::Snap(v) => settings.bubble_snap_enabled = *v,
+            Self::Autostart(v) => settings.autostart = *v,
+            Self::Compat(v) => settings.cursor_compat_enabled = *v,
+            Self::Visible { provider, visible } => {
+                settings.bubble_visible_providers.retain(|p| p != provider);
                 if *visible {
                     settings.bubble_visible_providers.push(*provider);
-                } else if settings.bubble_visible_providers.len() > 1 {
-                    settings
-                        .bubble_visible_providers
-                        .retain(|candidate| candidate != provider);
                 }
             }
-            Change::Label(provider, label) => match provider {
-                Provider::Cursor => settings.cursor_bubble_label = label.clone(),
-                Provider::Codex => settings.codex_bubble_label = label.clone(),
-                Provider::Claude => settings.claude_bubble_label = label.clone(),
-            },
-            Change::Color(provider, color) => match provider {
-                Provider::Cursor => settings.cursor_bubble_color = color.clone(),
-                Provider::Codex => settings.codex_bubble_color = color.clone(),
-                Provider::Claude => settings.claude_bubble_color = color.clone(),
-            },
-            Change::MoveProvider(provider, target, placement) => {
-                if provider != target {
-                    settings
-                        .bubble_provider_order
-                        .retain(|candidate| candidate != provider);
-                    let index = settings
-                        .bubble_provider_order
-                        .iter()
-                        .position(|candidate| candidate == target)
-                        .unwrap_or(0);
-                    let index = index + usize::from(*placement == Placement::Bottom);
-                    settings.bubble_provider_order.insert(index, *provider);
-                }
+            Self::Order(order) => settings.bubble_provider_order = order.clone(),
+            Self::Label { provider, label } => {
+                *match provider {
+                    Provider::Cursor => &mut settings.cursor_bubble_label,
+                    Provider::Codex => &mut settings.codex_bubble_label,
+                    Provider::Claude => &mut settings.claude_bubble_label,
+                } = label.clone()
             }
-            Change::Reorder(provider, direction) => {
-                if let Some(index) = settings
-                    .bubble_provider_order
-                    .iter()
-                    .position(|candidate| candidate == provider)
-                {
-                    let target = (index as i32 + direction)
-                        .clamp(0, settings.bubble_provider_order.len() as i32 - 1)
-                        as usize;
-                    settings.bubble_provider_order.swap(index, target);
-                }
-            }
-        });
-        match result {
-            Ok(settings) => {
-                if settings.display_mode != previous.display_mode {
-                    if settings.display_mode == DisplayMode::StatusBar {
-                        if let Some(bubble) = self.bubble.take() {
-                            let _ = bubble.update(cx, |_, window, _| window.remove_window());
-                        }
-                    } else {
-                        self.open_bubble(cx);
-                    }
-                }
-                if settings.cursor_compat_enabled != previous.cursor_compat_enabled {
-                    self.refresh(false);
-                }
-                if let Some(tray) = &mut self.tray {
-                    let _ = tray.rebuild_menu(&self.service.payload());
-                    tray.update(&self.service.payload(), self.cycle);
-                }
-                self.message = Some((
-                    I18n::new(settings.ui_language).t("native.updated"),
-                    Instant::now(),
-                ));
-            }
-            Err(error) => {
-                if let Change::Autostart(_) = change {
-                    let _ = platform::set_autostart(previous.autostart);
-                }
-                self.message = Some((error, Instant::now()));
+            Self::Color { provider, color } => {
+                *match provider {
+                    Provider::Cursor => &mut settings.cursor_bubble_color,
+                    Provider::Codex => &mut settings.codex_bubble_color,
+                    Provider::Claude => &mut settings.claude_bubble_color,
+                } = color.clone()
             }
         }
-        cx.notify();
     }
-    fn login(&mut self) {
-        if self.login_running.swap(true, Ordering::AcqRel) {
-            return;
+}
+fn change_settings(app: &AppHandle, change: Change) -> Result<()> {
+    let state = app.state::<Desktop>();
+    let _guard = state.settings_gate.lock().map_err(|e| e.to_string())?;
+    let previous = state.service.payload().settings;
+    if let Change::Visible {
+        provider,
+        visible: false,
+    } = &change
+        && previous.bubble_visible_providers.len() == 1
+        && previous.bubble_visible_providers.contains(provider)
+    {
+        return Err(I18n::new(previous.ui_language).t("config.keepOne"));
+    }
+    if matches!(change, Change::Display(DisplayMode::StatusBar))
+        && app.tray_by_id("metra-status").is_none()
+    {
+        return Err("Status bar is unavailable on this desktop".into());
+    }
+    if let Change::Autostart(enabled) = change {
+        platform::set_autostart(enabled)?;
+    }
+    let saved = state
+        .service
+        .update_settings(|settings| change.apply(settings));
+    if let Err(error) = saved {
+        if matches!(change, Change::Autostart(_)) {
+            let _ = platform::set_autostart(previous.autostart);
         }
-        let service = self.service.clone();
-        let sender = self.sender.clone();
-        let running = self.login_running.clone();
-        std::thread::spawn(move || {
+        return Err(error);
+    }
+    if let Some(bubble) = app.get_webview_window("bubble") {
+        match change {
+            Change::Display(DisplayMode::Bubble) => {
+                bubble.show().map_err(|e| e.to_string())?;
+            }
+            Change::Display(DisplayMode::StatusBar) => {
+                bubble.hide().map_err(|e| e.to_string())?;
+            }
+            Change::Snap(enabled) => set_peek(app, enabled, enabled)?,
+            _ => {}
+        }
+    }
+    tray::rebuild(app, &state.service.payload()).map_err(|e| e.to_string())?;
+    publish(app);
+    if matches!(change, Change::Compat(true)) {
+        spawn_refresh(app, false);
+    }
+    Ok(())
+}
+#[tauri::command]
+async fn change_setting(app: AppHandle, change: Change) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || change_settings(&app, change))
+        .await
+        .map_err(|e| e.to_string())?
+}
+fn provider_mask(provider: Provider) -> u8 {
+    match provider {
+        Provider::Cursor => 1,
+        Provider::Codex => 2,
+        Provider::Claude => 4,
+    }
+}
+fn run_refresh(app: &AppHandle, recheck: bool) {
+    let state = app.state::<Desktop>();
+    // Tray clicks and sign-in rechecks share the same provider progress lifecycle.
+    let Ok(_guard) = state.refresh_gate.try_lock() else {
+        return;
+    };
+    *state.last_refresh.lock().expect("refresh time") = Instant::now();
+    let progress = |provider, running| {
+        if running {
+            state
+                .refreshing_providers
+                .fetch_or(provider_mask(provider), Ordering::AcqRel);
+        } else {
+            state
+                .refreshing_providers
+                .fetch_and(!provider_mask(provider), Ordering::AcqRel);
+        }
+        publish(app);
+    };
+    crate::providers::discovery::invalidate_shell_cache();
+    if recheck {
+        state
+            .service
+            .refresh_cursor_login_status_with_progress(progress);
+    } else {
+        state.service.refresh_with_progress(true, progress);
+    }
+    publish(app);
+}
+fn spawn_refresh(app: &AppHandle, recheck: bool) {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || run_refresh(&app, recheck));
+}
+#[tauri::command]
+async fn refresh(app: AppHandle, recheck: bool) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || run_refresh(&app, recheck))
+        .await
+        .map_err(|e| e.to_string())
+}
+fn monitor_work(monitor: &tauri::Monitor) -> (WorkArea, f64) {
+    let work = monitor.work_area();
+    (
+        WorkArea {
+            x: work.position.x as f64,
+            y: work.position.y as f64,
+            width: work.size.width as f64,
+            height: work.size.height as f64,
+        },
+        monitor.scale_factor(),
+    )
+}
+fn work_area(window: &WebviewWindow) -> Result<(WorkArea, f64)> {
+    let monitor = window
+        .current_monitor()
+        .map_err(|e| e.to_string())?
+        .or(window.primary_monitor().map_err(|e| e.to_string())?)
+        .ok_or("No display available")?;
+    Ok(monitor_work(&monitor))
+}
+fn refresh_glass(app: &AppHandle, window: &WebviewWindow, radius: f64) {
+    if let Err(error) = platform::apply_glass(window, radius) {
+        diagnostics::warn("desktop.glass_unavailable", error);
+        app.state::<Desktop>()
+            .native_glass
+            .store(false, Ordering::Release);
+    }
+}
+fn save_position(app: &AppHandle) -> Result<()> {
+    let window = app
+        .get_webview_window("bubble")
+        .ok_or("Bubble unavailable")?;
+    let state = app.state::<Desktop>();
+    let mut p = window.outer_position().map_err(|e| e.to_string())?;
+    if state.peek.load(Ordering::Acquire) {
+        let (work, scale) = work_area(&window)?;
+        let (x, y, _) = work.dock(p.x as f64, p.y as f64, scale, false);
+        p = PhysicalPosition::new(x, y);
+    }
+    state.service.update_settings(|s| {
+        s.bubble_position = Some(SavedPosition { x: p.x, y: p.y });
+        s.bubble_position_version = 3; // Tauri physical desktop coordinates.
+    })?;
+    Ok(())
+}
+fn set_peek(app: &AppHandle, peek: bool, force: bool) -> Result<()> {
+    let state = app.state::<Desktop>();
+    let _guard = state.bubble_gate.lock().map_err(|e| e.to_string())?;
+    if state.dragging.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    let window = app
+        .get_webview_window("bubble")
+        .ok_or("Bubble unavailable")?;
+    let (work, scale) = work_area(&window)?;
+    let p = window.outer_position().map_err(|e| e.to_string())?;
+    if peek {
+        if !state.service.payload().settings.bubble_snap_enabled {
+            return Ok(());
+        }
+        let near_edge = (p.x as f64 - work.x).abs() < 12. * scale
+            || (p.x as f64 + 56. * scale - work.x - work.width).abs() < 12. * scale;
+        if !force && !near_edge {
+            return Ok(());
+        }
+    }
+    let was_peek = state.peek.load(Ordering::Acquire);
+    if !peek && !was_peek {
+        return Ok(());
+    }
+    let (x, y) = if peek || was_peek {
+        let (x, y, _) = work.dock(p.x as f64, p.y as f64, scale, peek);
+        (x, y)
+    } else {
+        work.clamp(p.x as f64, p.y as f64, 56. * scale, 56. * scale)
+    };
+    window
+        .set_size(LogicalSize::new(if peek { 32. } else { 56. }, 56.))
+        .map_err(|e| e.to_string())?;
+    window
+        .set_position(PhysicalPosition::new(x, y))
+        .map_err(|e| e.to_string())?;
+    refresh_glass(app, &window, if peek { 16. } else { 28. });
+    state.peek.store(peek, Ordering::Release);
+    save_position(app)?;
+    publish(app);
+    Ok(())
+}
+#[tauri::command]
+async fn bubble_hover(app: AppHandle, hovered: bool) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || set_peek(&app, !hovered, false))
+        .await
+        .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn drag_bubble(app: AppHandle) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<Desktop>();
+        set_peek(&app, false, false)?;
+        if state.dragging.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        let window = app
+            .get_webview_window("bubble")
+            .ok_or("Bubble unavailable")?;
+        let result: Result<()> = (|| {
+            // Acrylic is expensive during native window moves on some Windows builds.
+            #[cfg(windows)]
+            window.set_effects(None).map_err(|e| e.to_string())?;
+            window.start_dragging().map_err(|e| e.to_string())?;
+            // Windows returns after its native move loop; macOS/Linux return immediately.
+            let deadline = Instant::now() + Duration::from_secs(120);
+            while platform::primary_button_pressed()? && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Ok(())
+        })();
+        state.dragging.store(false, Ordering::Release);
+        refresh_glass(&app, &window, 28.);
+        result?;
+        if state.service.payload().settings.bubble_snap_enabled {
+            set_peek(&app, true, true)?;
+        } else {
+            let (work, scale) = work_area(&window)?;
+            let p = window.outer_position().map_err(|e| e.to_string())?;
+            let (x, y) = work.clamp(p.x as f64, p.y as f64, 56. * scale, 56. * scale);
+            window
+                .set_position(PhysicalPosition::new(x, y))
+                .map_err(|e| e.to_string())?;
+        }
+        save_position(&app)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+fn show_panel(app: &AppHandle, mode: &str, toggle: bool) -> Result<()> {
+    if !["details", "settings", "consent"].contains(&mode) {
+        return Err("Unknown panel".into());
+    }
+    let state = app.state::<Desktop>();
+    let panel = app.get_webview_window("panel").ok_or("Panel unavailable")?;
+    if toggle
+        && panel.is_visible().unwrap_or(false)
+        && *state.panel.lock().expect("panel mode") == mode
+    {
+        return panel.hide().map_err(|e| e.to_string());
+    }
+    *state.panel.lock().expect("panel mode") = mode.into();
+    let settings = state.service.payload().settings;
+    let bubble = app
+        .get_webview_window("bubble")
+        .ok_or("Bubble unavailable")?;
+    let (mut work, mut scale) = work_area(&bubble)?;
+    let tray_position = if settings.display_mode == DisplayMode::StatusBar {
+        app.tray_by_id("metra-status")
+            .and_then(|tray| tray.rect().ok().flatten())
+            .map(|rect| rect.position.to_physical::<f64>(scale))
+    } else {
+        None
+    };
+    if let Some(p) = tray_position
+        && let Some(monitor) = bubble
+            .monitor_from_point(p.x, p.y)
+            .map_err(|e| e.to_string())?
+    {
+        (work, scale) = monitor_work(&monitor);
+    }
+    let width: f64 = if mode == "settings" { 340. } else { 360. };
+    let height: f64 = if mode == "consent" { 300. } else { 560. };
+    let height = height.min(work.height / scale - 16.).max(160.);
+    panel
+        .set_size(tauri::PhysicalSize::new(
+            (width * scale).round() as u32,
+            (height * scale).round() as u32,
+        ))
+        .map_err(|e| e.to_string())?;
+    let mut x = work.x + work.width - (width + 12.) * scale;
+    let mut y = work.y + 12. * scale;
+    if settings.display_mode == DisplayMode::Bubble {
+        let p = bubble.outer_position().map_err(|e| e.to_string())?;
+        x = p.x as f64 - (width + 8.) * scale;
+        if x < work.x {
+            x = p.x as f64 + 64. * scale;
+        }
+        y = p.y as f64;
+    } else if let Some(p) = tray_position {
+        x = p.x - width * scale;
+        y = p.y + 24. * scale;
+    }
+    let (x, y) = work.clamp(x, y, width * scale, height * scale);
+    panel
+        .set_position(PhysicalPosition::new(x, y))
+        .map_err(|e| e.to_string())?;
+    refresh_glass(app, &panel, 22.);
+    publish(app);
+    panel
+        .show()
+        .and_then(|_| panel.set_focus())
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+async fn open_panel(app: AppHandle, mode: String, toggle: bool) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || show_panel(&app, &mode, toggle))
+        .await
+        .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+fn hide_panel(app: AppHandle) -> Result<()> {
+    app.get_webview_window("panel")
+        .ok_or("Panel unavailable")?
+        .hide()
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn quit(app: AppHandle) {
+    app.exit(0);
+}
+
+fn open_url(url: &str) -> Result<()> {
+    let mut command = std::process::Command::new(if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(windows) {
+        "explorer.exe"
+    } else {
+        "xdg-open"
+    });
+    command.arg(url);
+    crate::providers::scrub_sensitive_child_environment(&mut command);
+    command.spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+#[tauri::command]
+async fn login_cursor(app: AppHandle) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<Desktop>();
+        if state.login_running.swap(true, Ordering::AcqRel) {
+            return Err("Cursor sign-in is already running".into());
+        }
+        publish(&app);
+        let result = (|| {
             let executable = crate::providers::cursor::cursor_login_executable();
-            if !service.cursor_compat.load(Ordering::Acquire)
+            if !state.service.cursor_compat.load(Ordering::Acquire)
                 && let Some(executable) = executable
             {
                 let mut command = crate::providers::discovery::command_for(&executable, &["login"]);
@@ -589,1944 +535,385 @@ impl Desktop {
                     use std::os::windows::process::CommandExt;
                     command.creation_flags(0x08000000);
                 }
-                match command.spawn() {
-                    Ok(mut child) => {
-                        let deadline = Instant::now() + Duration::from_secs(300);
-                        loop {
-                            match child.try_wait() {
-                                Ok(Some(status)) => {
-                                    let _ = sender.send(Event::LoginFinished(status.success()));
-                                    break;
-                                }
-                                Ok(None) if Instant::now() < deadline => {
-                                    std::thread::sleep(Duration::from_millis(100))
-                                }
-                                _ => {
-                                    let _ = child.kill();
-                                    let _ = child.wait();
-                                    let _ = sender.send(Event::LoginFinished(false));
-                                    break;
-                                }
-                            }
+                let mut child = command.spawn().map_err(|e| e.to_string())?;
+                let deadline = Instant::now() + Duration::from_secs(300);
+                loop {
+                    match child.try_wait() {
+                        Ok(Some(status)) if status.success() => break,
+                        Ok(Some(_)) => return Err("Cursor sign-in was not completed".into()),
+                        Ok(None) if Instant::now() < deadline => {
+                            std::thread::sleep(Duration::from_millis(100))
+                        }
+                        _ => {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            return Err("Cursor sign-in timed out".into());
                         }
                     }
-                    Err(error) => {
-                        running.store(false, Ordering::Release);
-                        let _ = sender.send(Event::Message(error.to_string()));
-                    }
                 }
+                run_refresh(&app, true);
             } else {
-                let mut command = std::process::Command::new(if cfg!(target_os = "macos") {
-                    "open"
-                } else if cfg!(windows) {
-                    "explorer.exe"
-                } else {
-                    "xdg-open"
-                });
-                command.arg("cursor://anysphere.cursor-deeplink/settings/plan-usage");
-                crate::providers::scrub_sensitive_child_environment(&mut command);
-                let result = command.spawn();
-                running.store(false, Ordering::Release);
-                let _ = sender.send(Event::Message(
-                    result
-                        .map(|_| "已打开 Cursor 登录页面".into())
-                        .unwrap_or_else(|error| error.to_string()),
-                ));
+                open_url("cursor://anysphere.cursor-deeplink/settings/plan-usage")?;
             }
-        });
-    }
-    fn check_update(&self) {
-        let updater = self.updater.clone();
-        let sender = self.sender.clone();
-        std::thread::spawn(move || {
-            updater.check();
-            let _ = sender.send(Event::UpdateReady);
-        });
-    }
-    #[cfg(windows)]
-    fn install_update(&self) {
-        let updater = self.updater.clone();
-        let sender = self.sender.clone();
-        std::thread::spawn(move || {
-            let event = match updater.install_windows() {
-                Ok(()) => Event::InstallerStarted,
-                Err(error) => Event::Message(error),
-            };
-            let _ = sender.send(event);
-        });
-    }
+            Ok(())
+        })();
+        state.login_running.store(false, Ordering::Release);
+        publish(&app);
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
-
-fn open_overlay<V: Render>(
-    options: WindowOptions,
-    radius: Pixels,
-    cx: &mut App,
-    build: impl FnOnce(&mut Window, &mut App) -> Entity<V>,
-) -> gpui::Result<(AnyWindowHandle, Entity<V>)> {
-    let (handle, view) = gpui::open_window(options, cx, build)?;
-    handle.update(cx, |_, window, cx| {
-        gpui::base::Root::update(window, cx, |root, _, cx| {
-            // Kit's root defaults to an opaque theme surface, even in transparent windows.
-            root.style().background = Some(transparent_black().into());
-            cx.notify();
-        });
-        if let Err(error) = platform::finish_overlay_material(window, radius) {
-            diagnostics::warn("overlay.material_failed", error);
-        }
-    })?;
-    Ok((handle, view))
+#[tauri::command]
+async fn check_update(app: AppHandle) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<Desktop>();
+        state.updater.check();
+        publish(&app);
+        state.updater.status().error.map_or(Ok(()), Err)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
-
-fn overlay_options(
-    bounds: Bounds<Pixels>,
-    focus: bool,
-    display_id: Option<DisplayId>,
-) -> WindowOptions {
-    WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(bounds)),
-        titlebar: None,
-        focus,
-        show: true,
-        kind: WindowKind::PopUp,
-        is_movable: true,
-        app_owns_titlebar_drag: true,
-        is_resizable: false,
-        is_minimizable: false,
-        display_id,
-        window_background: WindowBackgroundAppearance::Blurred,
-        window_decorations: Some(WindowDecorations::Server),
-        app_id: Some("dev.metra.desktop".into()),
-        ..Default::default()
-    }
-}
-fn clamp_origin(origin: Point<Pixels>, size: Size<Pixels>, work: Bounds<Pixels>) -> Point<Pixels> {
-    point(
-        px(f32::from(origin.x).clamp(
-            f32::from(work.origin.x),
-            (f32::from(work.right() - size.width)).max(f32::from(work.origin.x)),
-        )),
-        px(f32::from(origin.y).clamp(
-            f32::from(work.origin.y),
-            (f32::from(work.bottom() - size.height)).max(f32::from(work.origin.y)),
-        )),
-    )
-}
-fn provider_name(provider: Provider) -> &'static str {
-    match provider {
-        Provider::Cursor => "Cursor",
-        Provider::Codex => "Codex",
-        Provider::Claude => "Claude Code",
-    }
-}
-fn provider_index(provider: Provider) -> usize {
-    match provider {
-        Provider::Cursor => 0,
-        Provider::Codex => 1,
-        Provider::Claude => 2,
-    }
-}
-fn provider_data(payload: &AppPayload, provider: Provider) -> &ProviderSnapshot {
-    match provider {
-        Provider::Cursor => &payload.snapshot.cursor,
-        Provider::Codex => &payload.snapshot.codex,
-        Provider::Claude => &payload.snapshot.claude,
-    }
-}
-fn color(value: &str) -> Hsla {
-    rgb(u32::from_str_radix(value.trim_start_matches('#'), 16).unwrap_or(0x9c83ff)).into()
-}
-fn compact(value: Option<u64>) -> String {
-    value.map_or_else(
-        || "—".into(),
-        |value| {
-            if value >= 1_000_000 {
-                format!("{:.1}M", value as f64 / 1_000_000.)
-            } else if value >= 1_000 {
-                format!("{:.1}K", value as f64 / 1_000.)
-            } else {
-                value.to_string()
-            }
-        },
-    )
-}
-fn money(value: Option<u64>) -> String {
-    value.map_or_else(
-        || "—".into(),
-        |value| format!("${:.2}", value as f64 / 100.),
-    )
-}
-
-struct ProviderDrag(Provider);
-impl Render for ProviderDrag {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .px(px(10.))
-            .py(px(6.))
-            .rounded(px(8.))
-            .bg(rgba(0x28243db3))
-            .text_color(rgb(0xd5ceff))
-            .text_size(px(11.))
-            .child(provider_name(self.0))
-    }
-}
-
-struct AppView {
-    desktop: Entity<Desktop>,
-    service: Arc<RefreshService>,
-    updater: Arc<Updater>,
-    message: Option<String>,
-    mode: View,
-    labels: Vec<Entity<InputState>>,
-    language: Entity<SelectState<Vec<SharedString>>>,
-    language_locale: &'static str,
-    subscriptions: Vec<Subscription>,
-    provider_bounds: [Bounds<Pixels>; 3],
-    provider_focus: [FocusHandle; 3],
-    drag_origin: Option<Point<Pixels>>,
-    moved: bool,
-    dragging: bool,
-    peek: bool,
-    dock_right: bool,
-    position_revision: u64,
-    idle_revision: u64,
-    hovered: bool,
-}
-impl AppView {
-    fn new(
-        desktop: Entity<Desktop>,
-        mode: View,
-        service: Arc<RefreshService>,
-        updater: Arc<Updater>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        window.set_rem_size(px(13.));
-        let payload = service.payload();
-        let language_options = vec![
-            I18n::new(payload.settings.ui_language).t("menu.languageSystem"),
-            "简体中文".into(),
-            "English".into(),
-            "日本語".into(),
-            "한국어".into(),
-        ]
-        .into_iter()
-        .map(SharedString::from)
-        .collect::<Vec<_>>();
-        let language_index = [
-            UiLanguage::System,
-            UiLanguage::ZhCn,
-            UiLanguage::En,
-            UiLanguage::Ja,
-            UiLanguage::Ko,
-        ]
-        .iter()
-        .position(|value| *value == payload.settings.ui_language)
-        .unwrap_or(0);
-        let language = cx.new(|cx| {
-            SelectState::new(
-                language_options,
-                Some(IndexPath::new(language_index)),
-                window,
-                cx,
-            )
-        });
-        let subscriptions = vec![
-            cx.observe_in(&desktop, window, |view, desktop, window, cx| {
-                view.message = desktop
-                    .read(cx)
-                    .message
-                    .as_ref()
-                    .map(|(message, _)| message.clone());
-                let settings = desktop.read(cx).service.payload().settings;
-                let locale = I18n::new(settings.ui_language);
-                if view.language_locale != locale.locale {
-                    let labels = vec![
-                        locale.t("menu.languageSystem"),
-                        "简体中文".into(),
-                        "English".into(),
-                        "日本語".into(),
-                        "한국어".into(),
-                    ]
-                    .into_iter()
-                    .map(SharedString::from)
-                    .collect::<Vec<_>>();
-                    let index = [
-                        UiLanguage::System,
-                        UiLanguage::ZhCn,
-                        UiLanguage::En,
-                        UiLanguage::Ja,
-                        UiLanguage::Ko,
-                    ]
-                    .iter()
-                    .position(|candidate| *candidate == settings.ui_language)
-                    .unwrap_or(0);
-                    view.language.update(cx, |state, cx| {
-                        state.set_items(labels, window, cx);
-                        state.set_selected_index(Some(IndexPath::new(index)), window, cx);
-                    });
-                    view.language_locale = locale.locale;
-                }
-                cx.notify();
-            }),
-        ];
-        let labels = if matches!(mode, View::Settings | View::Details) {
-            [
-                &payload.settings.cursor_bubble_label,
-                &payload.settings.codex_bubble_label,
-                &payload.settings.claude_bubble_label,
-            ]
-            .into_iter()
-            .map(|label| cx.new(|cx| InputState::new(window, cx).default_value(label.clone())))
-            .collect()
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<Desktop>();
+        if state.updater.supports_install() {
+            state.updater.install_windows()?;
+            app.exit(0);
+            Ok(())
         } else {
-            vec![]
-        };
-        let mut view = Self {
-            desktop,
-            service,
-            updater,
-            message: None,
-            mode,
-            labels,
-            language,
-            language_locale: I18n::new(payload.settings.ui_language).locale,
-            subscriptions,
-            provider_bounds: [Bounds::default(); 3],
-            provider_focus: std::array::from_fn(|_| cx.focus_handle()),
-            drag_origin: None,
-            moved: false,
-            dragging: false,
-            peek: false,
-            dock_right: false,
-            position_revision: 0,
-            idle_revision: 0,
-            hovered: false,
-        };
-        let language = view.language.clone();
-        view.subscriptions
-            .push(cx.subscribe_in(&language, window, |view, _, event, _, cx| {
-                let SelectEvent::Confirm(Some(value)) = event else {
-                    return;
-                };
-                let language = match value.as_ref() {
-                    "简体中文" => UiLanguage::ZhCn,
-                    "English" => UiLanguage::En,
-                    "日本語" => UiLanguage::Ja,
-                    "한국어" => UiLanguage::Ko,
-                    _ => UiLanguage::System,
-                };
-                view.dispatch(Change::Language(language), cx);
-            }));
-        if matches!(mode, View::Settings | View::Details) {
-            for provider in [Provider::Cursor, Provider::Codex, Provider::Claude] {
-                let input = view.labels[provider_index(provider)].clone();
-                view.subscriptions.push(cx.subscribe_in(
-                    &input,
-                    window,
-                    move |view, input, event, window, cx| {
-                        if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
-                            let value = input.read(cx).value().to_string();
-                            let trimmed = value.trim().chars().take(3).collect::<String>();
-                            let normalized = if trimmed.is_empty() {
-                                match provider {
-                                    Provider::Cursor => "C",
-                                    Provider::Codex => "X",
-                                    Provider::Claude => "A",
-                                }
-                                .to_string()
-                            } else {
-                                trimmed
-                            };
-                            if normalized != value {
-                                input.update(cx, |input, cx| {
-                                    input.set_value(normalized.clone(), window, cx)
-                                });
-                            }
-                            view.dispatch(Change::Label(provider, normalized), cx);
-                        }
-                    },
-                ));
-            }
+            let version = state
+                .updater
+                .status()
+                .version
+                .ok_or("No update available")?;
+            open_url(&crate::updater::release_page(&version).ok_or("Invalid version")?)
         }
-        if mode != View::Bubble {
-            let handle = window.window_handle();
-            view.subscriptions.push(cx.observe_window_activation(
-                window,
-                move |view, window, cx| {
-                    if !window.is_window_active() {
-                        let desktop = view.desktop.clone();
-                        cx.defer(move |cx| {
-                            desktop.update(cx, |desktop, cx| {
-                                if desktop.panel == Some(handle) {
-                                    desktop.panel = None;
-                                    let _ =
-                                        handle.update(cx, |_, window, _| window.remove_window());
-                                    cx.notify();
-                                }
-                            })
-                        });
-                    }
-                },
-            ));
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+fn dispatch_tray_action(app: &AppHandle, id: &str) -> Result<()> {
+    match id {
+        "details" => show_panel(app, "details", true),
+        "settings" => show_panel(app, "settings", false),
+        "refresh" => {
+            spawn_refresh(app, false);
+            Ok(())
         }
-        if mode == View::Bubble {
-            let mut material_size = window.bounds().size;
-            view.subscriptions
-                .push(cx.observe_window_bounds(window, move |view, window, cx| {
-                    let bounds = window.bounds();
-                    if bounds.size != material_size {
-                        material_size = bounds.size;
-                        let radius = bounds.size.width.min(bounds.size.height) / 2.;
-                        if let Err(error) = platform::finish_overlay_material(window, radius) {
-                            diagnostics::warn("overlay.material_failed", error);
-                        }
-                    }
-                    let mut position = platform::save_position(window);
-                    if view.peek && view.dock_right {
-                        position.x -= px(BUBBLE_SIZE - PEEK_SIZE);
-                    }
-                    view.position_revision = view.position_revision.wrapping_add(1);
-                    let revision = view.position_revision;
-                    cx.spawn_in(window, async move |weak, cx| {
-                        cx.background_executor()
-                            .timer(Duration::from_millis(250))
-                            .await;
-                        let _ = weak.update_in(cx, |view, _, _| {
-                            if view.position_revision == revision {
-                                let _ = view.service.update_settings(|settings| {
-                                    settings.bubble_position = Some(SavedPosition {
-                                        x: f32::from(position.x).round() as i32,
-                                        y: f32::from(position.y).round() as i32,
-                                    });
-                                    settings.bubble_position_version = 2;
-                                });
-                            }
-                        });
-                    })
-                    .detach();
-                }));
-        }
-        view
-    }
-    fn dispatch(&self, change: Change, cx: &mut Context<Self>) {
-        let desktop = self.desktop.clone();
-        cx.defer(move |cx| desktop.update(cx, |desktop, cx| desktop.change(change, cx)));
-    }
-    fn open(&self, mode: View, cx: &mut Context<Self>) {
-        let desktop = self.desktop.clone();
-        let toggle = self.mode == View::Bubble && mode == View::Details;
-        cx.defer(move |cx| {
-            desktop.update(cx, |desktop, cx| {
-                if toggle {
-                    desktop.toggle_details(cx)
+        "display" => {
+            let current = app
+                .state::<Desktop>()
+                .service
+                .payload()
+                .settings
+                .display_mode;
+            change_settings(
+                app,
+                Change::Display(if current == DisplayMode::Bubble {
+                    DisplayMode::StatusBar
                 } else {
-                    desktop.open_panel(mode, cx)
-                }
-            })
-        });
-    }
-    fn refresh(&self, recheck: bool, cx: &mut Context<Self>) {
-        let desktop = self.desktop.clone();
-        cx.defer(move |cx| {
-            desktop.update(cx, |desktop, cx| {
-                desktop.refresh(recheck);
-                cx.notify();
-            })
-        });
-    }
-    fn reveal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.peek {
-            let origin = window.bounds().origin;
-            window.resize(size(px(BUBBLE_SIZE), px(BUBBLE_SIZE)));
-            if self.dock_right {
-                let _ = platform::move_window(
-                    window,
-                    point(origin.x - px(BUBBLE_SIZE - PEEK_SIZE), origin.y),
-                );
-            }
-            self.peek = false;
-            cx.notify();
-        }
-    }
-    fn fold(&mut self, window: &mut Window, cx: &mut Context<Self>, snap_to_edge: bool) {
-        if self.peek || self.dragging {
-            return;
-        }
-        let Some(display) = window.display(cx) else {
-            return;
-        };
-        let work = display.visible_bounds();
-        let bounds = window.bounds();
-        let near_edge = f32::from(bounds.origin.x - work.origin.x).abs() < 12.
-            || f32::from(bounds.right() - work.right()).abs() < 12.;
-        if !snap_to_edge && !near_edge {
-            return;
-        }
-        self.dock_right = bounds.center().x >= work.center().x;
-        let x = if self.dock_right {
-            work.right() - px(PEEK_SIZE)
-        } else {
-            work.origin.x
-        };
-        self.peek = true;
-        window.resize(size(px(PEEK_SIZE), px(BUBBLE_SIZE)));
-        if let Err(error) = platform::move_window(
-            window,
-            point(x, clamp_origin(bounds.origin, bounds.size, work).y),
-        ) {
-            self.peek = false;
-            window.resize(size(px(BUBBLE_SIZE), px(BUBBLE_SIZE)));
-            diagnostics::warn("bubble.snap_failed", error);
-        }
-        cx.notify();
-    }
-    fn finish_drag(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.dragging {
-            return;
-        }
-        self.dragging = false;
-        let snap = self.service.payload().settings.bubble_snap_enabled;
-        if self.moved && snap {
-            self.fold(window, cx, true);
-        }
-        if !self.moved {
-            self.open(View::Details, cx);
-        }
-        self.drag_origin = None;
-        cx.notify();
-    }
-    fn bubble(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-        payload: &AppPayload,
-    ) -> AnyElement {
-        let entries = status_bar::entries(&payload.snapshot, &payload.settings);
-        let t = I18n::new(payload.settings.ui_language);
-        let usage = entries
-            .iter()
-            .map(status_bar::StatusEntry::headline)
-            .collect::<Vec<_>>()
-            .join(&t.t("bubble.usageSeparator"));
-        let accessible_label = t.format(
-            "bubble.ariaLabel",
-            &[
-                ("usage", usage),
-                (
-                    "dragHint",
-                    t.t(if payload.settings.bubble_snap_enabled {
-                        "bubble.snapHint"
-                    } else {
-                        "bubble.freeHint"
-                    }),
-                ),
-            ],
-        );
-        let accessible_desktop = self.desktop.clone();
-        let mut body = div()
-            .id("metra-bubble")
-            .test_support()
-            .role(Role::Button)
-            .aria_label(accessible_label)
-            .focusable()
-            .tab_stop(true)
-            .on_a11y_action(AccessibleAction::Click, move |_, _, cx| {
-                let desktop = accessible_desktop.clone();
-                cx.defer(move |cx| desktop.update(cx, |desktop, cx| desktop.toggle_details(cx)));
-            })
-            .on_key_down(cx.listener(|view, event: &KeyDownEvent, window, cx| {
-                if matches!(event.keystroke.key.as_str(), "enter" | "space" | " ") {
-                    view.reveal(window, cx);
-                    view.open(View::Details, cx);
-                    cx.stop_propagation();
-                }
-            }))
-            .size_full()
-            .rounded_full()
-            .bg(linear_gradient(
-                138.,
-                linear_color_stop(rgba(0x8d72ffcc), 0.),
-                linear_color_stop(rgba(0x28d1b3cc), 1.),
-            ))
-            .p(px(3.))
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .gap(px(1.))
-            .cursor_pointer()
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|view, event: &MouseDownEvent, window, cx| {
-                    view.reveal(window, cx);
-                    view.drag_origin = Some(event.position);
-                    view.moved = false;
-                    view.dragging = true;
+                    DisplayMode::Bubble
                 }),
             )
-            .on_mouse_move(cx.listener(|view, event: &MouseMoveEvent, window, cx| {
-                if view.dragging
-                    && !view.moved
-                    && let Some(origin) = view.drag_origin
-                {
-                    let distance = (f32::from(event.position.x - origin.x)).abs()
-                        + (f32::from(event.position.y - origin.y)).abs();
-                    if distance > 4. {
-                        view.moved = true;
-                        window.start_window_move();
-                        cx.spawn_in(window, async move |weak, cx| {
-                            loop {
-                                cx.background_executor()
-                                    .timer(Duration::from_millis(32))
-                                    .await;
-                                let keep = weak
-                                    .update_in(cx, |view, window, cx| {
-                                        if !view.dragging {
-                                            return false;
-                                        }
-                                        if platform::primary_button_pressed() == Ok(false) {
-                                            view.finish_drag(window, cx);
-                                            return false;
-                                        }
-                                        true
-                                    })
-                                    .unwrap_or(false);
-                                if !keep {
-                                    break;
-                                }
-                            }
-                        })
-                        .detach();
-                    }
-                }
-            }))
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|view, _, window, cx| view.finish_drag(window, cx)),
-            )
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(|view, _, _, cx| view.open(View::Settings, cx)),
-            )
-            .on_hover(cx.listener(|view, hovered: &bool, window, cx| {
-                view.hovered = *hovered;
-                view.idle_revision = view.idle_revision.wrapping_add(1);
-                let revision = view.idle_revision;
-                if *hovered {
-                    view.reveal(window, cx);
-                } else if view.service.payload().settings.bubble_snap_enabled {
-                    cx.spawn_in(window, async move |weak, cx| {
-                        cx.background_executor().timer(Duration::from_secs(3)).await;
-                        let _ = weak.update_in(cx, |view, window, cx| {
-                            if view.idle_revision == revision
-                                && !view.hovered
-                                && view.service.payload().settings.bubble_snap_enabled
-                            {
-                                view.fold(window, cx, false);
-                            }
-                        });
-                    })
-                    .detach();
-                }
-            }));
-        let mut center = div()
-            .size_full()
-            .rounded_full()
-            .bg(rgba(0x121a2b66))
-            .flex()
-            .flex_col()
-            .justify_center()
-            .px(px(5.))
-            .py(px(3.));
-        let count = entries.len();
-        for entry in entries {
-            let accent = color(&entry.color);
-            let severity = entry
-                .value
-                .map(|value| match payload.settings.bubble_percent_mode {
-                    BubblePercentMode::Used => 100 - value,
-                    BubblePercentMode::Remaining => value,
-                });
-            let value_color = match severity {
-                Some(0..=10) => rgb(0xff667d).into(),
-                Some(11..=25) => rgb(0xffd15a).into(),
-                _ => accent,
-            };
-            let mut row = div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .h(px(if count == 3 { 12. } else { 15. }))
-                .gap(px(2.));
-            if !self.peek {
-                row = row.child(
-                    div()
-                        .w(px(12.))
-                        .h(px(10.))
-                        .rounded(px(3.))
-                        .bg(accent.opacity(0.18))
-                        .text_color(accent)
-                        .text_size(px(6.5))
-                        .font_weight(FontWeight::BOLD)
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(entry.label),
-                );
-            }
-            row = row.child(
-                div()
-                    .text_size(px(if self.peek { 8. } else { 9. }))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(value_color)
-                    .child(
-                        entry
-                            .value
-                            .map_or_else(|| "—".into(), |value| format!("{value}%")),
-                    ),
-            );
-            if entry.stale {
-                row = row.opacity(0.55);
-            }
-            center = center.child(row);
         }
-        let _ = window;
-        body = body.child(center);
-        body.into_any_element()
-    }
-    fn settings(&mut self, cx: &mut Context<Self>, payload: &AppPayload) -> AnyElement {
-        let s = &payload.settings;
-        let t = I18n::new(s.ui_language);
-        let language = div()
-            .flex()
-            .items_center()
-            .justify_end()
-            .gap(px(8.))
-            .mb(px(7.))
-            .child(
-                div()
-                    .text_size(px(10.))
-                    .text_color(rgb(0xaeb7cf))
-                    .child(t.t("menu.language")),
-            )
-            .child(
-                Select::new(&self.language)
-                    .small()
-                    .h(px(32.))
-                    .rounded(px(10.))
-                    .border_1()
-                    .border_color(rgba(0xffffff26))
-                    .bg(rgba(0x131b2a66))
-                    .w(px(116.))
-                    .menu_width(px(116.)),
-            );
-        let mut intervals = ButtonGroup::new("refresh-intervals").w_full().gap(px(5.));
-        for minutes in REFRESH_INTERVALS {
-            intervals = intervals.child(appearance::segment(
-                ("interval", minutes as usize),
-                if minutes == 60 {
-                    "1h".into()
-                } else {
-                    format!("{minutes}m")
-                },
-                s.refresh_minutes == minutes,
-            ));
+        "quit" => {
+            app.exit(0);
+            Ok(())
         }
-        let intervals = intervals.on_click(cx.listener(|view, indices: &Vec<usize>, _, cx| {
-            if let Some(minutes) = indices
-                .first()
-                .and_then(|index| REFRESH_INTERVALS.get(*index))
-            {
-                view.dispatch(Change::Refresh(*minutes), cx);
-            }
-        }));
-        let display = ButtonGroup::new("display-mode")
-            .w_full()
-            .gap(px(5.))
-            .child(appearance::segment(
-                "display-bubble",
-                t.t("menu.displayBubble"),
-                s.display_mode == DisplayMode::Bubble,
-            ))
-            .child(appearance::segment(
-                "display-status",
-                t.t("menu.displayStatusBar"),
-                s.display_mode == DisplayMode::StatusBar,
-            ))
-            .on_click(cx.listener(|view, indices: &Vec<usize>, _, cx| {
-                if let Some(index) = indices.first() {
-                    let mode = if *index == 0 {
-                        DisplayMode::Bubble
-                    } else {
-                        DisplayMode::StatusBar
-                    };
-                    view.dispatch(Change::Display(mode), cx);
-                }
-            }));
-        let percentage = ButtonGroup::new("percentage-mode")
-            .w_full()
-            .gap(px(5.))
-            .child(appearance::segment(
-                "percent-used",
-                t.t("menu.used"),
-                s.bubble_percent_mode == BubblePercentMode::Used,
-            ))
-            .child(appearance::segment(
-                "percent-remaining",
-                t.t("menu.remaining"),
-                s.bubble_percent_mode == BubblePercentMode::Remaining,
-            ))
-            .on_click(cx.listener(|view, indices: &Vec<usize>, _, cx| {
-                if let Some(index) = indices.first() {
-                    let mode = if *index == 0 {
-                        BubblePercentMode::Used
-                    } else {
-                        BubblePercentMode::Remaining
-                    };
-                    view.dispatch(Change::Percent(mode), cx);
-                }
-            }));
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(13.))
-            .child(language)
-            .child(
-                div()
-                    .child(appearance::section_title(t.t("menu.refreshInterval")))
-                    .child(intervals),
-            )
-            .child(
-                div()
-                    .child(appearance::section_title(t.t("menu.displayMode")))
-                    .child(display),
-            )
-            .child(
-                div()
-                    .child(appearance::section_title(t.t("menu.bubblePercentage")))
-                    .child(percentage),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .child(appearance::setting_row(
-                        t.t("menu.autoSnap"),
-                        Some(t.t("menu.autoSnapHint")),
-                        Switch::new("snap")
-                            .small()
-                            .accessibility_label(t.t("menu.autoSnap"))
-                            .checked(s.bubble_snap_enabled)
-                            .on_change(cx.listener(|view, enabled: &bool, _, cx| {
-                                view.dispatch(Change::Snap(*enabled), cx)
-                            })),
-                    ))
-                    .child(appearance::setting_row(
-                        t.t("menu.autostart"),
-                        None,
-                        Switch::new("autostart")
-                            .small()
-                            .accessibility_label(t.t("menu.autostart"))
-                            .checked(s.autostart)
-                            .on_change(cx.listener(|view, enabled: &bool, _, cx| {
-                                view.dispatch(Change::Autostart(*enabled), cx)
-                            })),
-                    ))
-                    .child(appearance::setting_row(
-                        t.t("menu.cursorCompat"),
-                        Some(t.t("menu.cursorCompatHint")),
-                        Switch::new("compat")
-                            .small()
-                            .accessibility_label(t.t("menu.cursorCompat"))
-                            .checked(s.cursor_compat_enabled)
-                            .on_change(cx.listener(|view, enabled: &bool, _, cx| {
-                                if *enabled {
-                                    view.open(View::Consent, cx)
-                                } else {
-                                    view.dispatch(Change::Compat(false), cx)
-                                }
-                            })),
-                    )),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .border_t_1()
-                    .border_color(rgba(0xffffff0b))
-                    .pt(px(7.))
-                    .child(
-                        Button::new("rescan")
-                            .ghost()
-                            .small()
-                            .w_full()
-                            .h(px(34.))
-                            .label(t.t("menu.rescanCli"))
-                            .on_click(cx.listener(|view, _, _, cx| view.refresh(false, cx))),
-                    )
-                    .child(
-                        Button::new("quit")
-                            .ghost()
-                            .small()
-                            .w_full()
-                            .h(px(30.))
-                            .text_color(rgb(0xd17a8d))
-                            .label(t.t("menu.quit"))
-                            .on_click(|_, _, cx| cx.quit()),
-                    ),
-            )
-            .into_any_element()
-    }
-    fn reorder_key(&mut self, provider: Provider, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        let direction = match event.keystroke.key.as_str() {
-            "up" => -1,
-            "down" => 1,
-            _ => return,
-        };
-        self.dispatch(Change::Reorder(provider, direction), cx);
-        cx.stop_propagation();
-    }
-
-    fn provider_settings(&mut self, cx: &mut Context<Self>, payload: &AppPayload) -> AnyElement {
-        let s = &payload.settings;
-        let t = I18n::new(s.ui_language);
-        let mut list = div().flex().flex_col().gap(px(6.)).pt(px(5.)).child(
-            div()
-                .flex()
-                .justify_between()
-                .items_center()
-                .mb(px(3.))
-                .child(
-                    div()
-                        .text_size(px(11.))
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(t.t("config.title")),
-                )
-                .child(
-                    div()
-                        .text_size(px(8.))
-                        .text_color(rgb(0xa1acc3))
-                        .child(t.t("config.subtitle")),
-                ),
-        );
-        for provider in s.bubble_provider_order.iter().copied() {
-            let entry = status_bar::entries(
-                &payload.snapshot,
-                &AppSettings {
-                    bubble_visible_providers: vec![provider],
-                    ..s.clone()
-                },
-            )
-            .remove(0);
-            let provider_index = provider_index(provider);
-            let view = cx.weak_entity();
-            let color_view = view.clone();
-            let current_color = entry.color.clone();
-            let focus = self.provider_focus[provider_index].clone();
-            let mut drag_handle = Button::new(("provider-drag", provider_index))
-                .ghost()
-                .small()
-                .w(px(14.))
-                .h(px(26.))
-                .icon(gpui::assets::IconName::GripVertical)
-                .accessibility_label(t.format(
-                    "config.dragProviderOrder",
-                    &[("provider", provider_name(provider).into())],
-                ))
-                .tooltip(t.t("config.dragOrder"))
-                .cursor(CursorStyle::OpenHand)
-                .on_key_down(
-                    cx.listener(move |view, event, _, cx| view.reorder_key(provider, event, cx)),
-                )
-                .on_click(move |_, window, cx| focus.focus(window, cx));
-            drag_handle
-                .interactivity()
-                .on_drag(ProviderDrag(provider), |drag, _, _, cx| {
-                    cx.new(|_| ProviderDrag(drag.0))
-                });
-            let row = ListItem::new(("provider-settings", provider_index))
-                .track_focus(&self.provider_focus[provider_index])
-                .on_key_down(cx.listener(move |view, event: &KeyDownEvent, window, cx| {
-                    if view.provider_focus[provider_index].is_focused(window) {
-                        view.reorder_key(provider, event, cx);
-                    }
-                }))
-                .accessibility_label(provider_name(provider))
-                .on_prepaint(move |bounds, _, cx| {
-                    let _ =
-                        view.update(cx, |view, _| view.provider_bounds[provider_index] = bounds);
-                })
-                .on_drop(cx.listener(move |view, drag: &ProviderDrag, window, cx| {
-                    let bounds = view.provider_bounds[provider_index];
-                    let placement = if window.mouse_position().y < bounds.center().y {
-                        Placement::Top
-                    } else {
-                        Placement::Bottom
-                    };
-                    view.dispatch(Change::MoveProvider(drag.0, provider, placement), cx);
-                }))
-                .drag_over::<ProviderDrag>(|style, _, _, _| style.bg(rgba(0x8c78ee20)))
-                .gap(px(6.))
-                .h(px(38.))
-                .px(px(7.))
-                .py_0()
-                .rounded(px(10.))
-                .bg(rgba(0xffffff04))
-                .border_1()
-                .border_color(rgba(0xffffff08))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .w_full()
-                        .child(drag_handle)
-                        .child(
-                            Popover::new(("provider-color", provider_index))
-                                .trigger(
-                                    Button::new(("color", provider_index))
-                                        .ghost()
-                                        .small()
-                                        .size(px(20.))
-                                        .label("●")
-                                        .text_color(color(&entry.color))
-                                        .tooltip(t.format(
-                                            "config.chooseColor",
-                                            &[("provider", provider_name(provider).into())],
-                                        )),
-                                )
-                                .content(move |_, _, cx| {
-                                    let popup = cx.weak_entity();
-                                    div()
-                                        .id("provider-color-palette")
-                                        .w(px(220.))
-                                        .flex()
-                                        .flex_wrap()
-                                        .gap(px(4.))
-                                        .children(BUBBLE_COLOR_PALETTE.iter().enumerate().map(
-                                            |(index, value)| {
-                                                let value = value.to_string();
-                                                let selected = value == current_color;
-                                                let view = color_view.clone();
-                                                let popup = popup.clone();
-                                                let swatch = gpui::base::ColorSwatch::new(
-                                                    ("color-option", index),
-                                                    color(&value),
-                                                )
-                                                .selected(selected)
-                                                .size(px(20.))
-                                                .rounded(px(5.))
-                                                .bg(color(&value))
-                                                .border_1()
-                                                .border_color(if selected {
-                                                    rgb(0xffffff)
-                                                } else {
-                                                    rgb(0x43495b)
-                                                })
-                                                .on_click(move |_, _, window, cx| {
-                                                    let _ = view.update(cx, |view, cx| {
-                                                        view.dispatch(
-                                                            Change::Color(provider, value.clone()),
-                                                            cx,
-                                                        )
-                                                    });
-                                                    let _ = popup.update(cx, |state, cx| {
-                                                        state.dismiss(window, cx)
-                                                    });
-                                                });
-                                                div()
-                                                    .id(("swatch", index))
-                                                    .test_support()
-                                                    .size(px(20.))
-                                                    .child(swatch)
-                                            },
-                                        ))
-                                }),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .text_size(px(10.))
-                                .child(provider_name(provider)),
-                        )
-                        .child(
-                            Input::new(&self.labels[provider_index])
-                                .id(("provider-label", provider_index))
-                                .aria_label(t.format(
-                                    "config.bubbleLabel",
-                                    &[("provider", provider_name(provider).into())],
-                                ))
-                                .small()
-                                .w(px(35.))
-                                .h(px(25.)),
-                        )
-                        .child(
-                            Switch::new(("visible", provider_index))
-                                .small()
-                                .accessibility_label(t.format(
-                                    "config.providerVisible",
-                                    &[("provider", provider_name(provider).into())],
-                                ))
-                                .checked(s.bubble_visible_providers.contains(&provider))
-                                .on_change(cx.listener(move |view, visible: &bool, _, cx| {
-                                    view.dispatch(Change::Visible(provider, *visible), cx)
-                                })),
-                        ),
-                );
-            list = list.child(row);
-        }
-        list.into_any_element()
-    }
-    fn update_banner(&self, cx: &mut Context<Self>, payload: &AppPayload) -> Option<AnyElement> {
-        let update = self.updater.status();
-        let version = update.version?;
-        let t = I18n::new(payload.settings.ui_language);
-        let install = self.updater.supports_install();
-        let title = t.format(
-            if update.downloading {
-                "update.downloadingTitle"
-            } else {
-                "update.availableTitle"
-            },
-            &[("version", version.clone())],
-        );
-        let notes = update
-            .notes
-            .filter(|notes| !notes.trim().is_empty())
-            .unwrap_or_else(|| {
-                if install {
-                    String::new()
-                } else {
-                    t.t("update.manualDescription")
-                }
-            });
-        let mut copy = div()
-            .flex()
-            .flex_col()
-            .gap(px(2.))
-            .flex_1()
-            .min_w_0()
-            .child(
-                div()
-                    .text_size(px(10.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .truncate()
-                    .text_color(rgb(0xe2e6f3))
-                    .child(title.clone()),
-            )
-            .child(
-                div()
-                    .text_size(px(8.5))
-                    .truncate()
-                    .text_color(rgb(0x9aa3b8))
-                    .child(t.format(
-                        "update.versionPath",
-                        &[
-                            ("current", env!("CARGO_PKG_VERSION").into()),
-                            ("next", version.clone()),
-                        ],
-                    )),
-            );
-        if !notes.is_empty() {
-            copy = copy.child(
-                div()
-                    .text_size(px(8.5))
-                    .truncate()
-                    .text_color(rgb(0x9aa3b8))
-                    .child(notes),
-            );
-        }
-        Some(
-            div()
-                .id("app-update-region")
-                .test_support()
-                .role(Role::Status)
-                .aria_label(title)
-                .w_full()
-                .flex_shrink_0()
-                .mb(px(10.))
-                .p(px(8.))
-                .min_h(px(50.))
-                .max_h(px(86.))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .rounded(px(13.))
-                .border_1()
-                .border_color(rgba(0x8067ff35))
-                .bg(linear_gradient(
-                    115.,
-                    linear_color_stop(rgba(0x8067ff17), 0.),
-                    linear_color_stop(rgba(0x45cbb00d), 1.),
-                ))
-                .child(
-                    div()
-                        .size(px(24.))
-                        .flex_shrink_0()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(8.))
-                        .bg(rgba(0x8067ff24))
-                        .text_color(rgb(0xc9bfff))
-                        .child("↑"),
-                )
-                .child(copy)
-                .child(
-                    Button::new("update")
-                        .primary()
-                        .small()
-                        .flex_shrink_0()
-                        .label(t.t(if install {
-                            "update.install"
-                        } else {
-                            "update.download"
-                        }))
-                        .bg(rgba(0x8067ff24))
-                        .border_color(rgba(0x8067ff55))
-                        .text_color(rgb(0xd5ceff))
-                        .loading(update.downloading)
-                        .disabled(update.downloading)
-                        .on_click(cx.listener(move |_view, _, _, cx| {
-                            #[cfg(windows)]
-                            if _view.desktop.read(cx).updater.supports_install() {
-                                _view.desktop.read(cx).install_update();
-                            } else if let Some(url) = crate::updater::release_page(&version) {
-                                cx.open_url(&url);
-                            }
-                            #[cfg(not(windows))]
-                            if let Some(url) = crate::updater::release_page(&version) {
-                                cx.open_url(&url);
-                            }
-                        })),
-                )
-                .into_any_element(),
-        )
-    }
-
-    fn details(&mut self, cx: &mut Context<Self>, payload: &AppPayload) -> AnyElement {
-        let t = I18n::new(payload.settings.ui_language);
-        let mut body = div()
-            .flex()
-            .flex_col()
-            .gap(px(11.))
-            .child(self.provider_settings(cx, payload));
-        if payload.snapshot.refreshing {
-            body = body.child(
-                Progress::new("refreshing")
-                    .loading(true)
-                    .accessibility_label(t.t("native.refreshing")),
-            );
-        }
-        for provider in [Provider::Cursor, Provider::Codex, Provider::Claude] {
-            let data = provider_data(payload, provider);
-            let entry = status_bar::entries(
-                &payload.snapshot,
-                &AppSettings {
-                    bubble_visible_providers: vec![provider],
-                    ..payload.settings.clone()
-                },
-            )
-            .remove(0);
-            let accent = color(&entry.color);
-            let key = if data.stale {
-                "status.stale"
-            } else {
-                match data.status {
-                    ProviderStatus::Available => "status.available",
-                    ProviderStatus::DesktopInstalled => "status.desktopInstalled",
-                    ProviderStatus::NotInstalled => "status.notInstalled",
-                    ProviderStatus::NotLoggedIn => "status.notLoggedIn",
-                    ProviderStatus::Unsupported => "status.unsupported",
-                    ProviderStatus::NetworkError => "status.networkError",
-                    ProviderStatus::ProtocolError => "status.protocolError",
-                }
-            };
-            let mut card = div()
-                .flex()
-                .flex_col()
-                .gap(px(9.))
-                .p(px(12.))
-                .rounded(px(14.))
-                .bg(linear_gradient(
-                    150.,
-                    linear_color_stop(rgba(0xffffff0b), 0.),
-                    linear_color_stop(rgba(0xffffff04), 1.),
-                ))
-                .border_1()
-                .border_color(rgba(0xffffff0c))
-                .child(
-                    div()
-                        .flex()
-                        .justify_between()
-                        .gap_2()
-                        .child(
-                            div()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(accent)
-                                .child(provider_name(provider)),
-                        )
-                        .child(div().text_xs().text_color(rgb(0x9aa5bd)).child(t.t(key))),
-                )
-                .child(div().text_xs().text_color(rgb(0x9aa5bd)).child(format!(
-                        "{} · {}",
-                        data.plan.as_deref().unwrap_or("—"),
-                        data.captured_at
-                            .with_timezone(&chrono::Local)
-                            .format("%m/%d %H:%M")
-                    )));
-            for (index, quota) in data.quotas.iter().enumerate() {
-                let reset = quota
-                    .resets_at
-                    .map(|at| {
-                        let minutes = (at - chrono::Utc::now()).num_minutes().max(0);
-                        t.format(
-                            "quota.resetsAt",
-                            &[(
-                                "date",
-                                format!(
-                                    "{} · {}h {}m",
-                                    at.with_timezone(&chrono::Local).format("%m/%d %H:%M"),
-                                    minutes / 60,
-                                    minutes % 60
-                                ),
-                            )],
-                        )
-                    })
-                    .unwrap_or_else(|| "—".into());
-                card = card.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(
-                            div()
-                                .flex()
-                                .justify_between()
-                                .child(quota.label.clone())
-                                .child(t.format(
-                                    "quota.remaining",
-                                    &[("value", format!("{:.0}", quota.remaining_percent))],
-                                )),
-                        )
-                        .child(
-                            Progress::new(("quota", provider_index(provider) * 10 + index))
-                                .value(quota.remaining_percent as f32)
-                                .color(accent)
-                                .small()
-                                .accessibility_label(quota.label.clone()),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .justify_between()
-                                .text_xs()
-                                .text_color(rgb(0x9aa5bd))
-                                .child(t.format(
-                                    "quota.used",
-                                    &[("value", format!("{:.0}", quota.used_percent))],
-                                ))
-                                .child(reset),
-                        ),
-                );
-            }
-            if data.quotas.is_empty() {
-                card = card.child(
-                    div().text_sm().text_color(rgb(0x9aa5bd)).child(
-                        data.message
-                            .as_deref()
-                            .map(|message| t.message(message))
-                            .unwrap_or_else(|| t.t("quota.noData")),
-                    ),
-                );
-            }
-            if let Some(tokens) = &data.tokens {
-                card = card.child(
-                    div()
-                        .flex()
-                        .justify_between()
-                        .text_sm()
-                        .child(format!(
-                            "{} {}",
-                            t.t(
-                                if provider == Provider::Claude
-                                    && data
-                                        .cost
-                                        .as_ref()
-                                        .is_some_and(|cost| cost.today_used_cents.is_some())
-                                {
-                                    "provider.apiTodayTokensUtc"
-                                } else {
-                                    "provider.localTodayTokens"
-                                }
-                            ),
-                            compact(tokens.today)
-                        ))
-                        .child(format!(
-                            "{} {}",
-                            t.t(if provider == Provider::Codex {
-                                "provider.officialLifetimeTokens"
-                            } else {
-                                "provider.localLifetimeTokens"
-                            }),
-                            compact(tokens.lifetime)
-                        )),
-                );
-            }
-            if let Some(cost) = &data.cost {
-                if cost.included_used_cents.is_some() || cost.included_limit_cents.is_some() {
-                    card = card.child(div().text_sm().child(format!(
-                        "{} {} / {}",
-                        t.t("native.included"),
-                        money(cost.included_used_cents),
-                        money(cost.included_limit_cents)
-                    )));
-                }
-                if cost.on_demand_enabled == Some(false) {
-                    card = card.child(div().text_sm().child(format!(
-                        "{} · {}",
-                        t.t("native.ondemand"),
-                        t.t("common.disabled")
-                    )));
-                } else if cost.on_demand_used_cents.is_some() {
-                    card = card.child(div().text_sm().child(format!(
-                        "{} {} / {}",
-                        t.t("native.ondemand"),
-                        money(cost.on_demand_used_cents),
-                        money(cost.on_demand_limit_cents)
-                    )));
-                }
-                if let Some(today) = cost.today_used_cents {
-                    card = card.child(div().text_sm().child(format!(
-                        "{} {} {:.2}",
-                        t.t("provider.apiEstimatedCostUtc"),
-                        cost.currency,
-                        today as f64 / 100.
-                    )));
-                }
-            }
-            if provider == Provider::Cursor {
-                if matches!(
-                    data.status,
-                    ProviderStatus::NotLoggedIn | ProviderStatus::DesktopInstalled
-                ) {
-                    card = card.child(
-                        Button::new("login")
-                            .primary()
-                            .label(t.t("cursor.login"))
-                            .on_click(cx.listener(|view, _, _, cx| {
-                                let desktop = view.desktop.clone();
-                                cx.defer(move |cx| {
-                                    desktop.update(cx, |desktop, _| desktop.login())
-                                });
-                            })),
-                    );
-                } else if !payload.settings.cursor_compat_enabled {
-                    card = card.child(
-                        Button::new("enable-usage")
-                            .label(t.t("cursor.readExactUsage"))
-                            .on_click(cx.listener(|view, _, _, cx| view.open(View::Consent, cx))),
-                    );
-                }
-            }
-            if data.stale
-                && let Some(message) = &data.message
-            {
-                card = card.child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(0xe9b869))
-                        .child(t.message(message)),
-                );
-            }
-            body = body.child(card);
-        }
-        body = body.child(
-            div()
-                .flex()
-                .gap(px(6.))
-                .child(
-                    Button::new("recheck")
-                        .ghost()
-                        .small()
-                        .label(t.t("native.recheck"))
-                        .on_click(cx.listener(|view, _, _, cx| view.refresh(true, cx))),
-                )
-                .child(
-                    Button::new("check-update")
-                        .ghost()
-                        .small()
-                        .label(t.t("native.checkUpdate"))
-                        .on_click(
-                            cx.listener(|view, _, _, cx| view.desktop.read(cx).check_update()),
-                        ),
-                ),
-        );
-        body.into_any_element()
+        _ => Err(format!("Unknown tray action: {id}")),
     }
 }
-impl Render for AppView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let payload = self.service.payload();
-        let t = I18n::new(payload.settings.ui_language);
-        if self.mode == View::Bubble {
-            return self.bubble(window, cx, &payload);
-        }
-        let subtitle = format!(
-            "{} · v{}",
-            t.t("app.usageSubtitle"),
-            env!("CARGO_PKG_VERSION")
-        );
-        let header = div()
-            .flex()
-            .items_center()
-            .justify_between()
-            .pb(px(12.))
-            .child(appearance::brand(subtitle))
-            .child(
-                div()
-                    .flex()
-                    .gap(px(1.))
-                    .child(
-                        appearance::icon_button(
-                            "header-refresh",
-                            IconName::RefreshCw,
-                            t.t("native.refresh"),
-                        )
-                        .on_click(cx.listener(|view, _, _, cx| view.refresh(false, cx))),
-                    )
-                    .child(
-                        appearance::icon_button(
-                            "header-settings",
-                            if self.mode == View::Settings {
-                                IconName::ChevronLeft
-                            } else {
-                                IconName::Settings
-                            },
-                            t.t("native.settings"),
-                        )
-                        .on_click(cx.listener(|view, _, _, cx| {
-                            view.open(
-                                if view.mode == View::Settings {
-                                    View::Details
-                                } else {
-                                    View::Settings
-                                },
-                                cx,
-                            )
-                        })),
-                    )
-                    .child(
-                        appearance::icon_button(
-                            "header-close",
-                            IconName::Close,
-                            t.t("native.close"),
-                        )
-                        .on_click(cx.listener(|view, _, window, cx| {
-                            window.remove_window();
-                            let desktop = view.desktop.clone();
-                            cx.defer(move |cx| {
-                                desktop.update(cx, |desktop, cx| {
-                                    desktop.panel = None;
-                                    cx.notify();
-                                })
-                            });
-                        })),
-                    ),
-            );
-        let content = match self.mode {
-            View::Settings => self.settings(cx, &payload),
-            View::Details => self.details(cx, &payload),
-            View::Consent => div()
-                .flex()
-                .flex_col()
-                .gap_4()
-                .child(t.t("native.confirmCompat"))
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(rgb(0x9aa5bd))
-                        .child(t.t("menu.cursorCompatHint")),
-                )
-                .child(
-                    Button::new("confirm-compat")
-                        .primary()
-                        .label(t.t("common.confirm"))
-                        .on_click(cx.listener(|view, _, _, cx| {
-                            view.dispatch(Change::Compat(true), cx);
-                            view.open(View::Details, cx);
-                        })),
-                )
-                .child(
-                    Button::new("cancel-compat")
-                        .label(t.t("common.cancel"))
-                        .on_click(cx.listener(|view, _, _, cx| view.open(View::Details, cx))),
-                )
-                .into_any_element(),
-            View::Bubble => unreachable!(),
-        };
-        let message = self.message.clone();
-        let mut panel = div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .p(px(14.))
-            .rounded(px(22.))
-            .bg(rgba(appearance::PANEL_GLASS))
-            .text_color(rgb(0xe4e9f5))
-            .text_size(px(11.))
-            .border_1()
-            .border_color(rgba(0xffffff22))
-            .child(header);
-        if self.mode == View::Details
-            && let Some(update) = self.update_banner(cx, &payload)
-        {
-            panel = panel.child(update);
-        }
-        panel = panel.child(
-            div()
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scrollbar()
-                .id("panel-scroll")
-                .child(content),
-        );
-        if let Some(message) = message {
-            panel = panel.child(
-                div()
-                    .pt_2()
-                    .text_xs()
-                    .text_color(rgb(0xc6b7ff))
-                    .child(t.message(&message)),
-            );
-        }
-        panel.into_any_element()
-    }
+pub(crate) fn tray_action(app: &AppHandle, id: &str) {
+    let app = app.clone();
+    let id = id.to_owned();
+    tauri::async_runtime::spawn_blocking(move || report(&app, dispatch_tray_action(&app, &id)));
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{clamp_origin, compact};
-    use gpui_kit::{Bounds, point, px, size};
-    #[test]
-    fn popup_geometry_stays_in_the_selected_monitor() {
-        let work = Bounds::new(point(px(-1280.), px(30.)), size(px(1280.), px(770.)));
-        assert_eq!(
-            clamp_origin(point(px(100.), px(900.)), size(px(370.), px(620.)), work),
-            point(px(-370.), px(180.))
-        );
-        assert_eq!(compact(Some(1_500_000)), "1.5M");
-    }
-}
-
-#[cfg(all(test, feature = "ui-tests"))]
-mod ui_tests {
-    use super::{AppView, Desktop, View};
-    use crate::{
-        model::Provider,
-        service::RefreshService,
-        settings::{BUBBLE_COLOR_PALETTE, BubblePercentMode, SettingsStore},
-        updater::Updater,
-    };
-    use gpui_kit::test::{TestEventExt, TestWindowExt};
-    use gpui_kit::{AnyWindowHandle, AppContext, Entity, TestAppContext, Window, point, px, size};
-    use std::{
-        fs::File,
-        sync::{Arc, atomic::AtomicBool, mpsc},
-        time::Instant,
-    };
-
-    struct Harness {
-        _directory: tempfile::TempDir,
-        service: Arc<RefreshService>,
-        desktop: Entity<Desktop>,
-        window: AnyWindowHandle,
-    }
-
-    fn harness(cx: &mut TestAppContext, mode: View) -> Harness {
-        let directory = tempfile::tempdir().unwrap();
-        let service = Arc::new(RefreshService::new(SettingsStore::new(
-            directory.path().join("settings.db"),
-        )));
-        let (desktop, window) = cx.update(|cx| {
-            gpui_kit::init(cx);
-            crate::appearance::init(cx);
-            let (sender, receiver) = mpsc::channel();
-            let desktop = cx.new(|_| Desktop {
-                service: service.clone(),
-                updater: Arc::new(Updater::default()),
-                sender,
-                receiver,
-                tray: None,
-                bubble: None,
-                panel: None,
-                panel_mode: View::Details,
-                cycle: 0,
-                last_refresh: Instant::now(),
-                last_cycle: Instant::now(),
-                last_second: Instant::now(),
-                started: Instant::now(),
-                update_checked: false,
-                message: None,
-                login_running: Arc::new(AtomicBool::new(false)),
-                activation_file: directory.path().join("activate"),
-                _instance_lock: File::create(directory.path().join("lock")).unwrap(),
-            });
-            // Opening while Desktop is leased must not make rendering read that entity.
-            desktop.update(cx, |desktop, cx| {
-                if mode == View::Bubble {
-                    desktop.open_bubble(cx);
-                } else {
-                    desktop.open_panel(mode, cx);
-                }
-            });
-            let window = if mode == View::Bubble {
-                desktop.read(cx).bubble.unwrap()
-            } else {
-                desktop.read(cx).panel.unwrap()
+fn watch_overlay_shape(window: &WebviewWindow, bubble: bool) {
+    let overlay = window.clone();
+    let previous = Mutex::new(None);
+    window.on_window_event(move |event| {
+        if matches!(
+            event,
+            tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. }
+        ) {
+            let Ok(size) = overlay.outer_size() else {
+                return;
             };
-            (desktop, window)
-        });
-        Harness {
-            _directory: directory,
-            service,
-            desktop,
-            window,
+            let Ok(scale) = overlay.scale_factor() else {
+                return;
+            };
+            let shape = (size.width, size.height, scale);
+            let Ok(mut last) = previous.lock() else {
+                return;
+            };
+            if *last == Some(shape) {
+                return;
+            }
+            *last = Some(shape);
+            drop(last);
+            let radius = if bubble {
+                size.width.min(size.height) as f64 / scale / 2.
+            } else {
+                22.
+            };
+            if let Err(error) = platform::update_shape(&overlay, radius) {
+                diagnostics::warn("overlay.shape_failed", error);
+            }
         }
+    });
+}
+fn create_windows(app: &AppHandle) -> Result<()> {
+    let bubble = WebviewWindowBuilder::new(
+        app,
+        "bubble",
+        WebviewUrl::App("index.html?view=bubble".into()),
+    )
+    .title("Metra")
+    .inner_size(56., 56.)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .resizable(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focused(false)
+    .visible(false)
+    .disable_drag_drop_handler()
+    .build()
+    .map_err(|e| e.to_string())?;
+    let panel = WebviewWindowBuilder::new(
+        app,
+        "panel",
+        WebviewUrl::App("index.html?view=panel".into()),
+    )
+    .title("Metra")
+    .inner_size(360., 560.)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .resizable(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .visible(false)
+    .disable_drag_drop_handler()
+    .build()
+    .map_err(|e| e.to_string())?;
+    watch_overlay_shape(&bubble, true);
+    watch_overlay_shape(&panel, false);
+    bubble.on_window_event(|event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+        }
+    });
+    let glass =
+        platform::apply_glass(&bubble, 28.).and_then(|_| platform::apply_glass(&panel, 22.));
+    app.state::<Desktop>()
+        .native_glass
+        .store(glass.is_ok(), Ordering::Release);
+    if let Err(error) = glass {
+        diagnostics::warn("desktop.glass_unavailable", error);
     }
-
-    #[gpui_kit::test]
-    fn available_update_is_visible_above_the_provider_list(cx: &mut TestAppContext) {
-        let h = harness(cx, View::Details);
-        cx.update(|cx| {
-            h.desktop
-                .read(cx)
-                .updater
-                .set_test_status(crate::updater::UpdateStatus {
-                    version: Some("99.0.0".into()),
-                    ..Default::default()
-                });
-        });
-        cx.update_window(h.window, |_, window, cx| {
-            window.render_frame(cx);
-            let update = window.find("update");
-            assert!(
-                update.visible(),
-                "updates must be visible without scrolling"
-            );
-            let providers = window.find(("provider-settings", 0usize)).bounds();
-            assert!(update.bounds().bottom() <= providers.top());
-            let pinned = window.find("app-update-region").bounds();
-            window.scroll(
-                ("provider-settings", 0usize),
-                gpui_kit::ScrollDelta::Pixels(point(px(0.), px(-800.))),
-                cx,
-            );
-            window.render_frame(cx);
-            assert!(
-                window.find(("provider-settings", 0usize)).bounds().top() < providers.top(),
-                "the provider list must actually scroll in this regression"
-            );
-            assert_eq!(window.find("app-update-region").bounds(), pinned);
-            assert!(window.find("update").visible());
-        })
-        .unwrap();
-    }
-
-    #[gpui_kit::test]
-    fn native_settings_render_and_persist_control_changes(cx: &mut TestAppContext) {
-        let h = harness(cx, View::Settings);
-        cx.update_window(h.window, |_, window, cx| {
-            window.render_frame(cx);
-            assert!(window.find("display-bubble").visible());
-            assert!(window.find("display-status").bounds().size.width < px(130.));
-            window.click("percent-used", cx);
-        })
-        .unwrap();
-        assert_eq!(
-            h.service.payload().settings.bubble_percent_mode,
-            BubblePercentMode::Used
-        );
-        assert_eq!(
-            h.service.store.load().bubble_percent_mode,
-            BubblePercentMode::Used
-        );
-    }
-
-    #[gpui_kit::test]
-    fn every_panel_has_translucent_backing_and_no_opaque_rectangle(cx: &mut TestAppContext) {
-        for mode in [View::Settings, View::Details, View::Consent] {
-            let h = harness(cx, mode);
-            cx.update_window(h.window, |_, window, cx| {
-                window.render_frame(cx);
-                let scale = window.scale_factor();
-                let size = window.bounds().size;
-                let surfaces = window
-                    .painted_quads()
-                    .into_iter()
-                    .filter(|quad| {
-                        quad.bounds.size.width.0 >= f32::from(size.width) * scale
-                            && quad.bounds.size.height.0 >= f32::from(size.height) * scale
-                    })
-                    .collect::<Vec<_>>();
-                assert!(!surfaces.is_empty());
-                assert!(surfaces.iter().any(|surface| {
-                    surface
-                        .background
-                        .as_solid()
-                        .is_some_and(|color| (0.45..=0.70).contains(&color.a))
-                }));
-                for surface in surfaces {
-                    assert!(
-                        surface
-                            .background
-                            .as_solid()
-                            .is_some_and(|color| color.a <= 0.70),
-                        "panel hides the native blur behind a heavy surface: {surface:?}"
-                    );
-                    let tint = surface.background.as_solid().unwrap();
-                    if tint.a > 0. {
-                        let original: gpui_kit::Hsla = gpui_kit::rgb(0x151c2b).into();
-                        assert_eq!(
-                            (tint.h, tint.s, tint.l),
-                            (original.h, original.s, original.l),
-                            "glass must retain the existing panel tint"
-                        );
-                    }
-                    assert!(surface.corner_radii.top_left.0 >= 22. * scale);
-                }
+    let handle = app.clone();
+    panel.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let _ = hide_panel(handle.clone());
+        }
+        if matches!(event, tauri::WindowEvent::Focused(false)) {
+            let _ = hide_panel(handle.clone());
+        }
+    });
+    let settings = app.state::<Desktop>().service.payload().settings;
+    let monitors = bubble.available_monitors().map_err(|e| e.to_string())?;
+    let saved = settings.bubble_position;
+    let monitor = monitors
+        .into_iter()
+        .find(|m| {
+            saved.is_some_and(|p| {
+                let (x, y) = crate::geometry::saved_physical(
+                    p,
+                    settings.bubble_position_version,
+                    m.scale_factor(),
+                );
+                let w = m.work_area();
+                x >= w.position.x as f64
+                    && x < w.position.x as f64 + w.size.width as f64
+                    && y >= w.position.y as f64
+                    && y < w.position.y as f64 + w.size.height as f64
             })
-            .unwrap();
-        }
+        })
+        .or(bubble.primary_monitor().map_err(|e| e.to_string())?)
+        .ok_or("No display available")?;
+    let w = monitor.work_area();
+    let scale = monitor.scale_factor();
+    let work = WorkArea {
+        x: w.position.x as f64,
+        y: w.position.y as f64,
+        width: w.size.width as f64,
+        height: w.size.height as f64,
+    };
+    let (x, y) = saved
+        .map(|p| crate::geometry::saved_physical(p, settings.bubble_position_version, scale))
+        .unwrap_or((
+            work.x + work.width - 64. * scale,
+            work.y + work.height - 64. * scale,
+        ));
+    let (x, y) = work.clamp(x, y, 56. * scale, 56. * scale);
+    bubble
+        .set_position(PhysicalPosition::new(x, y))
+        .map_err(|e| e.to_string())?;
+    save_position(app)?;
+    if settings.bubble_snap_enabled {
+        set_peek(app, true, true)?;
     }
-
-    fn assert_round_surface(window: &Window) {
-        let scale = window.scale_factor();
-        let width = f32::from(window.bounds().size.width) * scale;
-        let height = f32::from(window.bounds().size.height) * scale;
-        let radius = width.min(height) / 2.;
-        let full_surfaces = window
-            .painted_quads()
-            .into_iter()
-            .filter(|quad| quad.bounds.size.width.0 >= width && quad.bounds.size.height.0 >= height)
-            .collect::<Vec<_>>();
-        assert!(!full_surfaces.is_empty());
-        assert!(
-            full_surfaces.iter().all(|quad| {
-                quad.corner_radii.top_left.0 >= radius && quad.corner_radii.bottom_right.0 >= radius
-            }),
-            "bubble paints a rectangular surface behind its round outline: {full_surfaces:?}"
-        );
+    if settings.display_mode == DisplayMode::Bubble || app.tray_by_id("metra-status").is_none() {
+        bubble.show().map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
 
-    #[gpui_kit::test]
-    fn bubble_hover_keeps_round_surface_and_expands_the_docked_capsule(cx: &mut TestAppContext) {
-        let h = harness(cx, View::Bubble);
-        cx.update_window(h.window, |_, window, cx| {
-            window.render_frame(cx);
-            window.hover("metra-bubble", cx);
-            window.render_frame(cx);
-            assert_round_surface(window);
-        })
-        .unwrap();
-        cx.update_window(h.window, |_, window, cx| {
-            let view = gpui_kit::base::Root::read(window, cx)
-                .view()
-                .clone()
-                .downcast::<AppView>()
-                .unwrap();
-            view.update(cx, |view, cx| {
-                view.peek = true;
-                view.dock_right = false;
-                cx.notify();
-            });
-            window.resize(size(px(32.), px(56.)));
-            window.pointer_move(point(px(80.), px(80.)), None, cx);
-            window.render_frame(cx);
-            assert_round_surface(window);
-            window.hover("metra-bubble", cx);
-            window.render_frame(cx);
-            assert_eq!(window.bounds().size, size(px(56.), px(56.)));
-            assert_round_surface(window);
-        })
-        .unwrap();
-        cx.update(|cx| assert!(h.desktop.read(cx).bubble.is_some()));
-    }
-
-    #[gpui_kit::test]
-    fn provider_drag_handle_reorders_both_directions_and_persists(cx: &mut TestAppContext) {
-        let h = harness(cx, View::Details);
-        cx.update_window(h.window, |_, window, cx| {
-            window.render_frame(cx);
-            let from = window.find(("provider-drag", 0usize)).bounds().center();
-            let target = window.find(("provider-settings", 2usize)).bounds();
-            window.drag(from, point(target.center().x, target.bottom() - px(4.)), cx);
-        })
-        .unwrap();
-        assert_eq!(
-            h.service.store.load().bubble_provider_order,
-            vec![Provider::Codex, Provider::Claude, Provider::Cursor]
-        );
-        cx.update_window(h.window, |_, window, cx| {
-            window.render_frame(cx);
-            let from = window.find(("provider-drag", 0usize)).bounds().center();
-            let target = window.find(("provider-settings", 1usize)).bounds();
-            window.drag(from, point(target.center().x, target.top() + px(4.)), cx);
-        })
-        .unwrap();
-        assert_eq!(
-            h.service.store.load().bubble_provider_order,
-            vec![Provider::Cursor, Provider::Codex, Provider::Claude]
-        );
-        cx.update_window(h.window, |_, window, cx| {
-            window.render_frame(cx);
-            window.click(("provider-drag", 0usize), cx);
-            window.press("down", cx);
-        })
-        .unwrap();
-        assert_eq!(
-            h.service.store.load().bubble_provider_order,
-            vec![Provider::Codex, Provider::Cursor, Provider::Claude]
-        );
-        cx.update_window(h.window, |_, window, cx| {
-            window.render_frame(cx);
-            window.click(("provider-label", 0usize), cx);
-            window.press("up", cx);
-        })
-        .unwrap();
-        assert_eq!(
-            h.service.store.load().bubble_provider_order,
-            vec![Provider::Codex, Provider::Cursor, Provider::Claude]
-        );
-    }
-
-    #[gpui_kit::test]
-    fn preset_color_popover_saves_selection_and_dismisses(cx: &mut TestAppContext) {
-        let h = harness(cx, View::Details);
-        cx.update_window(h.window, |_, window, cx| {
-            window.render_frame(cx);
-            window.click(("color", 0usize), cx);
-        })
-        .unwrap();
-        cx.update_window(h.window, |_, window, cx| {
-            window.render_frame(cx);
-            window.click(("swatch", 10usize), cx);
-        })
-        .unwrap();
-        assert_eq!(
-            h.service.store.load().cursor_bubble_color,
-            BUBBLE_COLOR_PALETTE[10]
-        );
-        cx.update_window(h.window, |_, window, cx| {
-            window.render_frame(cx);
-            assert!(window.try_find(("swatch", 10usize)).is_none());
-            window.click(("color", 0usize), cx);
-            window.press("escape", cx);
-            window.render_frame(cx);
-            assert!(window.try_find(("swatch", 10usize)).is_none());
-        })
-        .unwrap();
+pub fn run() {
+    let _ = diagnostics::init();
+    if let Err(error) = run_desktop() {
+        diagnostics::warn("desktop.start_failed", &error);
+        eprintln!("{error}");
     }
 }
+fn run_desktop() -> Result<()> {
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("GDK_BACKEND").is_none() {
+        // SAFETY: the desktop entry point has not initialized GTK or spawned any threads.
+        unsafe { std::env::set_var("GDK_BACKEND", "x11") };
+    }
+    let config = crate::settings::config_dir()?;
+    std::fs::create_dir_all(&config).map_err(|e| e.to_string())?;
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(config.join("instance.lock"))
+        .map_err(|e| e.to_string())?;
+    if lock.try_lock().is_err() {
+        std::fs::write(config.join("activate"), b"show").map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    let service = Arc::new(RefreshService::new(SettingsStore::new(
+        config.join("settings.db"),
+    )));
+    let app = tauri::Builder::default()
+        .manage(Desktop {
+            service,
+            updater: Arc::new(Updater::default()),
+            panel: Mutex::new("details".into()),
+            peek: AtomicBool::new(false),
+            native_glass: AtomicBool::new(false),
+            dragging: AtomicBool::new(false),
+            login_running: AtomicBool::new(false),
+            refreshing_providers: AtomicU8::new(0),
+            tray_cycle: AtomicUsize::new(0),
+            #[cfg(feature = "desktop-smoke")]
+            tray_observed_provider: AtomicU8::new(0),
+            settings_gate: Mutex::new(()),
+            bubble_gate: Mutex::new(()),
+            refresh_gate: Mutex::new(()),
+            last_refresh: Mutex::new(Instant::now()),
+            _instance_lock: lock,
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_state,
+            change_setting,
+            refresh,
+            bubble_hover,
+            drag_bubble,
+            open_panel,
+            hide_panel,
+            quit,
+            login_cursor,
+            check_update,
+            install_update
+        ])
+        .setup(move |app| {
+            // System menus must follow the OS; only overlay windows use a dark appearance.
+            app.set_theme(None);
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            if let Err(error) = tray::setup(app.handle(), &app.state::<Desktop>().service.payload())
+            {
+                diagnostics::warn("tray.setup_failed", error.to_string());
+            }
+            create_windows(app.handle())?;
+            if std::env::args().any(|arg| arg == "--settings") {
+                show_panel(app.handle(), "settings", false)?;
+            }
+            let smoke_enabled = cfg!(feature = "desktop-smoke")
+                && std::env::args().any(|arg| arg == "--desktop-smoke-test");
+            if !smoke_enabled {
+                spawn_refresh(app.handle(), false);
+            }
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let started = Instant::now();
+                let mut last_update = None;
+                let mut tray_tick = 0u8;
+                loop {
+                    std::thread::sleep(Duration::from_secs(1));
+                    let state = handle.state::<Desktop>();
+                    if config.join("activate").is_file() {
+                        let _ = std::fs::remove_file(config.join("activate"));
+                        report(&handle, show_panel(&handle, "details", false));
+                    }
+                    let settings = state.service.payload().settings;
+                    if !smoke_enabled
+                        && state.last_refresh.lock().expect("refresh time").elapsed()
+                            >= Duration::from_secs(settings.refresh_minutes * 60)
+                    {
+                        spawn_refresh(&handle, false);
+                    }
+                    tray_tick = (tray_tick + 1) % 5;
+                    if tray_tick == 0 {
+                        let cycle = state
+                            .tray_cycle
+                            .fetch_add(1, Ordering::Relaxed)
+                            .wrapping_add(1);
+                        update_tray(&handle, cycle);
+                    }
+                    if !smoke_enabled
+                        && !cfg!(debug_assertions)
+                        && started.elapsed() >= Duration::from_secs(20)
+                        && last_update
+                            .is_none_or(|at: Instant| at.elapsed() >= Duration::from_secs(86400))
+                    {
+                        last_update = Some(Instant::now());
+                        let app = handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = check_update(app).await;
+                        });
+                    }
+                }
+            });
+            #[cfg(feature = "desktop-smoke")]
+            if smoke_enabled {
+                smoke::start(app.handle().clone());
+            }
+            Ok(())
+        })
+        .build(tauri::generate_context!())
+        .map_err(|e| e.to_string())?;
+    app.run(|app, event| match event {
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Reopen { .. } => {
+            let _ = show_panel(app, "details", false);
+        }
+        _ => {
+            let _ = app;
+        }
+    });
+    Ok(())
+}
+
+#[cfg(feature = "desktop-smoke")]
+mod smoke;

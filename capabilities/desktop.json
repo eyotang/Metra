@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "Local Metra bubble and panel: events only; desktop operations use typed Rust commands.",
+  "windows": ["bubble", "panel"],
+  "permissions": ["core:event:default"]
+}

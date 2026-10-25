@@ -1,31 +1,27 @@
-# Linux 原生运行与打包
+# Linux
 
-桌面界面现在由 GPUI / GPUI-KIT 渲染，不需要 WebKitGTK。为支持悬浮球的全局定位和屏幕边缘吸附，Metra 使用 GPUI 的 X11 后端；Wayland 会话需要 XWayland。系统托盘使用 GTK 3 / AppIndicator，独立的无界面采集器不初始化这些桌面库。
+桌面界面由 Tauri 2 / WebKitGTK 4.1 渲染。悬浮球定位与吸边依赖 X11 / XWayland，Wayland 会话请使用 `GDK_BACKEND=x11 npm run dev`；Quickshell 插件则由宿主原生定位。无界面采集器不初始化任何桌面库。
 
-Ubuntu 24.04 开发依赖：
+Ubuntu 24.04 开发环境：
 
 ```sh
-sudo apt install clang cmake pkg-config libgtk-3-dev libayatana-appindicator3-dev libxdo-dev libvulkan-dev libxkbcommon-x11-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-randr0-dev libfontconfig1-dev libx11-xcb-dev libwayland-dev libasound2-dev
-cargo run
+sudo apt install build-essential clang cmake pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libxdo-dev
+npm ci
+GDK_BACKEND=x11 npm run dev
+npm run frontend:build
 cargo test --locked --all-targets
-```
-
-GPUI 需要可用的 Vulkan 驱动。GNOME 需要 AppIndicator 扩展才能展示托盘；未提供托盘的桌面请保留默认悬浮球方式。
-
-```sh
 node scripts/package-native.mjs
-sudo apt install ./release-assets/Metra-*-linux-x64.deb
 ```
 
-Linux 通过软件包管理器更新，不会在后台覆盖已安装的二进制。窗口定位、多屏缩放、拖动后半隐藏、托盘交互和退出应在目标桌面上验收。
+不再依赖 Vulkan。GNOME 需要 AppIndicator 扩展显示托盘；未提供托盘的桌面请保留默认悬浮球。Linux X11 为兼容的合成器（如 KDE）设置原生模糊提示，并使用圆角区域匹配悬浮球和面板；不支持该提示的桌面仍使用半透明底色。Windows 和 macOS 使用各自的系统材质。
 
-Omarchy 可以直接使用 Quickshell 原生插件和无界面采集器：
+## Omarchy
+
+[Omarchy 集成](../integrations/omarchy/README.md)使用原生 Quickshell 组件和独立 JSON 采集器，沿用既有 SQLite 配置。无需 WebKitGTK、GTK、XWayland 或 Node 前端依赖即可构建采集器：
 
 ```sh
 cargo build --release --locked --no-default-features --target-dir target/collector
-node integrations/omarchy/install.mjs --binary target/collector/release/metra
+METRA_COLLECTOR_BINARY=target/collector/release/metra node scripts/package-omarchy.mjs
 ```
 
-详见 [Omarchy 安装说明](../integrations/omarchy/README.md)。
-
-应用窗口使用半透明材质，并向合成器请求毛玻璃模糊。原生模糊取决于桌面合成器支持；X11 使用 [KDE 的窗口模糊区域协议](https://github.com/KDE/kwindowsystem/blob/master/src/platforms/xcb/kwindoweffects.cpp)，不支持该协议的环境仍保留半透明效果。应用不会修改系统合成器设置。
+`--usage-json` 输出单个快照；`--watch-json` 持续输出，并接受 stdin 的 `refresh` 指令。stdin 关闭后退出。可用 `node scripts/verify-omarchy.mjs target/collector/release/metra` 检查协议。

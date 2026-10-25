@@ -2,30 +2,36 @@
 
 [English](README.md) · **简体中文** · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-Metra 是基于 **Rust、GPUI 和 GPUI-KIT 0.8.0** 的原生桌面用量监控工具，用来查看 Cursor、Codex 和 Claude Code 的登录状态、额度、重置时间、Token 与可用费用信息。界面不再依赖浏览器或 WebView。
+Metra 使用 **Tauri 2、TypeScript 和 Rust** 展示 Cursor、Codex 与 Claude Code 的登录状态、额度、重置时间、Token 和费用。Windows 通过 WebView2 渲染，macOS 使用 WKWebView，Linux 使用 WebKitGTK；Rust 负责账户发现、采集、配置和签名更新。
 
-- 默认仍为透明置顶悬浮球，支持拖动、多显示器和可选的屏幕边缘吸附；吸边后可缩为 32px 半隐藏状态。
-- 所有系统均提供“悬浮球 / 状态栏”展示方式，选择保存到 SQLite，重启恢复。状态栏每 5 秒轮播已启用服务；macOS 显示文字额度，Windows 使用数字托盘图标，Linux 随托盘宿主展示文字或数字。
-- 详情展示登录状态、额度窗口、重置时间、Token 和费用。设置保留服务显隐、排序、简称、55 色色板、语言、刷新间隔与开机启动。
-- 沿用系统配置目录中 `dev.metra.desktop/settings.db` 的现有配置，以及已确认的 Cursor 兼容模式授权。界面继续支持简体中文、English、日本語和한국어。
-- 用量采集和存储已与界面框架解耦。刷新失败保留上一次成功数据并标记过期；Cursor 凭据仅在用户明确确认兼容模式后读取。
-- Omarchy Quickshell 插件继续复用原来的 JSON 采集接口，可单独编译不含任何桌面依赖的采集器。
+- 保留 56px 悬浮球、拖动、置顶与吸边；启用吸边后松手即收为 32px 窄胶囊，悬停展开，离开再次收起。支持鼠标和键盘打开详情。
+- Windows 使用原生 Acrylic 毛玻璃，macOS 使用深色系统 HUD 毛玻璃；前端补充透明染色、柔和高光和细边框。Windows 拖动期间暂时关闭 Acrylic，松手恢复，减少系统合成器卡顿。Linux X11 恢复兼容合成器的原生模糊提示，并提供半透明回退。
+- 状态栏每五秒轮播启用的服务；Windows 使用数字托盘图标，macOS 显示文字，Linux 的显示取决于面板支持。
+- 保留服务排序、显示开关、自定义标签、颜色、四种语言、刷新周期、开机启动和 Cursor 兼容模式确认。
+- 延用系统配置目录下的 `dev.metra.desktop/settings.db`，迁移旧窗口坐标并限制在显示器工作区域内。Cursor 凭据仍需用户明确同意后才会读取。
+- 保留独立 Rust 采集器和 Omarchy 的 Quickshell 插件，JSON 协议不变。
 
-## 开发与验证
+## 开发
 
-安装当前稳定版 Rust，然后运行：
+安装稳定版 Rust、Node.js 24+ 和对应系统的 Tauri 开发依赖后运行：
 
 ```sh
-cargo run
+npm ci
+npm run dev
+npm run dev -- -- --settings
+npm run frontend:build
+npm run check
 cargo test --locked --all-targets
-cargo build --release --locked
+npx playwright install chromium webkit
+npm run test:ui
+npm run build -- --no-bundle -- --locked
 ```
 
-`cargo run -- --settings` 会直接打开设置；`METRA_CONFIG_DIR` 可以指定独立的测试配置目录。关闭面板后应用继续在后台运行，可通过托盘或设置退出。
+`METRA_CONFIG_DIR` 可指定隔离的测试配置目录。关闭面板后继续后台运行，通过托盘或设置退出。Tauri 配置和 Cargo 工程保留在仓库根目录。开发使用 `npm run dev` 启动 Vite 和桌面应用；`npm run build` 会嵌入前端资源，直接 `cargo run` 不会启动前端服务器。
 
-macOS 需要 Xcode 命令行工具。Windows 需要 Visual Studio C++ 构建工具和 Windows SDK。Linux 需要 X11 / XWayland、Vulkan 驱动，以及托盘使用的 GTK 3 / AppIndicator，详见 [Linux 说明](docs/linux.md)。
+macOS 需要 Xcode 命令行工具。Windows 需要 Visual Studio C++ 构建工具、Windows SDK 和 WebView2（安装包会在缺失时引导安装）。Linux 需要 WebKitGTK 4.1、GTK 3、AppIndicator，定位悬浮窗口需要 X11/XWayland，详见 [Linux 说明](docs/linux.md)。
 
-无界面采集器：
+无界面采集器不依赖 Node、Tauri 或 WebView：
 
 ```sh
 cargo build --release --locked --no-default-features --target-dir target/collector
@@ -33,29 +39,35 @@ target/collector/release/metra --usage-json
 target/collector/release/metra --watch-json
 ```
 
-持续输出模式接受标准输入中的 `refresh` 指令，并在输入关闭时退出。JSON 结构与 [Omarchy 原生插件](integrations/omarchy/README.md) 保持兼容。
+持续模式接收标准输入中的 `refresh`，输入关闭后退出。详见 [Omarchy 集成](integrations/omarchy/README.md)。
 
 ## 打包与更新
 
-应用开发使用 Cargo；只有打包辅助脚本和 Omarchy 安装器需要 Node.js 24，无需安装 npm 依赖。
-
 ```sh
-node scripts/package-native.mjs                 # 当前系统的原生安装包
-node scripts/package-native.mjs --universal     # macOS Apple Silicon + Intel DMG
-node integrations/omarchy/install.mjs           # 安装 Omarchy 插件
+npm ci
+node scripts/package-native.mjs
+# macOS 通用安装包：
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+node scripts/package-native.mjs --universal
 ```
 
-产物位于 `release-assets/`。Windows 生成 NSIS 安装包和便携 EXE，打包需要 `makensis`，也可通过 `MAKENSIS` 指定路径；Linux 生成 `.deb`。macOS 包包含完整应用及资源。各系统的窗口、托盘和安装行为仍需对应平台的实际验收。
+Tauri 负责前端嵌入和平台打包，脚本将产物以原有发布文件名放入 `release-assets/`：Windows 为用户级 NSIS 安装包及便携 EXE，macOS 为 DMG，Linux 为 Debian 包。便携 Windows 版本需要系统已安装 WebView2；NSIS 工具由 Tauri 管理。支持 `CARGO_TARGET_DIR`。
 
-更新检查继续读取 GitHub 中原有的 `latest.json`。Windows 安装版会在用户点击安装后校验原有 Minisign 签名，再启动安装程序；便携版、macOS 和 Linux 打开检测到版本的 Release 页面进行手动下载。后台检查失败不会打断用量查看。签名工具独立放在 `tools/release-sign`，为兼容现有 CI，继续接受 `TAURI_SIGNING_PRIVATE_KEY` 系列 Secret 名称。
+更新继续读取现有 GitHub `latest.json` 并使用原有 Minisign 公钥。Windows 安装版仅在用户点击更新后验证签名并启动安装器；便携版、macOS、Linux 打开对应版本下载页。签名工具继续接受现有 CI Secret 名称。
+
+通用控件使用 Web Awesome（按钮、开关、复选框、输入框、下拉、弹层、进度条），图标使用 Lucide；组件与图标全部本地打包。Lit 保持控件节点稳定，后台刷新保留输入焦点和弹层。每个产品刷新期间显示独立动画，完成后立即更新结果。
+
+CI 在 Windows、macOS、Linux 分别运行 Rust 和 Chromium/WebKit 交互检查，覆盖键盘、缩放、弹层边界、离线资源及逐产品刷新动画，并保存分平台截图。原生毛玻璃、混合 DPI 拖动、托盘与安装升级需要对应操作系统的实机验收。
 
 ## 代码结构
 
-- `src/app.rs`、`src/appearance.rs`：GPUI 原生窗口、GPUI-KIT 控件与 Metra 视觉样式。
-- `src/platform.rs`、`src/tray.rs`：窗口定位、开机启动及系统托盘。
-- `src/providers/`、`src/service.rs`：本机账户发现与后台用量采集。
-- `src/settings.rs`、`src/model.rs`：SQLite 配置和稳定数据结构。
-- `src/headless.rs`、`src/updater.rs`：JSON 输出及独立于界面框架的签名更新。
-- `assets/`、`tests/`：嵌入资源及采集、配置、模型和签名验证。
+- `frontend/`：Lit 页面、Web Awesome 标准控件、Lucide 图标和玻璃表面样式。
+- `src/app.rs`、`src/geometry.rs`：Tauri 命令、事件、窗口、拖动与吸边。
+- `src/platform.rs`、`src/tray.rs`：系统材质、开机启动、Tauri 托盘。
+- `src/providers/`、`src/service.rs`：账户发现和后台采集。
+- `src/settings.rs`、`src/model.rs`：SQLite 配置和数据结构。
+- `src/headless.rs`、`src/updater.rs`：JSON 采集和签名更新。
+- `tauri.conf.json`、`capabilities/`：安装包、内容安全策略及本地窗口权限。
+- `tests/`、`tests/ui/`：Rust 契约测试及浏览器交互测试。
 
-项目使用 [MIT License](LICENSE)。GPUI-KIT 与 GPUI 使用 Apache-2.0；嵌入的 Inter 字体保留 `assets/fonts/` 内的 OFL 许可。
+项目使用 [MIT License](LICENSE)。Tauri 使用 MIT/Apache-2.0；Inter 字体的 OFL 许可保留在 `assets/fonts/`。

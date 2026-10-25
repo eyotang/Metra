@@ -249,5 +249,6 @@
   "native.openRelease": "Download update",
   "native.refreshing": "Refreshing usage…",
   "native.included": "Included usage",
-  "native.ondemand": "On-demand cost"
+  "native.ondemand": "On-demand cost",
+  "native.upToDate": "Metra is up to date"
 }

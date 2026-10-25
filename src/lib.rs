@@ -17,4 +17,4 @@ pub mod updater;
 mod tray;
 
 #[cfg(feature = "desktop")]
-mod appearance;
+mod geometry;

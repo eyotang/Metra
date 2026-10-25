@@ -1,4 +1,4 @@
-name: Native GPUI checks and releases
+name: Tauri checks and releases
 on:
   push:
     branches: [main]
@@ -31,14 +31,40 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake pkg-config libgtk-3-dev libayatana-appindicator3-dev libxdo-dev libvulkan-dev libxkbcommon-x11-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-randr0-dev libfontconfig1-dev libx11-xcb-dev libwayland-dev libasound2-dev
+          sudo apt-get install -y clang cmake pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libxdo-dev
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - run: npm ci
+      - run: npm run frontend:build
       - run: cargo fmt --all -- --check
       - name: Windows collector protocol contract
         if: runner.os == 'Windows'
         run: cargo test --locked --no-default-features --lib providers::codex::boundary_tests
       - run: cargo check --locked --all-targets
-      - run: cargo test --locked --features ui-tests --all-targets
+      - run: cargo test --locked --all-targets
+      - name: Build Windows native acceptance application
+        if: runner.os == 'Windows'
+        run: cargo build --locked --features desktop-smoke,custom-protocol
+      - name: Windows native tray, panels, capsule and resize checks
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-windows-desktop.ps1
+      - name: Browser engines for each desktop platform
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            npx playwright install --with-deps chromium webkit
+          else
+            npx playwright install chromium webkit
+          fi
+      - name: Component and rendering checks (Chromium and WebKit)
+        run: npm run test:ui
+      - name: UI screenshots and failure traces
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: metra-ui-${{ runner.os }}
+          path: test-results/
+          if-no-files-found: ignore
       - name: Build collector without the desktop framework
         run: cargo build --locked --no-default-features --target-dir target/collector
       - name: Omarchy presentation and headless protocol
@@ -69,8 +95,9 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake pkg-config libgtk-3-dev libayatana-appindicator3-dev libxdo-dev libvulkan-dev libxkbcommon-x11-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-randr0-dev libfontconfig1-dev libx11-xcb-dev libwayland-dev libasound2-dev
+          sudo apt-get install -y clang cmake pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libxdo-dev
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - run: npm ci
       - name: Require the release tag to match Cargo.toml
         shell: bash
         run: |
@@ -78,7 +105,9 @@ jobs:
           test "$GITHUB_REF_NAME" = "v$version"
       - name: Universal macOS application and DMG
         if: runner.os == 'macOS'
-        run: node scripts/package-native.mjs --universal
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          node scripts/package-native.mjs --universal
       - name: Linux Debian package
         if: runner.os == 'Linux'
         run: node scripts/package-native.mjs
@@ -89,12 +118,11 @@ jobs:
           METRA_COLLECTOR_BINARY=target/collector/release/metra node scripts/package-omarchy.mjs
       - name: Windows installer and portable application
         if: runner.os == 'Windows'
+        run: node scripts/package-native.mjs
+      - name: Upgrade from v0.4.1 using its legacy silent updater contract
+        if: runner.os == 'Windows'
         shell: pwsh
-        env:
-          MAKENSIS: C:\Program Files (x86)\NSIS\makensis.exe
-        run: |
-          if (-not (Test-Path $env:MAKENSIS)) { choco install nsis --no-progress -y }
-          node scripts/package-native.mjs
+        run: ./scripts/test-windows-upgrade.ps1
       - name: Sign Windows updater with the existing release key
         if: runner.os == 'Windows'
         shell: pwsh

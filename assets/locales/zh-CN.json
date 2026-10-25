@@ -249,5 +249,6 @@
   "native.openRelease": "下载新版",
   "native.refreshing": "正在读取用量…",
   "native.included": "套餐用量",
-  "native.ondemand": "按量费用"
+  "native.ondemand": "按量费用",
+  "native.upToDate": "Metra 已是最新版本"
 }
