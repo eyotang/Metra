@@ -140,6 +140,23 @@ test('dragging works without screen coordinates and does not open details', asyn
   await expect.poll(() => page.evaluate(() => (window as any).calls.some((c: any) => c.cmd === 'drag_bubble'))).toBe(true);
   expect(await page.evaluate(() => (window as any).calls.some((c: any) => c.cmd === 'open_panel'))).toBe(false);
 });
+test('a delayed capsule expansion does not turn a click into a drag', async ({ page }) => {
+  await setup(page, { peek: true }); await page.setViewportSize({ width: 56, height: 56 });
+  await page.mouse.move(100, 100); await page.goto('/?view=bubble');
+  await expect(page.locator('#bubble')).toHaveClass(/peek/);
+  await page.evaluate(() => { (window as any).hold = 'bubble_hover'; });
+  await page.mouse.move(15, 20);
+  await expect.poll(() => page.evaluate(() => typeof (window as any).releaseTask)).toBe('function');
+  await page.mouse.down();
+  // A right-docked native window moves left as it expands: clientX changes by 24px.
+  await page.mouse.move(39, 20);
+  expect(await page.evaluate(() => (window as any).calls.some((c: any) => c.cmd === 'drag_bubble'))).toBe(false);
+  await page.evaluate(() => (window as any).releaseTask());
+  await expect(page.locator('#bubble')).not.toHaveClass(/peek/);
+  await page.mouse.move(40, 20); await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => (window as any).calls.some((c: any) => c.cmd === 'open_panel'))).toBe(true);
+  expect(await page.evaluate(() => (window as any).calls.some((c: any) => c.cmd === 'drag_bubble'))).toBe(false);
+});
 test('background updates preserve an unfinished label edit', async ({ page }) => {
   await setup(page); await page.goto('/?view=panel'); await settings(page);
   const input = page.getByRole('textbox', { name: 'Cursor label' }); await input.fill('NEW');

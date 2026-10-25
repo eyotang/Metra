@@ -26,7 +26,8 @@ const drafts = new Map<Provider, string>();
 let noticeTimer: ReturnType<typeof setTimeout>;
 let hoverTimer: ReturnType<typeof setTimeout>;
 let draggedProvider: Provider | null = null;
-let pointer: { x: number; y: number; dragging: boolean } | null = null;
+let pointer: { x: number; y: number; dragging: boolean; reset: boolean } | null = null;
+let hoverChanges = 0;
 let dragFinishedAt = -Infinity;
 let now = Date.now();
 const names: Record<Provider, string> = { cursor: 'Cursor', codex: 'Codex', claude: 'Claude Code' };
@@ -267,19 +268,31 @@ root.addEventListener('drop', event => {
 });
 root.addEventListener('dragend', () => { draggedProvider = null; });
 if (bubble) {
+  function hover(hovered: boolean) {
+    hoverChanges++;
+    void invoke('bubble_hover', { hovered }).catch(e => notify(String(e))).finally(() => {
+      hoverChanges--;
+      // Expansion can shift the native window origin beneath a held pointer.
+      if (pointer && !pointer.dragging) pointer.reset = true;
+    });
+  }
   root.addEventListener('pointerenter', () => {
     clearTimeout(hoverTimer);
-    void invoke('bubble_hover', { hovered: true }).catch(e => notify(String(e)));
+    hover(true);
   });
   root.addEventListener('pointerleave', () => {
     clearTimeout(hoverTimer);
-    hoverTimer = setTimeout(() => { if (!pointer?.dragging) void invoke('bubble_hover', { hovered: false }).catch(e => notify(String(e))); }, 500);
+    hoverTimer = setTimeout(() => { if (!pointer?.dragging) hover(false); }, 500);
   });
   // Only detect motion before starting the native drag; global screen coordinates
   // are unavailable in some WebKitGTK environments.
-  root.addEventListener('pointerdown', event => { if (event.button === 0) pointer = { x: event.clientX, y: event.clientY, dragging: false }; });
+  root.addEventListener('pointerdown', event => { if (event.button === 0) pointer = { x: event.clientX, y: event.clientY, dragging: false, reset: false }; });
   root.addEventListener('pointermove', event => {
-    if (!pointer || pointer.dragging || Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) < 4) return;
+    if (!pointer || pointer.dragging || hoverChanges) return;
+    if (pointer.reset) {
+      pointer.x = event.clientX; pointer.y = event.clientY; pointer.reset = false; return;
+    }
+    if (Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) < 4) return;
     pointer.dragging = true; clearTimeout(hoverTimer);
     void invoke('drag_bubble').catch(e => notify(String(e))).finally(() => { pointer = null; dragFinishedAt = performance.now(); });
   });
