@@ -1,4 +1,6 @@
 $ErrorActionPreference = 'Stop'
+$version = (Select-String -Path (Join-Path $PSScriptRoot '../Cargo.toml') -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+if (-not $version) { throw 'Could not read the application version' }
 $work = Join-Path $env:RUNNER_TEMP ("metra-upgrade-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $work | Out-Null
 $env:METRA_CONFIG_DIR = Join-Path $work 'config'
@@ -26,7 +28,6 @@ try {
   Run-Installer $legacy
   Stop-Installed
   Start-Sleep -Milliseconds 500
-  $version = (Select-String Cargo.toml '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
   $setup = (Resolve-Path "release-assets/Metra-$version-windows-x64-setup.exe").Path
   # This is exactly what the released v0.4.1 updater invokes: /S, without /R.
   Run-Installer $setup

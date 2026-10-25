@@ -58,6 +58,13 @@ jobs:
           fi
       - name: Component and rendering checks (Chromium and WebKit)
         run: npm run test:ui
+      - name: Windows installer and legacy upgrade acceptance before release
+        if: runner.os == 'Windows' && github.event_name == 'pull_request'
+        shell: pwsh
+        run: |
+          node scripts/package-native.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/test-windows-upgrade.ps1
       - name: UI screenshots and failure traces
         if: always()
         uses: actions/upload-artifact@v7
