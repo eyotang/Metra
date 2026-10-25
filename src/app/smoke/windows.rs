@@ -1,6 +1,6 @@
 use super::*;
 use std::{fs::File, path::Path};
-use tauri::{PhysicalSize, WindowBuilder};
+use tauri::PhysicalSize;
 use windows_sys::Win32::Graphics::{
     Dwm::DwmFlush,
     Gdi::{
@@ -16,16 +16,20 @@ pub(super) fn check_transparent_edges(
     panel: &WebviewWindow,
 ) -> Result<()> {
     let (work, _) = work_area(bubble)?;
-    let backdrop = WindowBuilder::new(app, "smoke-backdrop")
-        .title("Metra transparency acceptance backdrop")
-        .decorations(false)
-        .shadow(false)
-        .focused(false)
-        .skip_taskbar(true)
-        .background_color(tauri::window::Color(40, 160, 88, 255))
-        .visible(false)
-        .build()
-        .map_err(|error| error.to_string())?;
+    let backdrop = WebviewWindowBuilder::new(
+        app,
+        "smoke-backdrop",
+        WebviewUrl::External(url::Url::parse("about:blank").map_err(|error| error.to_string())?),
+    )
+    .title("Metra transparency acceptance backdrop")
+    .decorations(false)
+    .shadow(false)
+    .focused(false)
+    .skip_taskbar(true)
+    .background_color(tauri::window::Color(40, 160, 88, 255))
+    .visible(false)
+    .build()
+    .map_err(|error| error.to_string())?;
     backdrop
         .set_position(PhysicalPosition::new(work.x as i32, work.y as i32))
         .map_err(|error| error.to_string())?;
