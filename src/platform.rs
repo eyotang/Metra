@@ -62,7 +62,9 @@ pub fn apply_glass(window: &tauri::WebviewWindow, radius: f64) -> Result<(), Str
             .build();
         #[cfg(windows)]
         let effects = EffectsBuilder::new()
-            .effect(Effect::Acrylic)
+            // Windows 11's whole-window Acrylic backdrop paints outside a custom
+            // region. Accent blur preserves the transparent bubble/panel silhouette.
+            .effect(Effect::Blur)
             .color(tauri::window::Color(18, 25, 40, 110))
             .build();
         #[cfg(target_os = "macos")]
