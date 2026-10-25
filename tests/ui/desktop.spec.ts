@@ -18,11 +18,12 @@ const fixture: Payload = {
   update: { version: '0.5.0', notes: 'A newer release', error: null, downloading: false },
   canInstall: false, version: '0.4.1', panel: 'details', peek: false, loginRunning: false,
 };
-async function setup(page: Page, overrides: Partial<Payload> = {}) {
-  await page.addInitScript(({ initial, catalogs }) => {
+async function setup(page: Page, overrides: Partial<Payload> = {}, visible = true) {
+  await page.addInitScript(({ initial, catalogs, visible }) => {
     const w = window as any;
-    w.fixture = initial; w.calls = []; w.failNext = null;
+    w.fixture = initial; w.calls = []; w.failNext = null; w.viewVisible = visible;
     const callbacks = new Map(); const listeners = new Map(); let next = 1;
+    w.visibility = (visible: boolean) => { w.viewVisible = visible; listeners.get('metra-visibility')?.forEach((id: number) => callbacks.get(id)({ payload: visible })); };
     w.publish = () => listeners.get('metra-state')?.forEach((id: number) => callbacks.get(id)({ payload: structuredClone(w.fixture) }));
     w.__TAURI_INTERNALS__ = {
       transformCallback: (fn: Function) => { const id = next++; callbacks.set(id, fn); return id; },
@@ -32,6 +33,7 @@ async function setup(page: Page, overrides: Partial<Payload> = {}) {
         if (w.failNext === cmd) { w.failNext = null; throw 'Could not save settings'; }
         if (cmd === 'plugin:event|listen') { const list = listeners.get(args.event) || []; list.push(args.handler); listeners.set(args.event, list); return args.handler; }
         if (cmd === 'get_state') return structuredClone(w.fixture);
+        if (cmd === 'get_view_visible') return w.viewVisible;
         if (cmd === 'open_panel') w.fixture.panel = args.mode;
         if (cmd === 'bubble_hover') w.fixture.peek = !args.hovered && w.fixture.settings.bubbleSnapEnabled;
         if (cmd === 'change_setting') {
@@ -49,7 +51,7 @@ async function setup(page: Page, overrides: Partial<Payload> = {}) {
         w.publish();
       },
     };
-  }, { initial: { ...fixture, ...overrides }, catalogs: { en, 'zh-CN': zh, ja, ko } });
+  }, { initial: { ...fixture, ...overrides }, catalogs: { en, 'zh-CN': zh, ja, ko }, visible });
 }
 async function settings(page: Page) { await page.getByRole('button', { name: 'Settings', exact: true }).click(); await expect(page.getByText('Provider display', { exact: true })).toBeVisible(); }
 
@@ -369,4 +371,60 @@ test('provider handle dragging also works with reduced motion', async ({ page })
   await dragProvider(page, 'cursor', 'claude');
   await expect.poll(() => page.evaluate(() => (window as any).fixture.settings.bubbleProviderOrder)).toEqual(['codex', 'claude', 'cursor']);
   await expect(page.locator('.order-drag-preview')).toHaveCount(0);
+});
+
+// Observe the actual app subtree so redundant Lit patches are detected even when
+// text is unchanged (the former timer rewrote aria-busy on every wakeup).
+async function observeRendering(page: Page) {
+  await page.evaluate(() => {
+    const w = window as any;
+    w.renderMutations = 0;
+    new MutationObserver(records => { w.renderMutations += records.length; })
+      .observe(document.querySelector('#app')!, { subtree: true, childList: true, attributes: true, characterData: true });
+  });
+}
+test('hidden panels cache shared data without rendering and show it on opening', async ({ page }) => {
+  await setup(page, {}, false); await page.goto('/?view=panel');
+  await expect.poll(() => page.evaluate(() => (window as any).calls.some((c: any) => c.cmd === 'get_state'))).toBe(true);
+  await expect(page.locator('#app')).toBeEmpty();
+  await observeRendering(page);
+  await page.evaluate(() => {
+    const w = window as any; w.fixture.snapshot.cursor.quotas[0].remainingPercent = 88; w.publish();
+  });
+  expect(await page.evaluate(() => (window as any).renderMutations)).toBe(0);
+  await page.evaluate(() => (window as any).visibility(true));
+  await expect(page.getByText('88% remaining')).toBeVisible();
+  expect(await page.evaluate(() => (window as any).calls.filter((c: any) => c.cmd === 'refresh'))).toEqual([]);
+  await page.evaluate(() => (window as any).visibility(false));
+  await page.evaluate(() => { const w = window as any; w.renderMutations = 0; w.fixture.snapshot.cursor.quotas[0].remainingPercent = 92; w.publish(); });
+  expect(await page.evaluate(() => (window as any).renderMutations)).toBe(0);
+  await expect(page.getByText('88% remaining')).toBeVisible();
+  await page.evaluate(() => (window as any).visibility(true));
+  await expect(page.getByText('92% remaining')).toBeVisible();
+});
+test('idle views have no periodic rendering timer', async ({ page }) => {
+  await page.clock.install();
+  await setup(page); await page.goto('/?view=panel');
+  await expect(page.getByText('77% remaining')).toBeVisible();
+  await observeRendering(page);
+  await page.clock.runFor(61000);
+  expect(await page.evaluate(() => (window as any).renderMutations)).toBe(0);
+});
+test('bubbles only render changes to their displayed data', async ({ page }) => {
+  await setup(page); await page.goto('/?view=bubble');
+  await expect(page.locator('#bubble')).toContainText('77%');
+  await observeRendering(page);
+  await page.evaluate(() => {
+    const w = window as any;
+    w.fixture.snapshot.cursor.capturedAt = '2026-10-25T07:00:00Z';
+    w.fixture.update.version = '0.9.0'; w.fixture.settings.refreshMinutes = 15;
+    w.publish(); w.publish();
+  });
+  expect(await page.evaluate(() => (window as any).renderMutations)).toBe(0);
+  await page.evaluate(() => { const w = window as any; w.fixture.entries[0].value = 91; w.publish(); });
+  await expect(page.locator('#bubble')).toContainText('91%');
+  await page.evaluate(() => { const w = window as any; w.visibility(false); w.renderMutations = 0; w.fixture.entries[0].value = 93; w.publish(); });
+  expect(await page.evaluate(() => (window as any).renderMutations)).toBe(0);
+  await page.evaluate(() => (window as any).visibility(true));
+  await expect(page.locator('#bubble')).toContainText('93%');
 });

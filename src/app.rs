@@ -117,6 +117,22 @@ fn update_tray(app: &AppHandle, cycle: usize) {
     }
 }
 
+fn set_view_visible(window: &WebviewWindow, visible: bool) -> Result<()> {
+    if visible {
+        window.show()
+    } else {
+        window.hide()
+    }
+    .map_err(|e| e.to_string())?;
+    window
+        .emit_to(window.label(), "metra-visibility", visible)
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn get_view_visible(window: WebviewWindow) -> Result<bool> {
+    window.is_visible().map_err(|e| e.to_string())
+}
+
 fn report(app: &AppHandle, result: Result<()>) {
     if let Err(error) = result {
         diagnostics::warn("desktop.operation_failed", &error);
@@ -210,10 +226,10 @@ fn change_settings(app: &AppHandle, change: Change) -> Result<()> {
     if let Some(bubble) = app.get_webview_window("bubble") {
         match change {
             Change::Display(DisplayMode::Bubble) => {
-                bubble.show().map_err(|e| e.to_string())?;
+                set_view_visible(&bubble, true)?;
             }
             Change::Display(DisplayMode::StatusBar) => {
-                bubble.hide().map_err(|e| e.to_string())?;
+                set_view_visible(&bubble, false)?;
             }
             Change::Snap(enabled) => set_peek(app, enabled, enabled)?,
             _ => {}
@@ -410,7 +426,7 @@ fn show_panel(app: &AppHandle, mode: &str, toggle: bool) -> Result<()> {
         && panel.is_visible().unwrap_or(false)
         && *state.panel.lock().expect("panel mode") == mode
     {
-        return panel.hide().map_err(|e| e.to_string());
+        return set_view_visible(&panel, false);
     }
     *state.panel.lock().expect("panel mode") = mode.into();
     let settings = state.service.payload().settings;
@@ -459,10 +475,8 @@ fn show_panel(app: &AppHandle, mode: &str, toggle: bool) -> Result<()> {
         .set_position(PhysicalPosition::new(x, y))
         .map_err(|e| e.to_string())?;
     publish(app);
-    panel
-        .show()
-        .and_then(|_| panel.set_focus())
-        .map_err(|e| e.to_string())
+    set_view_visible(&panel, true)?;
+    panel.set_focus().map_err(|e| e.to_string())
 }
 #[tauri::command]
 async fn open_panel(app: AppHandle, mode: String, toggle: bool) -> Result<()> {
@@ -472,10 +486,8 @@ async fn open_panel(app: AppHandle, mode: String, toggle: bool) -> Result<()> {
 }
 #[tauri::command]
 fn hide_panel(app: AppHandle) -> Result<()> {
-    app.get_webview_window("panel")
-        .ok_or("Panel unavailable")?
-        .hide()
-        .map_err(|e| e.to_string())
+    let panel = app.get_webview_window("panel").ok_or("Panel unavailable")?;
+    set_view_visible(&panel, false)
 }
 #[tauri::command]
 fn quit(app: AppHandle) {
@@ -709,7 +721,7 @@ fn create_windows(app: &AppHandle) -> Result<()> {
         set_peek(app, true, true)?;
     }
     if settings.display_mode == DisplayMode::Bubble || app.tray_by_id("metra-status").is_none() {
-        bubble.show().map_err(|e| e.to_string())?;
+        set_view_visible(&bubble, true)?;
     }
     Ok(())
 }
@@ -763,6 +775,7 @@ fn run_desktop() -> Result<()> {
         })
         .invoke_handler(tauri::generate_handler![
             get_state,
+            get_view_visible,
             change_setting,
             refresh,
             bubble_hover,
