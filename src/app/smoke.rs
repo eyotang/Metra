@@ -205,7 +205,8 @@ fn exercise(app: &AppHandle) -> Result<serde_json::Value> {
     Ok(
         json!({ "ok": true, "os": std::env::consts::OS, "version": env!("CARGO_PKG_VERSION"),
         "nativeTray": true, "rotation": rotation, "modeSwitch": true, "panels": true, "menuDispatcher": true, "productionTimer": true,
-        "capsule": true, "nativeRegion": cfg!(windows), "isolated": true }),
+        "capsule": true, "nativeRegion": cfg!(windows), "transparentEdges": cfg!(windows),
+        "nativeTemplate": cfg!(target_os = "macos"), "isolated": true }),
     )
 }
 fn check_region(window: &WebviewWindow) -> Result<()> {

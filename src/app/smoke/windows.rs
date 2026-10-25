@@ -92,6 +92,19 @@ fn check_surface(
     name: &str,
     background: &[u8],
 ) -> Result<()> {
+    let mode = std::env::var("METRA_SMOKE_RENDER_MODE").unwrap_or_default();
+    if mode == "none" || mode == "plain" {
+        window
+            .set_effects(None)
+            .map_err(|error| error.to_string())?;
+    }
+    if mode == "no-region" || mode == "plain" {
+        let handle = window.hwnd().map_err(|error| error.to_string())?.0;
+        // SAFETY: the live test window owns this HWND; NULL restores its default region.
+        unsafe {
+            windows_sys::Win32::Graphics::Gdi::SetWindowRgn(handle, std::ptr::null_mut(), 1);
+        }
+    }
     let position = window.outer_position().map_err(|error| error.to_string())?;
     let size = window.outer_size().map_err(|error| error.to_string())?;
     let deadline = Instant::now() + Duration::from_secs(8);
