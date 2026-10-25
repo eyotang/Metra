@@ -112,6 +112,20 @@ impl Updater {
         })();
         match result {
             Ok(manifest) => {
+                crate::diagnostics::info(
+                    if manifest.is_some() {
+                        "updater.available"
+                    } else {
+                        "updater.current"
+                    },
+                    format!(
+                        "current={} available={}",
+                        env!("CARGO_PKG_VERSION"),
+                        manifest
+                            .as_ref()
+                            .map_or("none", |release| release.version.as_str())
+                    ),
+                );
                 let mut status = self.status.lock().expect("update status");
                 status.version = manifest.as_ref().map(|manifest| manifest.version.clone());
                 status.notes = manifest
@@ -249,6 +263,18 @@ pub fn verify_artifact(bytes: &[u8], encoded_signature: &str) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires access to the official release endpoint using the host network configuration"]
+    fn official_update_endpoint_is_reachable() {
+        let updater = Updater::default();
+        updater.check();
+        assert!(
+            updater.status().error.is_none(),
+            "{:?}",
+            updater.status().error
+        );
+    }
+
     #[test]
     fn only_new_stable_versions_are_offered() {
         assert!(
