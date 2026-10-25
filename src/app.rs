@@ -387,9 +387,6 @@ async fn drag_bubble(app: AppHandle) -> Result<()> {
             .get_webview_window("bubble")
             .ok_or("Bubble unavailable")?;
         let result: Result<()> = (|| {
-            // Acrylic is expensive during native window moves on some Windows builds.
-            #[cfg(windows)]
-            window.set_effects(None).map_err(|e| e.to_string())?;
             window.start_dragging().map_err(|e| e.to_string())?;
             // Windows returns after its native move loop; macOS/Linux return immediately.
             let deadline = Instant::now() + Duration::from_secs(120);
@@ -708,11 +705,12 @@ fn create_windows(app: &AppHandle) -> Result<()> {
             api.prevent_close();
         }
     });
-    let glass =
-        platform::apply_glass(&bubble, 28.).and_then(|_| platform::apply_glass(&panel, 22.));
+    let glass = platform::apply_glass(&bubble, 28.).and_then(|bubble_native| {
+        platform::apply_glass(&panel, 22.).map(|panel_native| bubble_native && panel_native)
+    });
     app.state::<Desktop>()
         .native_glass
-        .store(glass.is_ok(), Ordering::Release);
+        .store(glass.as_ref().copied().unwrap_or(false), Ordering::Release);
     if let Err(error) = glass {
         diagnostics::warn("desktop.glass_unavailable", error);
     }

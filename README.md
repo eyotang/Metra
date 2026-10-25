@@ -5,7 +5,7 @@
 Metra monitors Cursor, Codex and Claude Code usage with **Tauri 2, TypeScript and Rust**. Windows renders through WebView2, macOS through WKWebView, and Linux through WebKitGTK. Rust handles local account discovery, usage collection, settings and signed updates.
 
 - A draggable, always-on-top 56px bubble folds into a 32px edge capsule when auto-dock is enabled. Hover expands it, leaving folds it again, and clicking or pressing Enter opens details.
-- Native glass uses Acrylic on Windows and dark HUD vibrancy on macOS. Transparent web content supplies tint, highlights and readable text; Linux X11 applies the compositor blur hint where supported, with a translucent fallback. Windows temporarily disables Acrylic during native dragging to avoid compositor stalls.
+- Windows uses transparent windows and translucent panels, avoiding the rectangular backdrop introduced by whole-window materials on Windows 11. macOS uses dark HUD vibrancy; Linux X11 applies the compositor blur hint where supported, with a translucent fallback.
 - Status bar mode cycles visible providers every five seconds. macOS shows text; Windows shows numeric tray icons; Linux depends on the panel host.
 - Details show account status, quota windows, reset countdowns, token totals and costs. Settings retain provider order, visibility, labels, colors, four languages, refresh interval and launch-at-startup.
 - Existing `dev.metra.desktop/settings.db` remains in the system configuration directory. Saved positions are migrated to Tauri physical coordinates and clamped to monitor work areas.

@@ -5,7 +5,7 @@
 Metra 使用 **Tauri 2、TypeScript 和 Rust** 展示 Cursor、Codex 与 Claude Code 的登录状态、额度、重置时间、Token 和费用。Windows 通过 WebView2 渲染，macOS 使用 WKWebView，Linux 使用 WebKitGTK；Rust 负责账户发现、采集、配置和签名更新。
 
 - 保留 56px 悬浮球、拖动、置顶与吸边；启用吸边后松手即收为 32px 窄胶囊，悬停展开，离开再次收起。支持鼠标和键盘打开详情。
-- Windows 使用原生 Acrylic 毛玻璃，macOS 使用深色系统 HUD 毛玻璃；前端补充透明染色、柔和高光和细边框。Windows 拖动期间暂时关闭 Acrylic，松手恢复，减少系统合成器卡顿。Linux X11 恢复兼容合成器的原生模糊提示，并提供半透明回退。
+- Windows 沿用透明窗口和半透明面板，避免 Windows 11 整窗材质造成的灰白矩形底色；macOS 使用深色系统 HUD 毛玻璃。Linux X11 使用兼容合成器的原生模糊提示，并提供半透明回退。
 - 状态栏每五秒轮播启用的服务；Windows 使用数字托盘图标，macOS 显示文字，Linux 的显示取决于面板支持。
 - 保留服务排序、显示开关、自定义标签、颜色、四种语言、刷新周期、开机启动和 Cursor 兼容模式确认。
 - 延用系统配置目录下的 `dev.metra.desktop/settings.db`，迁移旧窗口坐标并限制在显示器工作区域内。Cursor 凭据仍需用户明确同意后才会读取。
@@ -57,7 +57,7 @@ Tauri 负责前端嵌入和平台打包，脚本将产物以原有发布文件�
 
 通用控件使用 Web Awesome（按钮、开关、复选框、输入框、下拉、弹层、进度条），图标使用 Lucide；组件与图标全部本地打包。Lit 保持控件节点稳定，后台刷新保留输入焦点和弹层。每个产品刷新期间显示独立动画，完成后立即更新结果。
 
-CI 在 Windows、macOS、Linux 分别运行 Rust 和 Chromium/WebKit 交互检查，覆盖键盘、缩放、弹层边界、离线资源及逐产品刷新动画，并保存分平台截图。原生毛玻璃、混合 DPI 拖动、托盘与安装升级需要对应操作系统的实机验收。
+CI 在 Windows、macOS、Linux 分别运行 Rust 和 Chromium/WebKit 交互检查，覆盖键盘、缩放、弹层边界、离线资源及逐产品刷新动画，并保存分平台截图。原生验收检查 Windows 胶囊、圆球与面板四角的实际桌面合成截图，以及 macOS 状态栏图标的模板属性。Windows 安装包还验证旧版静默升级；混合 DPI 拖动仍需要对应硬件验收。
 
 ## 代码结构
 

@@ -52,7 +52,7 @@ svg {
   height:100%;
   border:1px solid #ffffff20;
   border-radius:22px;
-  background:linear-gradient(145deg,#222b40fa,#131b2afa 60%);
+  background:linear-gradient(155deg,#191d2cf5,#0f121df8);
   overflow:hidden
 }
 .panel-header {
@@ -441,7 +441,10 @@ nav {
     transition:none!important
   }
 }
-/* The desktop is blurred by Tauri's compositor material, not a simulated CSS backdrop. */
+body:not(.native-glass) .panel {
+  backdrop-filter:blur(22px)
+}
+/* Native compositor material blurs the desktop on supported platforms. */
 .native-glass .panel {
   background:linear-gradient(145deg,#26334fd1,#111b2edb 60%);
   border-color:#ffffff30;

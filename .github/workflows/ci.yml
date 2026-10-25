@@ -59,7 +59,7 @@ jobs:
       - name: Windows native tray, panels, capsule and resize checks
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/probe-windows-transparency.ps1
+        run: ./scripts/test-windows-desktop.ps1
       - name: Browser engines for each desktop platform
         shell: bash
         run: |
