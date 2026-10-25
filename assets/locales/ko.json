@@ -151,6 +151,7 @@
   "consent.enableFailureReason": "잠시 후 다시 시도하세요.",
   "config.title": "서비스 표시",
   "config.subtitle": "순서 · 표시 여부 · 레이블 · 색상",
+  "config.reorderHint": "핸들을 끌어 순서를 변경하거나, 핸들에 초점을 맞춘 뒤 위아래 키를 사용하세요.",
   "config.dragOrder": "드래그하여 순서 변경",
   "config.dragProviderOrder": "드래그하여 {provider} 표시 순서 변경",
   "config.chooseColor": "{provider} 마커 색상 선택",

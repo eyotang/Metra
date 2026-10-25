@@ -1,4 +1,5 @@
 import './components';
+import Sortable from 'sortablejs';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { html, nothing, render as patch, type TemplateResult } from 'lit';
@@ -25,7 +26,8 @@ const progressSeen = new Set<string>();
 const drafts = new Map<Provider, string>();
 let noticeTimer: ReturnType<typeof setTimeout>;
 let hoverTimer: ReturnType<typeof setTimeout>;
-let draggedProvider: Provider | null = null;
+let providerSort: Sortable | null = null;
+let orderDrag: { nodes: ChildNode[]; order: Provider[]; provider: Provider; started: boolean; cancelled: boolean } | null = null;
 let pointer: { x: number; y: number; dragging: boolean; reset: boolean } | null = null;
 let hoverChanges = 0;
 let dragFinishedAt = -Infinity;
@@ -96,12 +98,7 @@ function perform(action: string) {
     else if (action === 'close') await invoke('hide_panel');
     else if (action === 'quit') await invoke('quit');
     else if (action === 'enable-compat') { await change({ kind: 'compat', value: true }); await navigate('details'); }
-    else if (action.startsWith('up:') || action.startsWith('down:')) {
-      const [direction, p] = action.split(':');
-      const order = [...state.settings.bubbleProviderOrder];
-      const i = order.indexOf(p as Provider); const j = i + (direction === 'up' ? -1 : 1);
-      if (j >= 0 && j < order.length) { [order[i], order[j]] = [order[j], order[i]]; await change({ kind: 'order', value: order }); }
-    }
+
   });
 }
 const metric = (name: string, value: string) => html`<div><dt>${name}</dt><dd>${value}</dd></div>`;
@@ -173,13 +170,19 @@ function toggle(key: string, kind: 'snap' | 'autostart' | 'compat', enabled: boo
     }}><span>${t(key)}${hint ? html`<small>${t(hint)}</small>` : nothing}</span></wa-switch></div>`;
 }
 function providerControls() {
-  return html`<section class="display-config"><h2>${t('config.title')}</h2><p class="hint">${t('config.subtitle')}</p>
+  return html`<section class="display-config"><h2>${t('config.title')}</h2><p class="hint" id="order-help">${t('config.reorderHint')}</p>
     <ol class="provider-list">${repeat(state.settings.bubbleProviderOrder, p => p, p => {
-      const i = state.settings.bubbleProviderOrder.indexOf(p);
-      return html`<li data-order-provider=${p} draggable="true" style=${`--accent:${color(p)}`}>
-        <div class="provider-config-title"><strong>${names[p]}</strong><div class="order-actions">
-          ${iconButton(`up:${p}`, `${t('native.moveUp')} ${names[p]}`, 'up', i === 0)}
-          ${iconButton(`down:${p}`, `${t('native.moveDown')} ${names[p]}`, 'down', i === 2)}
+      return html`<li data-order-provider=${p} style=${`--accent:${color(p)}`}>
+        <div class="provider-config-title"><div class="provider-name">
+          <wa-button class="order-handle" size="s" appearance="plain" title=${t('config.dragProviderOrder', { provider: names[p] })}
+            aria-label=${t('config.dragProviderOrder', { provider: names[p] })} aria-describedby="order-help" ?disabled=${busy}
+            @keydown=${(event: KeyboardEvent) => {
+              const direction = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
+              if (!direction || busy || orderDrag) return;
+              event.preventDefault(); event.stopPropagation();
+              const order = [...state.settings.bubbleProviderOrder]; const from = order.indexOf(p); const to = from + direction;
+              if (to >= 0 && to < order.length) { [order[from], order[to]] = [order[to], order[from]]; saveProviderOrder(order, p); }
+            }}>${icon('grip')}</wa-button><strong>${names[p]}</strong></div><div class="order-actions">
           <wa-checkbox size="s" data-provider-visible=${p} .checked=${live(state.settings.bubbleVisibleProviders.includes(p))} ?disabled=${busy}
             @change=${(event: Event) => { const visible = (event.currentTarget as WaCheckbox).checked; void run(() => change({ kind: 'visible', value: { provider: p, visible } })); }}>
             <span class="sr-only">${t('config.providerVisible', { provider: names[p] })}</span></wa-checkbox>
@@ -232,7 +235,7 @@ function renderBubble() {
     })}</span></button>`;
 }
 function render() {
-  if (!state) return;
+  if (!state || orderDrag) return;
   document.documentElement.lang = state.locale;
   root.setAttribute('aria-busy', String(busy));
   if (bubble) { patch(renderBubble(), root); return; }
@@ -243,29 +246,59 @@ function render() {
     ${iconButton('close', t('native.close'), 'close')}
   </nav></header>${state.panel === 'details' ? updateBanner() : nothing}<div class="scroll">${keyed(state.panel, state.panel === 'details' ? details() : state.panel === 'settings' ? settings() : consent())}</div>
   <div class="panel-status"><span class="refresh-status">${refreshing || busy ? spinner() : html`<span class="status-dot"></span>`}${t(refreshing ? 'native.refreshing' : 'refresh.everyMinutes', { minutes: state.settings.refreshMinutes })}</span></div></div>`, root);
+  syncProviderSorting();
 }
-root.addEventListener('keydown', event => {
+function saveProviderOrder(order: Provider[], provider: Provider, previous = [...state.settings.bubbleProviderOrder]) {
+  if (order.every((p, i) => p === previous[i])) { render(); return; }
+  state.settings.bubbleProviderOrder = order;
+  void run(async () => {
+    try { await change({ kind: 'order', value: order }); }
+    catch (error) { state.settings.bubbleProviderOrder = previous; throw error; }
+  }).finally(() => root.querySelector<HTMLElement>(`[data-order-provider="${provider}"] .order-handle`)?.focus({ preventScroll: true }));
+}
+function finishProviderDrag() {
+  const drag = orderDrag; if (!drag || !providerSort) return;
+  const order = providerSort.toArray() as Provider[];
+  // Restore Lit's comment anchors and original nodes before its keyed update.
+  providerSort.el.replaceChildren(...drag.nodes);
+  orderDrag = null;
+  document.body.classList.remove('ordering-providers');
+  if (drag.started && !drag.cancelled) saveProviderOrder(order, drag.provider, drag.order); else { render(); root.querySelector<HTMLElement>(`[data-order-provider="${drag.provider}"] .order-handle`)?.focus({ preventScroll: true }); }
+}
+function cancelProviderDrag() {
+  if (!orderDrag) return;
+  orderDrag.cancelled = true;
+  document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+}
+function syncProviderSorting() {
+  const list = root.querySelector<HTMLElement>('.provider-list');
+  if (providerSort && providerSort.el !== list) { providerSort.destroy(); providerSort = null; }
+  if (!list) return;
+  if (providerSort) { providerSort.option('disabled', busy); providerSort.option('animation', matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 160); return; }
+  providerSort = new Sortable(list, {
+    handle: '.order-handle', draggable: '[data-order-provider]', dataIdAttr: 'data-order-provider',
+    forceFallback: true, fallbackOnBody: true, fallbackTolerance: 4,
+    animation: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 160,
+    easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)', direction: 'vertical', swapThreshold: 1,
+    fallbackClass: 'order-drag-preview', ghostClass: 'order-placeholder', chosenClass: 'order-chosen',
+    onChoose: event => { orderDrag = { provider: event.item.dataset.orderProvider as Provider, nodes: [...list.childNodes], order: [...state.settings.bubbleProviderOrder], started: false, cancelled: false }; },
+    onStart: () => {
+      if (!orderDrag) return; orderDrag.started = true;
+      document.body.classList.add('ordering-providers');
+      const preview = Sortable.ghost;
+      if (preview) { preview.inert = true; preview.setAttribute('aria-hidden', 'true'); }
+      const header = preview?.querySelector('.provider-config-title');
+      if (preview && header) { header.querySelector('.order-actions')?.remove(); preview.replaceChildren(header); }
+    },
+    onUnchoose: () => { if (orderDrag && !orderDrag.started) finishProviderDrag(); },
+    onEnd: finishProviderDrag,
+  });
+}
+window.addEventListener('blur', cancelProviderDrag);
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && orderDrag) { event.preventDefault(); event.stopPropagation(); cancelProviderDrag(); return; }
   if (event.key === 'Escape' && !bubble && !event.defaultPrevented && !root.querySelector('wa-popover[open],wa-select[open]')) void invoke('hide_panel');
 });
-root.addEventListener('dragstart', event => {
-  const row = (event.target as HTMLElement).closest<HTMLElement>('[data-order-provider]');
-  if (!row || busy) return;
-  draggedProvider = row.dataset.orderProvider as Provider;
-  event.dataTransfer?.setData('text/plain', draggedProvider);
-  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-});
-root.addEventListener('dragover', event => { if (draggedProvider) event.preventDefault(); });
-root.addEventListener('drop', event => {
-  event.preventDefault();
-  const row = (event.target as HTMLElement).closest<HTMLElement>('[data-order-provider]');
-  if (row && draggedProvider && draggedProvider !== row.dataset.orderProvider) {
-    const order = state.settings.bubbleProviderOrder.filter(p => p !== draggedProvider);
-    order.splice(order.indexOf(row.dataset.orderProvider as Provider), 0, draggedProvider);
-    void run(() => change({ kind: 'order', value: order }));
-  }
-  draggedProvider = null;
-});
-root.addEventListener('dragend', () => { draggedProvider = null; });
 if (bubble) {
   function hover(hovered: boolean) {
     hoverChanges++;

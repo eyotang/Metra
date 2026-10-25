@@ -463,8 +463,6 @@ nav {
 wa-icon { font-size:17px; pointer-events:none; }
 wa-button.icon-button { width:30px; flex:none; }
 wa-button.icon-button::part(button) { width:30px; min-height:30px; padding:0; }
-.order-actions wa-button.icon-button { width:24px; }
-.order-actions wa-button.icon-button::part(button) { width:24px; min-height:24px; }
 .setting-select { width:145px; max-width:52%; flex:none; }
 .setting-select::part(form-control-label),.label-input::part(form-control-label),.sr-only {
   position:absolute; width:1px; height:1px; padding:0; margin:-1px;
@@ -498,3 +496,20 @@ wa-details { --spacing:6px; font-size:10px; }
 .panel-status wa-spinner { font-size:10px; --track-width:1.5px; }
 
 .panel > .update { flex:none; margin:12px 14px 0; max-height:40%; overflow:auto; }
+
+.provider-name { display:flex; align-items:center; gap:5px; min-width:0; }
+wa-button.order-handle { width:26px; flex:none; cursor:grab; touch-action:none; }
+wa-button.order-handle::part(button) { width:26px; min-height:26px; padding:0; color:var(--muted); cursor:grab; }
+wa-button.order-handle:hover::part(button),wa-button.order-handle:focus-within::part(button) { color:var(--accent); background:#b8a6ff15; }
+wa-button.order-handle:active::part(button) { cursor:grabbing; color:#edf0f8; }
+.provider-list li.order-chosen { border-color:#b8a6ff66; }
+.provider-list li.order-placeholder { background:#b8a6ff0a; border:1px dashed #b8a6ff66; }
+.provider-list li.order-placeholder > * { visibility:hidden; }
+.ordering-providers,.ordering-providers * { cursor:grabbing!important; }
+.order-drag-preview {
+  height:44px!important; padding:8px 10px!important; margin:0!important; opacity:1!important;
+  border:1px solid #b8a6ff99; border-radius:10px; background:#202735; color:#edf0f8;
+  box-shadow:0 12px 30px #00000055; list-style:none; overflow:hidden;
+}
+.order-drag-preview .provider-config-title { height:26px; }
+.order-drag-preview .provider-config-fields,.order-drag-preview .order-actions { display:none; }

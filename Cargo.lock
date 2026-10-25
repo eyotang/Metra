@@ -1950,7 +1950,7 @@ dependencies = [
 
 [[package]]
 name = "metra"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "auto-launch",
  "base64 0.22.1",
