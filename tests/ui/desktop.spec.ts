@@ -77,8 +77,8 @@ test('compatibility requires the consent screen and explicit enable action', asy
 });
 test('provider order, label, palette and visibility settings remain usable in a small panel', async ({ page }) => {
   await setup(page); await page.goto('/?view=panel'); await settings(page);
-  await page.getByRole('button', { name: 'Move up Claude Code' }).click();
-  await expect(page.locator('[data-order-provider]').first()).toHaveAttribute('draggable', 'true');
+  const handle = page.getByRole('button', { name: "Drag to change Claude Code's display order", exact: true });
+  await handle.focus(); await handle.press('ArrowUp');
   expect(await page.locator('[data-order-provider]').evaluateAll(rows => rows.map(el => (el as HTMLElement).dataset.orderProvider))).toEqual(['cursor', 'claude', 'codex']);
   const input = page.getByRole('textbox', { name: 'Cursor label' });
   await input.fill('CU'); await input.press('Tab');
@@ -282,3 +282,91 @@ for (const scale of [1, 1.25, 1.5, 2]) {
     });
   });
 }
+
+test('provider sorting has visible handles and a compact live drag preview', async ({ page }) => {
+  await setup(page); await page.goto('/?view=panel'); await settings(page);
+  const handle = page.getByRole('button', { name: "Drag to change Cursor's display order", exact: true });
+  await expect(handle).toBeVisible();
+  await page.locator('.provider-list').scrollIntoViewIfNeeded();
+  const source = await handle.boundingBox();
+  const target = await page.locator('[data-order-provider=claude]').boundingBox();
+  if (!source || !target) throw new Error('Missing drag geometry');
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2 + 8, { steps: 4 });
+  const preview = page.locator('.order-drag-preview');
+  await expect(preview).toBeVisible();
+  expect((await preview.boundingBox())!.height).toBeLessThan(60);
+  await page.mouse.move(target.x + 30, target.y + target.height - 8, { steps: 20 });
+  await expect.poll(() => page.locator('.provider-list [data-order-provider]').evaluateAll(rows => rows.map(el => (el as HTMLElement).dataset.orderProvider))).toEqual(['codex', 'claude', 'cursor']);
+  expect(await page.evaluate(() => (window as any).fixture.settings.bubbleProviderOrder)).toEqual(['cursor', 'codex', 'claude']);
+  await expect.poll(() => page.locator('.provider-list > li').evaluateAll(rows => rows.every(row => !(row as HTMLElement).style.transform))).toBe(true);
+  await page.screenshot({ path: test.info().outputPath('provider-dragging.png') });
+  await page.evaluate(() => { (window as any).hold = 'change_setting'; });
+  await page.mouse.up();
+  await expect.poll(() => page.locator('.provider-list [data-order-provider]').evaluateAll(rows => rows.map(el => (el as HTMLElement).dataset.orderProvider))).toEqual(['codex', 'claude', 'cursor']);
+  expect(await page.evaluate(() => (window as any).fixture.settings.bubbleProviderOrder)).toEqual(['cursor', 'codex', 'claude']);
+  await page.evaluate(() => { const w = window as any; w.hold = null; w.releaseTask(); });
+  await expect(preview).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => (window as any).fixture.settings.bubbleProviderOrder)).toEqual(['codex', 'claude', 'cursor']);
+  await page.getByRole('textbox', { name: 'Cursor label' }).fill('CU');
+  await page.getByRole('textbox', { name: 'Cursor label' }).press('Tab');
+  await expect(page.getByRole('textbox', { name: 'Cursor label' })).toHaveValue('CU');
+  await dragProvider(page, 'cursor', 'codex', false);
+  await expect.poll(() => page.evaluate(() => (window as any).fixture.settings.bubbleProviderOrder)).toEqual(['cursor', 'codex', 'claude']);
+  await expect(page.getByRole('textbox', { name: 'Cursor label' })).toHaveValue('CU');
+});
+
+async function dragProvider(page: Page, source: string, target: string, after = true, release = true) {
+  await page.locator('.provider-list').scrollIntoViewIfNeeded();
+  const from = await page.locator(`[data-order-provider="${source}"] .order-handle`).boundingBox();
+  const to = await page.locator(`[data-order-provider="${target}"]`).boundingBox();
+  if (!from || !to) throw new Error('Missing provider drag geometry');
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2 + 8, { steps: 4 });
+  await expect(page.locator('.order-drag-preview')).toBeVisible();
+  await page.mouse.move(to.x + 30, after ? to.y + to.height - 8 : to.y + 8, { steps: 20 });
+  if (release) {
+    const expected = await page.evaluate(({ source, target, after }) => { const order = (window as any).fixture.settings.bubbleProviderOrder.filter((p: string) => p !== source); order.splice(order.indexOf(target) + (after ? 1 : 0), 0, source); return order; }, { source, target, after });
+    await expect.poll(() => page.locator('.provider-list [data-order-provider]').evaluateAll(rows => rows.map(el => (el as HTMLElement).dataset.orderProvider))).toEqual(expected);
+    await page.mouse.up();
+  }
+}
+
+test('provider drag cancels with Escape and fields cannot initiate sorting', async ({ page }) => {
+  await setup(page); await page.goto('/?view=panel'); await settings(page);
+  await page.locator('.provider-list').scrollIntoViewIfNeeded();
+  const title = await page.locator('[data-order-provider=cursor] strong').boundingBox();
+  if (!title) throw new Error('Missing provider title');
+  await page.mouse.move(title.x + 5, title.y + 5); await page.mouse.down();
+  await page.mouse.move(title.x + 5, title.y + 80, { steps: 10 }); await page.mouse.up();
+  await expect(page.locator('.order-drag-preview')).toHaveCount(0);
+  await dragProvider(page, 'cursor', 'claude', true, false);
+  await expect.poll(() => page.locator('.provider-list [data-order-provider]').evaluateAll(rows => rows.map(el => (el as HTMLElement).dataset.orderProvider))).toEqual(['codex', 'claude', 'cursor']);
+  await page.keyboard.press('Escape'); await page.mouse.up();
+  await expect(page.locator('.order-drag-preview')).toHaveCount(0);
+  await expect.poll(() => page.locator('.provider-list [data-order-provider]').evaluateAll(rows => rows.map(el => (el as HTMLElement).dataset.orderProvider))).toEqual(['cursor', 'codex', 'claude']);
+  expect(await page.evaluate(() => (window as any).fixture.settings.bubbleProviderOrder)).toEqual(['cursor', 'codex', 'claude']);
+  expect(await page.evaluate(() => (window as any).calls.filter((c: any) => c.cmd === 'hide_panel' || c.cmd === 'drag_bubble' || (c.cmd === 'change_setting' && c.args.change.kind === 'order')))).toEqual([]);
+});
+
+test('failed drag saves restore order and keep the handle usable', async ({ page }) => {
+  await setup(page); await page.goto('/?view=panel'); await settings(page);
+  await page.evaluate(() => { (window as any).failNext = 'change_setting'; });
+  await dragProvider(page, 'cursor', 'claude');
+  await expect(page.getByRole('status')).toContainText('Could not save settings');
+  await expect.poll(() => page.locator('.provider-list [data-order-provider]').evaluateAll(rows => rows.map(el => (el as HTMLElement).dataset.orderProvider))).toEqual(['cursor', 'codex', 'claude']);
+  const handle = page.getByRole('button', { name: "Drag to change Cursor's display order", exact: true });
+  await expect(handle).toBeFocused(); await page.keyboard.press('ArrowDown');
+  await expect.poll(() => page.evaluate(() => (window as any).fixture.settings.bubbleProviderOrder)).toEqual(['codex', 'cursor', 'claude']);
+  await expect(handle).toBeFocused();
+});
+
+test('provider handle dragging also works with reduced motion', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await setup(page); await page.goto('/?view=panel'); await settings(page);
+  await dragProvider(page, 'cursor', 'claude');
+  await expect.poll(() => page.evaluate(() => (window as any).fixture.settings.bubbleProviderOrder)).toEqual(['codex', 'claude', 'cursor']);
+  await expect(page.locator('.order-drag-preview')).toHaveCount(0);
+});

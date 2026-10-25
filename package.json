@@ -1,7 +1,7 @@
 {
   "name": "metra",
   "private": true,
-  "version": "0.5.4",
+  "version": "0.5.5",
   "type": "module",
   "engines": {
     "node": ">=24"
@@ -29,11 +29,13 @@
     "@awesome.me/webawesome": "^3.14.0",
     "@tauri-apps/api": "^2",
     "lit": "^3.3.3",
-    "lucide": "^1.61.0"
+    "lucide": "^1.61.0",
+    "sortablejs": "1.15.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.56",
     "@tauri-apps/cli": "^2",
+    "@types/sortablejs": "1.15.9",
     "typescript": "^5.9",
     "vite": "^7"
   }

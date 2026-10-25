@@ -151,6 +151,7 @@
   "consent.enableFailureReason": "しばらくしてから再試行してください。",
   "config.title": "サービス表示",
   "config.subtitle": "順序 · 表示 · ラベル · 色",
+  "config.reorderHint": "ハンドルをドラッグして並べ替え。フォーカス後は上下キーでも移動できます。",
   "config.dragOrder": "ドラッグして並べ替え",
   "config.dragProviderOrder": "ドラッグして {provider} の表示順を変更",
   "config.chooseColor": "{provider} のマーカー色を選択",

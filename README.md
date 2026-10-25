@@ -6,6 +6,7 @@ Metra monitors Cursor, Codex and Claude Code usage with **Tauri 2, TypeScript an
 
 - A draggable, always-on-top 56px bubble folds into a 32px edge capsule when auto-dock is enabled. Hover expands it, leaving folds it again, and clicking or pressing Enter opens details.
 - All platforms use opaque surfaces without system glass, backdrop blur or translucent panels. Browser antialiasing draws the bubble, edge capsule and panel outlines without a native hard clip.
+- Provider settings use SortableJS handle dragging with compact previews, live animated placement, Escape cancellation and keyboard reordering. Order is saved on drop and restored if saving fails.
 - Status bar mode cycles visible providers every five seconds. macOS shows text; Windows shows numeric tray icons; Linux depends on the panel host.
 - Details show account status, quota windows, reset countdowns, token totals and costs. Settings retain provider order, visibility, labels, colors, four languages, refresh interval and launch-at-startup.
 - Existing `dev.metra.desktop/settings.db` remains in the system configuration directory. Saved positions are migrated to Tauri physical coordinates and clamped to monitor work areas.

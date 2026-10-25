@@ -17,9 +17,9 @@ import { registerTranslation } from '@awesome.me/webawesome/dist/utilities/local
 import english from '@awesome.me/webawesome/dist/translations/en.js';
 import { registerIconLibrary } from '@awesome.me/webawesome/dist/components/icon/library.js';
 import systemIcons from '@awesome.me/webawesome/dist/components/icon/library.system.js';
-import { createElement, Settings, RefreshCw, X, ChevronLeft, ChevronUp, ChevronDown } from 'lucide';
+import { createElement, Settings, RefreshCw, X, ChevronLeft, GripVertical } from 'lucide';
 
-const nodes = { settings: Settings, refresh: RefreshCw, close: X, back: ChevronLeft, up: ChevronUp, down: ChevronDown };
+const nodes = { settings: Settings, refresh: RefreshCw, close: X, back: ChevronLeft, grip: GripVertical };
 const icons = Object.fromEntries(Object.entries(nodes).map(([name, node]) => [
   name, `data:image/svg+xml,${encodeURIComponent(createElement(node, { width: 24, height: 24, 'stroke-width': 1.8 }).outerHTML)}`,
 ]));

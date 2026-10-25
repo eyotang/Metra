@@ -151,6 +151,7 @@
   "consent.enableFailureReason": "请稍后重试",
   "config.title": "服务显示",
   "config.subtitle": "排序 · 显示 · 字符 · 颜色",
+  "config.reorderHint": "拖动把手调整顺序，也可聚焦把手后按上下方向键。",
   "config.dragOrder": "拖动调整顺序",
   "config.dragProviderOrder": "拖动调整 {provider} 的显示顺序",
   "config.chooseColor": "选择 {provider} 标记颜色",

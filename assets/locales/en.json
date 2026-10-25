@@ -151,6 +151,7 @@
   "consent.enableFailureReason": "Please try again later.",
   "config.title": "Provider display",
   "config.subtitle": "Order · Visibility · Label · Color",
+  "config.reorderHint": "Drag the handle to reorder, or focus it and use the arrow keys.",
   "config.dragOrder": "Drag to reorder",
   "config.dragProviderOrder": "Drag to change {provider}'s display order",
   "config.chooseColor": "Choose {provider} marker color",

@@ -1,6 +1,6 @@
 [package]
 name = "metra"
-version = "0.5.4"
+version = "0.5.5"
 description = "Cursor, Codex and Claude Code usage monitor built with Tauri 2"
 authors = ["eyotang"]
 edition = "2024"
