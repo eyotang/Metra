@@ -43,6 +43,8 @@ target/collector/release/metra --watch-json
 
 ## 打包与更新
 
+macOS 本地安装：构建 `.app` 后运行 `npm run install:local`，自动备份旧包、保留配置、清理扩展属性并验证本地签名。
+
 ```sh
 npm ci
 node scripts/package-native.mjs

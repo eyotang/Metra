@@ -45,6 +45,8 @@ Watch mode accepts `refresh` lines on stdin and exits when stdin closes. See the
 
 ## Packaging and updates
 
+For local macOS installation, build the `.app` and run `npm run install:local`. It backs up the previous app, preserves settings, clears extended attributes and verifies the local signature.
+
 ```sh
 npm ci
 node scripts/package-native.mjs
