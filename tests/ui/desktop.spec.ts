@@ -114,8 +114,11 @@ test('edge capsule preserves values, expands on hover and supports keyboard open
   // Activation must work immediately after startup, before any drag has occurred.
   await page.addInitScript(() => Object.defineProperty(performance, 'now', { value: () => 100 }));
   await setup(page, { peek: true }); await page.setViewportSize({ width: 32, height: 56 });
-  // Start outside the capsule; Chromium on Linux starts at (0, 0), inside its root.
-  await page.mouse.move(100, 100); await page.goto('/?view=bubble');
+  await page.goto('/?view=bubble');
+  // Navigation may reset the native pointer to (0, 0). Establish a real leave
+  // after mounting rather than relying on the browser's initial pointer position.
+  await expect(page.locator('#bubble')).toBeVisible();
+  await page.mouse.move(15, 20); await page.mouse.move(100, 100);
   await expect(page.locator('#bubble')).toHaveClass(/peek/);
   await expect(page.locator('.bubble-label').first()).toBeHidden();
   await expect(page.locator('.bubble-entry').first()).toContainText('77%');
@@ -142,7 +145,8 @@ test('dragging works without screen coordinates and does not open details', asyn
 });
 test('a delayed capsule expansion does not turn a click into a drag', async ({ page }) => {
   await setup(page, { peek: true }); await page.setViewportSize({ width: 56, height: 56 });
-  await page.mouse.move(100, 100); await page.goto('/?view=bubble');
+  await page.goto('/?view=bubble'); await expect(page.locator('#bubble')).toBeVisible();
+  await page.mouse.move(15, 20); await page.mouse.move(100, 100);
   await expect(page.locator('#bubble')).toHaveClass(/peek/);
   await page.evaluate(() => { (window as any).hold = 'bubble_hover'; });
   await page.mouse.move(15, 20);
