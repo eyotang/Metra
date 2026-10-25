@@ -234,7 +234,6 @@ function renderBubble() {
 function render() {
   if (!state) return;
   document.documentElement.lang = state.locale;
-  document.body.classList.toggle('native-glass', state.nativeGlass);
   root.setAttribute('aria-busy', String(busy));
   if (bubble) { patch(renderBubble(), root); return; }
   const refreshing = state.snapshot.refreshing || pending.has('refresh') || pending.has('recheck');

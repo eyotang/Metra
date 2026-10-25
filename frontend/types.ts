@@ -20,7 +20,7 @@ export interface Payload {
   snapshot: Record<Provider, Snapshot> & { refreshing: boolean };
   settings: Settings; entries: Entry[]; locale: string; translations: Record<string, string>; palette: string[];
   update: { version: string | null; notes: string | null; error: string | null; downloading: boolean };
-  canInstall: boolean; version: string; panel: 'details' | 'settings' | 'consent'; peek: boolean; nativeGlass: boolean; loginRunning: boolean;
+  canInstall: boolean; version: string; panel: 'details' | 'settings' | 'consent'; peek: boolean; loginRunning: boolean;
 }
 export type Change =
   | { kind: 'display'; value: Settings['displayMode'] }

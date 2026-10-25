@@ -72,6 +72,6 @@ except (sqlite3.Error, OSError):
   if (Test-Path $installed) { Write-Output "Installed executable version: $((Get-Item $installed).VersionInfo.ProductVersion)" }
   Installed-Processes | Select-Object ProcessId, ParentProcessId, CreationDate, ExecutablePath | Format-List
   $appLog = Join-Path $env:APPDATA 'metra/metra.log'
-  if (Test-Path $appLog) { Get-Content $appLog | Select-String -Pattern 'app.start|desktop.start_failed|desktop.glass_unavailable' }
+  if (Test-Path $appLog) { Get-Content $appLog | Select-String -Pattern 'app.start|desktop.start_failed' }
   Stop-Installed
 }

@@ -34,7 +34,6 @@ struct Desktop {
     updater: Arc<Updater>,
     panel: Mutex<String>,
     peek: AtomicBool,
-    native_glass: AtomicBool,
     dragging: AtomicBool,
     login_running: AtomicBool,
     refreshing_providers: AtomicU8,
@@ -61,7 +60,6 @@ struct DesktopPayload {
     version: &'static str,
     panel: String,
     peek: bool,
-    native_glass: bool,
     login_running: bool,
     refreshing_providers: Vec<Provider>,
 }
@@ -90,7 +88,6 @@ impl Desktop {
             version: env!("CARGO_PKG_VERSION"),
             panel: self.panel.lock().expect("panel mode").clone(),
             peek: self.peek.load(Ordering::Acquire),
-            native_glass: self.native_glass.load(Ordering::Acquire),
             login_running: self.login_running.load(Ordering::Acquire),
             refreshing_providers: [Provider::Cursor, Provider::Codex, Provider::Claude]
                 .into_iter()
@@ -301,14 +298,6 @@ fn work_area(window: &WebviewWindow) -> Result<(WorkArea, f64)> {
         .ok_or("No display available")?;
     Ok(monitor_work(&monitor))
 }
-fn refresh_glass(app: &AppHandle, window: &WebviewWindow, radius: f64) {
-    if let Err(error) = platform::apply_glass(window, radius) {
-        diagnostics::warn("desktop.glass_unavailable", error);
-        app.state::<Desktop>()
-            .native_glass
-            .store(false, Ordering::Release);
-    }
-}
 fn save_position(app: &AppHandle) -> Result<()> {
     let window = app
         .get_webview_window("bubble")
@@ -363,7 +352,6 @@ fn set_peek(app: &AppHandle, peek: bool, force: bool) -> Result<()> {
     window
         .set_position(PhysicalPosition::new(x, y))
         .map_err(|e| e.to_string())?;
-    refresh_glass(app, &window, if peek { 16. } else { 28. });
     state.peek.store(peek, Ordering::Release);
     save_position(app)?;
     publish(app);
@@ -396,7 +384,6 @@ async fn drag_bubble(app: AppHandle) -> Result<()> {
             Ok(())
         })();
         state.dragging.store(false, Ordering::Release);
-        refresh_glass(&app, &window, 28.);
         result?;
         if state.service.payload().settings.bubble_snap_enabled {
             set_peek(&app, true, true)?;
@@ -471,7 +458,6 @@ fn show_panel(app: &AppHandle, mode: &str, toggle: bool) -> Result<()> {
     panel
         .set_position(PhysicalPosition::new(x, y))
         .map_err(|e| e.to_string())?;
-    refresh_glass(app, &panel, 22.);
     publish(app);
     panel
         .show()
@@ -628,40 +614,6 @@ pub(crate) fn tray_action(app: &AppHandle, id: &str) {
     let id = id.to_owned();
     tauri::async_runtime::spawn_blocking(move || report(&app, dispatch_tray_action(&app, &id)));
 }
-fn watch_overlay_shape(window: &WebviewWindow, bubble: bool) {
-    let overlay = window.clone();
-    let previous = Mutex::new(None);
-    window.on_window_event(move |event| {
-        if matches!(
-            event,
-            tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. }
-        ) {
-            let Ok(size) = overlay.outer_size() else {
-                return;
-            };
-            let Ok(scale) = overlay.scale_factor() else {
-                return;
-            };
-            let shape = (size.width, size.height, scale);
-            let Ok(mut last) = previous.lock() else {
-                return;
-            };
-            if *last == Some(shape) {
-                return;
-            }
-            *last = Some(shape);
-            drop(last);
-            let radius = if bubble {
-                size.width.min(size.height) as f64 / scale / 2.
-            } else {
-                22.
-            };
-            if let Err(error) = platform::update_shape(&overlay, radius) {
-                diagnostics::warn("overlay.shape_failed", error);
-            }
-        }
-    });
-}
 fn create_windows(app: &AppHandle) -> Result<()> {
     let bubble = WebviewWindowBuilder::new(
         app,
@@ -698,22 +650,11 @@ fn create_windows(app: &AppHandle) -> Result<()> {
     .disable_drag_drop_handler()
     .build()
     .map_err(|e| e.to_string())?;
-    watch_overlay_shape(&bubble, true);
-    watch_overlay_shape(&panel, false);
     bubble.on_window_event(|event| {
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
             api.prevent_close();
         }
     });
-    let glass = platform::apply_glass(&bubble, 28.).and_then(|bubble_native| {
-        platform::apply_glass(&panel, 22.).map(|panel_native| bubble_native && panel_native)
-    });
-    app.state::<Desktop>()
-        .native_glass
-        .store(glass.as_ref().copied().unwrap_or(false), Ordering::Release);
-    if let Err(error) = glass {
-        diagnostics::warn("desktop.glass_unavailable", error);
-    }
     let handle = app.clone();
     panel.on_window_event(move |event| {
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -808,7 +749,6 @@ fn run_desktop() -> Result<()> {
             updater: Arc::new(Updater::default()),
             panel: Mutex::new("details".into()),
             peek: AtomicBool::new(false),
-            native_glass: AtomicBool::new(false),
             dragging: AtomicBool::new(false),
             login_running: AtomicBool::new(false),
             refreshing_providers: AtomicU8::new(0),

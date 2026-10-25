@@ -178,7 +178,7 @@ fn exercise(app: &AppHandle) -> Result<serde_json::Value> {
         .set_size(LogicalSize::new(80., 80.))
         .map_err(|e| e.to_string())?;
     settle();
-    check_region(&bubble)?;
+    check_unclipped_surface(&bubble)?;
     bubble
         .set_size(LogicalSize::new(56., 56.))
         .map_err(|e| e.to_string())?;
@@ -190,53 +190,42 @@ fn exercise(app: &AppHandle) -> Result<serde_json::Value> {
         (bubble.outer_size().map_err(|e| e.to_string())?.width as f64 / scale - 32.).abs() <= 1.,
         "Docked capsule width is incorrect",
     )?;
-    check_region(&bubble)?;
+    check_unclipped_surface(&bubble)?;
     set_peek(app, false, false)?;
     settle();
     require(
         (bubble.outer_size().map_err(|e| e.to_string())?.width as f64 / scale - 56.).abs() <= 1.,
         "Hover expansion width is incorrect",
     )?;
-    check_region(&bubble)?;
+    check_unclipped_surface(&bubble)?;
     #[cfg(target_os = "macos")]
     macos::check_tray_template(app)?;
     #[cfg(windows)]
-    windows::check_transparent_edges(app, &bubble, &panel)?;
+    windows::check_solid_surfaces(app, &bubble, &panel)?;
     Ok(
         json!({ "ok": true, "os": std::env::consts::OS, "version": env!("CARGO_PKG_VERSION"),
         "nativeTray": true, "rotation": rotation, "modeSwitch": true, "panels": true, "menuDispatcher": true, "productionTimer": true,
-        "capsule": true, "nativeRegion": cfg!(windows), "transparentEdges": cfg!(windows),
+        "capsule": true, "smoothOutline": cfg!(windows), "transparentEdges": cfg!(windows), "solidSurfaces": cfg!(windows),
         "nativeTemplate": cfg!(target_os = "macos"), "isolated": true }),
     )
 }
-fn check_region(window: &WebviewWindow) -> Result<()> {
+fn check_unclipped_surface(window: &WebviewWindow) -> Result<()> {
     #[cfg(windows)]
     {
-        use windows_sys::Win32::{
-            Foundation::RECT,
-            Graphics::Gdi::{CreateRectRgn, DeleteObject, GetRgnBox, GetWindowRgn},
-        };
+        use windows_sys::Win32::Graphics::Gdi::{CreateRectRgn, DeleteObject, GetWindowRgn};
         let handle = window.hwnd().map_err(|e| e.to_string())?.0;
-        let size = window.outer_size().map_err(|e| e.to_string())?;
-        // SAFETY: the native window is alive; the temporary region and RECT are ours.
+        // SAFETY: inspect the live HWND with a temporary region owned by this function.
         unsafe {
             let region = CreateRectRgn(0, 0, 0, 0);
             require(
                 !region.is_null(),
                 "Could not allocate region for inspection",
             )?;
-            let mut bounds: RECT = std::mem::zeroed();
             let result = GetWindowRgn(handle, region);
-            let boxed = GetRgnBox(region, &mut bounds);
             DeleteObject(region);
             require(
-                result != 0 && boxed != 0,
-                "Native rounded region is missing",
-            )?;
-            require(
-                (bounds.right - bounds.left - size.width as i32).abs() <= 2
-                    && (bounds.bottom - bounds.top - size.height as i32).abs() <= 2,
-                "Native region was not updated after resizing/scaling",
+                result == 0,
+                "A native hard clip is cutting off antialiased window edges",
             )?;
         }
     }

@@ -1,6 +1,6 @@
 [package]
 name = "metra"
-version = "0.5.3"
+version = "0.5.4"
 description = "Cursor, Codex and Claude Code usage monitor built with Tauri 2"
 authors = ["eyotang"]
 edition = "2024"
@@ -13,8 +13,8 @@ name = "metra_lib"
 [features]
 default = ["desktop"]
 custom-protocol = ["tauri/custom-protocol"]
-desktop-smoke = ["desktop", "dep:objc2", "dep:png"]
-desktop = ["dep:tauri", "dep:tauri-build", "dep:auto-launch", "dep:x11rb", "dep:windows-sys", "dep:raw-window-handle", "dep:objc2-app-kit"]
+desktop-smoke = ["desktop", "dep:objc2", "dep:objc2-app-kit", "dep:png"]
+desktop = ["dep:tauri", "dep:tauri-build", "dep:auto-launch", "dep:x11rb", "dep:windows-sys"]
 
 [build-dependencies]
 tauri-build = { version = "2", optional = true, features = [] }
@@ -31,7 +31,6 @@ url = "2"
 zeroize = "1"
 tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"], optional = true }
 auto-launch = { version = "0.5", optional = true }
-raw-window-handle = { version = "0.6", optional = true }
 sys-locale = "0.3"
 minisign-verify = "0.2.5"
 tempfile = "3"

@@ -10,7 +10,7 @@ use windows_sys::Win32::Graphics::{
     },
 };
 
-pub(super) fn check_transparent_edges(
+pub(super) fn check_solid_surfaces(
     app: &AppHandle,
     bubble: &WebviewWindow,
     panel: &WebviewWindow,
@@ -70,15 +70,15 @@ pub(super) fn check_transparent_edges(
     )?;
     let mut failures = Vec::new();
     set_peek(app, true, true)?;
-    if let Err(error) = check_surface(bubble, &directory, "capsule", &background) {
+    if let Err(error) = check_surface(bubble, &backdrop, &directory, "capsule", &background) {
         failures.push(error);
     }
     set_peek(app, false, false)?;
-    if let Err(error) = check_surface(bubble, &directory, "bubble", &background) {
+    if let Err(error) = check_surface(bubble, &backdrop, &directory, "bubble", &background) {
         failures.push(error);
     }
     show_panel(app, "details", false)?;
-    if let Err(error) = check_surface(panel, &directory, "panel", &background) {
+    if let Err(error) = check_surface(panel, &backdrop, &directory, "panel", &background) {
         failures.push(error);
     }
     hide_panel(app.clone())?;
@@ -88,6 +88,7 @@ pub(super) fn check_transparent_edges(
 
 fn check_surface(
     window: &WebviewWindow,
+    backdrop: &WebviewWindow,
     directory: &Path,
     name: &str,
     background: &[u8],
@@ -135,10 +136,6 @@ fn check_surface(
         let offset = ((y * size.width + x) * 4) as usize;
         pixels[offset..offset + 3].to_vec()
     });
-    std::fs::write(
-        directory.join(format!("{name}.json")),
-        json!({"background": &background[..3], "corners": corners, "width": size.width, "height": size.height}).to_string(),
-    ).map_err(|error| error.to_string())?;
     require(
         corners.iter().all(|corner| {
             corner
@@ -150,6 +147,50 @@ fn check_surface(
             "{name}: opaque native pixels outside rounded content: {corners:?}; backdrop={:?}",
             &background[..3]
         ),
+    )?;
+    // The former GDI region cut away these partially covered CSS circle pixels.
+    let radius = f64::from(size.width) / 2.;
+    let edge_x = (radius - (radius - 0.25).sqrt() - 0.5).ceil() as usize;
+    let edge = &pixels[edge_x * 4..edge_x * 4 + 3];
+    if name == "bubble" {
+        require(
+            edge != &background[..3],
+            "Native hard clipping removed the antialiased circle edge",
+        )?;
+    }
+    let center = ((size.height / 2 * size.width + size.width / 2) * 4) as usize;
+    backdrop
+        .set_background_color(Some(tauri::window::Color(180, 50, 130, 255)))
+        .map_err(|error| error.to_string())?;
+    await_native(
+        || capture(position.x + 1, position.y + 1, 1, 1).is_ok_and(|p| p[..3] == [180, 50, 130]),
+        "Test desktop did not change color",
+    )?;
+    let alternate = capture(position.x, position.y, size.width, size.height)?;
+    write_png(
+        &directory.join(format!("{name}-alternate.png")),
+        size.width,
+        size.height,
+        &alternate,
+    )?;
+    backdrop
+        .set_background_color(Some(tauri::window::Color(40, 160, 88, 255)))
+        .map_err(|error| error.to_string())?;
+    await_native(
+        || capture(position.x + 1, position.y + 1, 1, 1).is_ok_and(|p| p[..3] == background[..3]),
+        "Test desktop did not restore its color",
+    )?;
+    std::fs::write(
+        directory.join(format!("{name}.json")),
+        json!({"background": &background[..3], "corners": corners, "width": size.width, "height": size.height,
+        "edgeSample": edge, "centerOnGreen": &pixels[center..center+3], "centerOnPurple": &alternate[center..center+3]}).to_string(),
+    ).map_err(|error| error.to_string())?;
+    require(
+        pixels[center..center + 3]
+            .iter()
+            .zip(&alternate[center..center + 3])
+            .all(|(a, b)| a.abs_diff(*b) <= 1),
+        &format!("{name}: surface changes with the desktop color; translucency is still enabled"),
     )
 }
 
