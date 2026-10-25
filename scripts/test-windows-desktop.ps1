@@ -11,6 +11,8 @@ try {
   $report = Get-Content -Raw $reportPath | ConvertFrom-Json
   New-Item -ItemType Directory -Path 'test-results/native-windows' -Force | Out-Null
   Copy-Item $reportPath 'test-results/native-windows/desktop-smoke.json'
+  $screens = Join-Path $env:METRA_CONFIG_DIR 'native-screens'
+  if (Test-Path $screens) { Copy-Item $screens 'test-results/native-windows/' -Recurse -Force }
   if ($app.ExitCode -ne 0 -or -not $report.ok) { throw "Native acceptance failed: $($report | ConvertTo-Json -Compress)" }
   $report | ConvertTo-Json
 } finally {

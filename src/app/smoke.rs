@@ -3,6 +3,11 @@ use super::*;
 use crate::model::{ProviderStatus, QuotaWindow};
 use serde_json::json;
 
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(windows)]
+mod windows;
+
 pub(super) fn start(app: AppHandle) {
     std::thread::spawn(move || {
         let result = if std::env::var_os("METRA_CONFIG_DIR").is_some() {
@@ -52,6 +57,9 @@ fn await_native(condition: impl Fn() -> bool, message: &str) -> Result<()> {
     require(condition(), message)
 }
 fn exercise(app: &AppHandle) -> Result<serde_json::Value> {
+    publish(app);
+    #[cfg(target_os = "macos")]
+    macos::check_tray_template(app)?;
     let state = app.state::<Desktop>();
     let bubble = app.get_webview_window("bubble").ok_or("Missing bubble")?;
     let panel = app.get_webview_window("panel").ok_or("Missing panel")?;
@@ -190,6 +198,10 @@ fn exercise(app: &AppHandle) -> Result<serde_json::Value> {
         "Hover expansion width is incorrect",
     )?;
     check_region(&bubble)?;
+    #[cfg(target_os = "macos")]
+    macos::check_tray_template(app)?;
+    #[cfg(windows)]
+    windows::check_transparent_edges(app, &bubble, &panel)?;
     Ok(
         json!({ "ok": true, "os": std::env::consts::OS, "version": env!("CARGO_PKG_VERSION"),
         "nativeTray": true, "rotation": rotation, "modeSwitch": true, "panels": true, "menuDispatcher": true, "productionTimer": true,

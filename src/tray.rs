@@ -105,7 +105,9 @@ pub(crate) fn update(
     } else {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         tray.set_title(Some("")).map_err(|e| e.to_string())?;
-        tray.set_icon(Some(icon())).map_err(|e| e.to_string())?;
+        // Replacing an NSImage otherwise clears its template flag on macOS.
+        tray.set_icon_with_as_template(Some(icon()), cfg!(target_os = "macos"))
+            .map_err(|e| e.to_string())?;
     }
     Ok(None)
 }

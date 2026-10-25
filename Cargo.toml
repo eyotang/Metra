@@ -13,7 +13,7 @@ name = "metra_lib"
 [features]
 default = ["desktop"]
 custom-protocol = ["tauri/custom-protocol"]
-desktop-smoke = ["desktop"]
+desktop-smoke = ["desktop", "dep:objc2", "dep:png"]
 desktop = ["dep:tauri", "dep:tauri-build", "dep:auto-launch", "dep:x11rb", "dep:windows-sys", "dep:raw-window-handle", "dep:objc2-app-kit"]
 
 [build-dependencies]
@@ -38,12 +38,14 @@ tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3", optional = true }
+objc2 = { version = "0.6", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = { version = "0.13", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_Input_KeyboardAndMouse", "Win32_Graphics_Gdi"], optional = true }
+png = { version = "0.18", optional = true }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_Input_KeyboardAndMouse", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm"], optional = true }
 
 [profile.dev]
 debug = 0
