@@ -50,9 +50,12 @@ jobs:
           node scripts/package-native.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/test-windows-upgrade.ps1
-      - name: Build Windows native acceptance application
-        if: runner.os == 'Windows'
+      - name: Build native desktop acceptance application
+        if: runner.os != 'Linux'
         run: cargo build --locked --features desktop-smoke,custom-protocol
+      - name: macOS native tray template and overlay checks
+        if: runner.os == 'macOS'
+        run: node scripts/test-macos-desktop.mjs
       - name: Windows native tray, panels, capsule and resize checks
         if: runner.os == 'Windows'
         shell: pwsh

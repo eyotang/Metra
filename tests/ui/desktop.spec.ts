@@ -219,7 +219,7 @@ test('library controls and icons are bundled locally and remain stable across up
 test.describe('scaled display',()=>{
   test.use({deviceScaleFactor:1.25});
   test('dropdown stays inside the small desktop panel with keyboard access',async({page})=>{
-    await setup(page); await page.goto('/?view=panel'); await settings(page);
+    await setup(page,{nativeGlass:false}); await page.goto('/?view=panel'); await settings(page);
     const select=page.getByRole('combobox').first(); await select.focus(); await page.keyboard.press('ArrowDown');
     await expect(page.getByRole('option',{name:'English',exact:true})).toBeVisible();
     const box=await page.getByRole('listbox').boundingBox();

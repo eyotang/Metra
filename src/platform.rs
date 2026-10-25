@@ -49,23 +49,16 @@ pub fn primary_button_pressed() -> Result<bool, String> {
     }
 }
 
-/// Apply the compositor material behind the transparent webview. CSS supplies tint and highlights.
-pub fn apply_glass(window: &tauri::WebviewWindow, radius: f64) -> Result<(), String> {
-    #[cfg(any(target_os = "macos", windows))]
+/// Return whether native material is active; CSS supplies the compatible translucent fallback.
+pub fn apply_glass(window: &tauri::WebviewWindow, radius: f64) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
     {
         use tauri::window::{Effect, EffectsBuilder};
-        #[cfg(target_os = "macos")]
         let effects = EffectsBuilder::new()
             .effect(Effect::HudWindow)
             .state(tauri::window::EffectState::Active)
             .radius(radius)
             .build();
-        #[cfg(windows)]
-        let effects = EffectsBuilder::new()
-            .effect(Effect::Acrylic)
-            .color(tauri::window::Color(18, 25, 40, 110))
-            .build();
-        #[cfg(target_os = "macos")]
         {
             // Tao's per-window theme API changes NSApplication appearance too, so set
             // NSWindow appearance directly while leaving status items and menus alone.
@@ -90,12 +83,21 @@ pub fn apply_glass(window: &tauri::WebviewWindow, radius: f64) -> Result<(), Str
             .map_err(|error| error.to_string())?;
         update_shape(window, radius)?;
     }
+    #[cfg(windows)]
+    {
+        // Whole-window DWM/Accent materials fill transparent corners on Windows 11.
+        // Keep the transparent WebView2 path used by earlier Tauri releases.
+        window
+            .set_effects(None)
+            .map_err(|error| error.to_string())?;
+        update_shape(window, radius)?;
+    }
     #[cfg(target_os = "linux")]
     update_shape(window, radius)?;
-    Ok(())
+    Ok(!cfg!(windows))
 }
 
-/// Acrylic's native rectangle must follow the bubble/capsule and panel silhouette.
+/// Keep native clipping and compositor blur within the current window silhouette.
 pub fn update_shape(window: &tauri::WebviewWindow, radius: f64) -> Result<(), String> {
     #[cfg(windows)]
     {
