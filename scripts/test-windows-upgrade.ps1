@@ -38,15 +38,40 @@ try {
   $deadline = (Get-Date).AddSeconds(30)
   while ((Installed-Processes).Count -eq 0 -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 250 }
   if ((Installed-Processes).Count -eq 0) { throw 'Legacy /S update did not restart Metra' }
-  Start-Sleep -Seconds 3
-  if ((Installed-Processes).Count -eq 0) { throw 'Upgraded application stopped during startup' }
+  $migrationWait = [System.Diagnostics.Stopwatch]::StartNew()
   $db = Join-Path $env:METRA_CONFIG_DIR 'settings.db'
-  $saved = & python -c 'import sqlite3,sys; print(sqlite3.connect(sys.argv[1]).execute("SELECT settings_json FROM app_settings WHERE id=1").fetchone()[0])' $db | ConvertFrom-Json
+  $reader = Join-Path $work 'read-settings.py'
+  @'
+import pathlib, sqlite3, sys
+try:
+    path = pathlib.Path(sys.argv[1])
+    row = sqlite3.connect(path).execute("SELECT settings_json FROM app_settings WHERE id=1").fetchone() if path.exists() else None
+    print(row[0] if row else "null")
+except (sqlite3.Error, OSError):
+    print("null")
+'@ | Set-Content -Encoding utf8NoBOM $reader
+  $saved = $null
+  $deadline = (Get-Date).AddSeconds(60)
+  do {
+    if ((Installed-Processes).Count -eq 0) { throw 'Upgraded application stopped during startup' }
+    $saved = & python $reader $db | ConvertFrom-Json
+    if ($saved -and $saved.bubblePositionVersion -eq 3) { break }
+    Start-Sleep -Milliseconds 500
+  } while ((Get-Date) -lt $deadline)
+  if (-not $saved -or $saved.bubblePositionVersion -ne 3) { throw 'Upgraded Tauri application did not migrate the expected configuration within 60 seconds' }
+  Write-Output "Configuration migrated after $([Math]::Round($migrationWait.Elapsed.TotalSeconds, 1)) seconds of startup waiting"
+  Start-Sleep -Seconds 3
+  if ((Installed-Processes).Count -eq 0) { throw 'Upgraded application stopped after configuration migration' }
   if ($saved.displayMode -ne 'statusBar' -or $saved.cursorBubbleLabel -ne 'CU' -or $saved.bubblePercentMode -ne 'used' -or ($saved.bubbleVisibleProviders -join ',') -ne 'codex,cursor') {
     throw 'Upgrade did not preserve existing status-bar preferences'
   }
-  if ($saved.bubblePositionVersion -ne 3) { throw 'Upgraded Tauri application did not migrate the expected configuration' }
   $installedVersion = (Get-ItemProperty 'HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall/Metra').DisplayVersion
   if ($installedVersion -ne $version) { throw "Unexpected installed version: $installedVersion" }
   Write-Output "v0.4.1 -> ${version}: legacy /S restart and status-bar settings preserved"
-} finally { Stop-Installed }
+} finally {
+  if (Test-Path $installed) { Write-Output "Installed executable version: $((Get-Item $installed).VersionInfo.ProductVersion)" }
+  Installed-Processes | Select-Object ProcessId, ParentProcessId, CreationDate, ExecutablePath | Format-List
+  $appLog = Join-Path $env:APPDATA 'metra/metra.log'
+  if (Test-Path $appLog) { Get-Content $appLog | Select-String -Pattern 'app.start|desktop.start_failed|desktop.glass_unavailable' }
+  Stop-Installed
+}
