@@ -5,7 +5,7 @@
 Metra monitors Cursor, Codex and Claude Code usage with **Tauri 2, TypeScript and Rust**. Windows renders through WebView2, macOS through WKWebView, and Linux through WebKitGTK. Rust handles local account discovery, usage collection, settings and signed updates.
 
 - A draggable, always-on-top 56px bubble folds into a 32px edge capsule when auto-dock is enabled. Hover expands it, leaving folds it again, and clicking or pressing Enter opens details.
-- Windows uses transparent windows and translucent panels, avoiding the rectangular backdrop introduced by whole-window materials on Windows 11. macOS uses dark HUD vibrancy; Linux X11 applies the compositor blur hint where supported, with a translucent fallback.
+- All platforms use opaque surfaces without system glass, backdrop blur or translucent panels. Browser antialiasing draws the bubble, edge capsule and panel outlines without a native hard clip.
 - Status bar mode cycles visible providers every five seconds. macOS shows text; Windows shows numeric tray icons; Linux depends on the panel host.
 - Details show account status, quota windows, reset countdowns, token totals and costs. Settings retain provider order, visibility, labels, colors, four languages, refresh interval and launch-at-startup.
 - Existing `dev.metra.desktop/settings.db` remains in the system configuration directory. Saved positions are migrated to Tauri physical coordinates and clamped to monitor work areas.
@@ -58,15 +58,15 @@ The updater retains the existing GitHub `latest.json` and Minisign public key. W
 
 Common controls use Web Awesome (buttons, switches, checkboxes, text fields, selects, popovers and progress), with Lucide icons. All components and icons are bundled locally. Lit keeps control nodes stable during background updates. Each provider has its own refresh animation and publishes results as soon as it finishes.
 
-CI runs Rust and Chromium/WebKit UI checks on Windows, macOS and Linux using simulated IPC. Checks cover keyboard access, scaled windows, popup bounds, offline assets and per-provider progress, and retain screenshots for each OS. Native glass, mixed-DPI dragging, tray integration and installer upgrades also require acceptance testing on the actual OS; browser tests cannot verify compositor behavior.
+CI runs Rust and Chromium/WebKit UI checks on Windows, macOS and Linux using simulated IPC. Checks cover keyboard access, scaled windows, popup bounds, offline assets and per-provider progress, and retain screenshots for each OS. Native Windows checks inspect actual composited pixels for clear corners, smooth outlines and opaque surfaces over different desktop colors. macOS checks the tray template property; Windows installers are tested against the legacy silent upgrade contract. Mixed-DPI dragging still requires hardware acceptance.
 
 ## Code layout
 
 | Path | Responsibility |
 | --- | --- |
-| `frontend/` | Lit views, Web Awesome controls, Lucide icons, glass tint and styling |
+| `frontend/` | Lit views, Web Awesome controls, Lucide icons, opaque surfaces and styling |
 | `src/app.rs`, `src/geometry.rs` | Tauri commands, events, windows, dragging and edge geometry |
-| `src/platform.rs`, `src/tray.rs` | System glass, startup registration and Tauri tray |
+| `src/platform.rs`, `src/tray.rs` | Startup registration, native input and Tauri tray |
 | `src/providers/`, `src/service.rs` | Account discovery and usage collection |
 | `src/settings.rs`, `src/model.rs` | SQLite settings and stable data model |
 | `src/headless.rs`, `src/updater.rs` | JSON transport and signed updates |

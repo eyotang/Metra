@@ -16,7 +16,7 @@ const fixture: Payload = {
   entries: [{ provider: 'cursor', label: 'C', value: 77, stale: false, color: '#9c83ff' }, { provider: 'codex', label: 'X', value: 70, stale: true, color: '#4bd8c0' }, { provider: 'claude', label: 'A', value: null, stale: false, color: '#e99068' }],
   locale: 'en', translations: en, palette: ['#9c83ff', '#4bd8c0', '#e99068', '#ff6b6b'],
   update: { version: '0.5.0', notes: 'A newer release', error: null, downloading: false },
-  canInstall: false, version: '0.4.1', panel: 'details', peek: false, nativeGlass: true, loginRunning: false,
+  canInstall: false, version: '0.4.1', panel: 'details', peek: false, loginRunning: false,
 };
 async function setup(page: Page, overrides: Partial<Payload> = {}) {
   await page.addInitScript(({ initial, catalogs }) => {
@@ -219,7 +219,7 @@ test('library controls and icons are bundled locally and remain stable across up
 test.describe('scaled display',()=>{
   test.use({deviceScaleFactor:1.25});
   test('dropdown stays inside the small desktop panel with keyboard access',async({page})=>{
-    await setup(page,{nativeGlass:false}); await page.goto('/?view=panel'); await settings(page);
+    await setup(page); await page.goto('/?view=panel'); await settings(page);
     const select=page.getByRole('combobox').first(); await select.focus(); await page.keyboard.press('ArrowDown');
     await expect(page.getByRole('option',{name:'English',exact:true})).toBeVisible();
     const box=await page.getByRole('listbox').boundingBox();
@@ -249,3 +249,36 @@ test('update card stays beneath the title while usage scrolls',async({page})=>{
   await expect(banner).toBeVisible();
   const after=await banner.boundingBox(); expect(after!.y).toBe(before!.y);
 });
+
+for (const scale of [1, 1.25, 1.5, 2]) {
+  test.describe(`solid surfaces at ${scale * 100}% scaling`, () => {
+    test.use({ deviceScaleFactor: scale });
+    test('surfaces stay opaque inside and keep antialiased transparent outlines', async ({ page }) => {
+      await setup(page);
+      for (const [name, width, height, peek] of [
+        ['capsule', 32, 56, true], ['bubble', 56, 56, false], ['panel', 360, 560, false],
+      ] as const) {
+        await page.setViewportSize({ width, height });
+        await page.goto(`/?view=${name === 'panel' ? 'panel' : 'bubble'}`);
+        await expect(page.locator(name === 'panel' ? '.panel' : '#bubble')).toBeVisible();
+        await page.evaluate(peek => { (window as any).fixture.peek = peek; (window as any).publish(); }, peek);
+        const png = await page.screenshot({ omitBackground: true, animations: 'disabled', path: test.info().outputPath(`${name}.png`) });
+        const pixels = await page.evaluate(async base64 => {
+          const image = new Image(); image.src = `data:image/png;base64,${base64}`; await image.decode();
+          const canvas = document.createElement('canvas'); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+          const context = canvas.getContext('2d')!; context.drawImage(image, 0, 0);
+          const { width, height, data } = context.getImageData(0, 0, canvas.width, canvas.height);
+          const alpha = (x: number, y: number) => data[(y * width + x) * 4 + 3];
+          const interior = [];
+          for (let y = Math.floor(height / 2) - 2; y <= Math.floor(height / 2) + 2; y++)
+            for (let x = Math.floor(width / 2) - 2; x <= Math.floor(width / 2) + 2; x++) interior.push(alpha(x, y));
+          return { corners: [alpha(0, 0), alpha(width - 1, 0), alpha(0, height - 1), alpha(width - 1, height - 1)],
+            interior: Math.min(...interior), smoothTop: Array.from({ length: width }, (_, x) => alpha(x, 0)).some(a => a > 0 && a < 255) };
+        }, png.toString('base64'));
+        expect(pixels.corners, `${name}: outside the rounded outline`).toEqual([0, 0, 0, 0]);
+        expect(pixels.interior, `${name}: opaque surface`).toBe(255);
+        expect(pixels.smoothTop, `${name}: antialiased outline`).toBe(true);
+      }
+    });
+  });
+}

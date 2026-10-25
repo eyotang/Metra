@@ -2,7 +2,7 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · **한국어**
 
-Metra는 **Tauri 2, TypeScript, Rust**으로 구현된 Cursor, Codex, Claude Code 사용량 모니터입니다. Windows는 WebView2, macOS는 WKWebView, Linux는 WebKitGTK로 렌더링합니다. 화면 가장자리의 32px 캡슐과 Windows 투명 창 및 macOS 시스템 유리 효과를 지원합니다.
+Metra는 **Tauri 2, TypeScript, Rust**으로 구현된 Cursor, Codex, Claude Code 사용량 모니터입니다. Windows는 WebView2, macOS는 WKWebView, Linux는 WebKitGTK로 렌더링합니다. 화면 가장자리의 32px 캡슐을 유지하며, 모든 플랫폼에서 배경 흐림 없는 불투명한 화면과 매끄러운 윤곽을 사용합니다.
 
 기본 플로팅 버블, 드래그와 화면 가장자리 고정, 상태 표시줄 모드, 사용량 상세 정보, 서비스 순서·표시 여부·레이블·색상, 한국어를 포함한 4개 언어를 지원합니다. 표시 방식은 SQLite에 저장되어 재시작 후에도 유지됩니다. 기존 `dev.metra.desktop/settings.db`와 사용자가 동의한 Cursor 호환 모드 설정을 그대로 사용합니다.
 
