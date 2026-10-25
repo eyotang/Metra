@@ -3,7 +3,10 @@ $version = (Select-String -Path (Join-Path $PSScriptRoot '../Cargo.toml') -Patte
 if (-not $version) { throw 'Could not read the application version' }
 $work = Join-Path $env:RUNNER_TEMP ("metra-upgrade-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $work | Out-Null
-$env:METRA_CONFIG_DIR = Join-Path $work 'config'
+# RunAsUser may rebuild the restarted process's environment from its profile.
+# Use the disposable runner's normal location so both launch paths reach it.
+$env:METRA_CONFIG_DIR = Join-Path $env:APPDATA 'dev.metra.desktop'
+if (Test-Path $env:METRA_CONFIG_DIR) { throw 'Upgrade acceptance requires a clean runner profile' }
 New-Item -ItemType Directory -Path $env:METRA_CONFIG_DIR | Out-Null
 @{ displayMode='statusBar'; bubbleProviderOrder=@('codex','cursor','claude'); bubbleVisibleProviders=@('codex','cursor'); bubblePercentMode='used'; cursorBubbleLabel='CU'; autostart=$false } |
   ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $env:METRA_CONFIG_DIR 'settings.json')
@@ -41,6 +44,7 @@ try {
   if ($saved.displayMode -ne 'statusBar' -or $saved.cursorBubbleLabel -ne 'CU' -or $saved.bubblePercentMode -ne 'used' -or ($saved.bubbleVisibleProviders -join ',') -ne 'codex,cursor') {
     throw 'Upgrade did not preserve existing status-bar preferences'
   }
+  if ($saved.bubblePositionVersion -ne 3) { throw 'Upgraded Tauri application did not migrate the expected configuration' }
   $installedVersion = (Get-ItemProperty 'HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall/Metra').DisplayVersion
   if ($installedVersion -ne $version) { throw "Unexpected installed version: $installedVersion" }
   Write-Output "v0.4.1 -> ${version}: legacy /S restart and status-bar settings preserved"
