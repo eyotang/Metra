@@ -1,12 +1,14 @@
 #!/usr/bin/env node
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { setTimeout } from "node:timers/promises";
+import { pluginManifest } from "./manifest.mjs";
 
 const source = dirname(fileURLToPath(import.meta.url));
+const manifest = pluginManifest(source);
 const binaryArg = process.argv.indexOf("--binary");
 if (binaryArg >= 0 && !process.argv[binaryArg + 1]) throw new Error("--binary requires an executable path.");
 const binary = binaryArg >= 0
@@ -29,9 +31,10 @@ renameSync(join(destination, "metra.new"), join(destination, "metra"));
 // Remove the pre-release singleton registration: the shell owns service lifetime.
 rmSync(join(destination, "qmldir"), { force: true });
 rmSync(join(destination, "Backend.qml"), { force: true });
-for (const file of ["Model.js", "Service.qml", "Widget.qml", "manifest.json"]) {
+for (const file of ["Model.js", "Service.qml", "Widget.qml"]) {
   copyFileSync(join(source, "metra.usage", file), join(destination, file));
 }
+writeFileSync(join(destination, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
 
 const shellConfig = join(config, "omarchy/shell.json");
 if (existsSync(shellConfig)) {
@@ -58,4 +61,4 @@ for (let attempt = 0; attempt < 40; attempt++) {
 }
 if (!discovered) throw new Error("Omarchy did not discover metra.usage; check the shell log.");
 run("omarchy", ["plugin", "enable", "metra.usage"]);
-console.log(`Metra installed: ${destination}\nHover over its bar label to see usage.`);
+console.log(`Metra ${manifest.version} installed: ${destination}\nHover over its bar label to see usage.`);
