@@ -30,8 +30,8 @@ From source:
 
 ```bash
 npm ci
-npm run build -- --no-bundle
-node integrations/omarchy/install.mjs
+cargo build --release --locked --no-default-features --target-dir target/collector
+node integrations/omarchy/install.mjs --binary target/collector/release/metra
 ```
 
 Or extract `Metra-<version>-omarchy-x64.tar.gz` from Releases, verify its
@@ -48,6 +48,10 @@ is running. Installing the widget does not change the app's autostart setting.
 
 To remove it from the bar: `omarchy plugin disable metra.usage`.
 To update it, rerun the installer with the new build or extracted release.
+Source installs and release packaging take the plugin version from
+`Cargo.toml`; extracted releases retain that stamped version. The installer
+prints the installed version, and CI checks that the source manifest also
+matches the application version.
 
 ## Verification
 

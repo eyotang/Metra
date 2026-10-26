@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { pluginManifest } from "../integrations/omarchy/manifest.mjs";
 
 if (process.platform !== "linux" || process.arch !== "x64") {
   throw new Error("The Omarchy x64 release package must be built on Linux x64.");
@@ -16,6 +17,9 @@ try {
   const name = `Metra-${version}-omarchy-x64`;
   const staging = join(temporary, name);
   cpSync(join(root, "integrations/omarchy"), staging, { recursive: true });
+  const manifest = pluginManifest(join(root, "integrations/omarchy"));
+  if (manifest.version !== version) throw new Error("Omarchy manifest must match the release version.");
+  writeFileSync(join(staging, "metra.usage/manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
   copyFileSync(binary, join(staging, "metra.usage/metra"));
   copyFileSync(join(root, "LICENSE"), join(staging, "LICENSE"));
   const output = join(root, "release-assets");

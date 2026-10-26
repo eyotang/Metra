@@ -1,9 +1,37 @@
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 import { spawn } from "node:child_process";
+import { pluginManifest } from "../integrations/omarchy/manifest.mjs";
+import { readReleaseVersion } from "./generate-latest-json.mjs";
+import { fileURLToPath } from "node:url";
+
+const integration = fileURLToPath(new URL("../integrations/omarchy", import.meta.url));
+const releaseVersion = readReleaseVersion();
+assert.equal(pluginManifest(integration).version, releaseVersion);
+assert.equal(JSON.parse(readFileSync(join(integration, "metra.usage/manifest.json"), "utf8")).version,
+  releaseVersion, "Update the source plugin manifest when bumping the application version");
+
+const fixture = mkdtempSync(join(tmpdir(), "metra-manifest-test-"));
+try {
+  const source = join(fixture, "source/integrations/omarchy");
+  const archive = join(fixture, "archive/Metra-9.8.7-omarchy-x64");
+  for (const path of [source, archive]) mkdirSync(join(path, "metra.usage"), { recursive: true });
+  writeFileSync(join(fixture, "source/Cargo.toml"), '[package]\nname = "metra"\nversion = "9.8.7"\n');
+  writeFileSync(join(source, "metra.usage/manifest.json"), JSON.stringify({ id: "metra.usage", version: "0.2.2" }));
+  const stamped = pluginManifest(source);
+  assert.equal(stamped.version, "9.8.7", "source installs and packaging must override a stale manifest");
+  assert.equal(stamped.id, "metra.usage");
+  writeFileSync(join(archive, "metra.usage/manifest.json"), JSON.stringify(stamped));
+  assert.deepEqual(pluginManifest(archive), stamped, "extracted release installs must retain the stamped version without Cargo.toml");
+  writeFileSync(join(fixture, "Cargo.toml"), '[package]\nversion = "1.0.0"\n');
+  assert.deepEqual(pluginManifest(archive), stamped, "extracting inside another checkout must not use that checkout's version");
+} finally {
+  rmSync(fixture, { recursive: true, force: true });
+}
+console.log("Omarchy source and release manifest versions: PASS");
 
 const model = runInNewContext(readFileSync(new URL("../integrations/omarchy/metra.usage/Model.js", import.meta.url), "utf8")
   + ";({providers, remaining, summary, headline, reset, costs, tokens})");
