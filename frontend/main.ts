@@ -237,7 +237,8 @@ function renderBubble() {
     })}</span></button>`;
 }
 function render() {
-  if (!state || !visible || document.hidden || orderDrag) return;
+  // Native visibility is authoritative: an unfocused overlay webview can report hidden.
+  if (!state || !visible || orderDrag) return;
   if (bubble) {
     const key = JSON.stringify([state.entries, state.peek, state.locale,
       state.settings.bubblePercentMode, state.settings.bubbleSnapEnabled,

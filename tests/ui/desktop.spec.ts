@@ -132,6 +132,19 @@ test('edge capsule preserves values, expands on hover and supports keyboard open
   expect(await page.evaluate(() => (window as any).calls.some((c: any) => c.cmd === 'open_panel' && c.args.mode === 'details'))).toBe(true);
   await page.screenshot({ path: test.info().outputPath('bubble.png') });
 });
+test('a natively visible capsule updates usage even when the webview reports hidden', async ({ page }) => {
+  await setup(page, { peek: true });
+  await page.setViewportSize({ width: 32, height: 56 });
+  await page.goto('/?view=bubble');
+  await expect(page.locator('.bubble-entry').first()).toContainText('77%');
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    const w = window as any;
+    w.fixture.entries[0].value = 61;
+    w.publish();
+  });
+  await expect(page.locator('.bubble-entry').first()).toContainText('61%');
+});
 test('dragging works without screen coordinates and does not open details', async ({ page }) => {
   // Embedded WebKit can withhold global screen coordinates; local pointer motion still works.
   await page.addInitScript(() => {
