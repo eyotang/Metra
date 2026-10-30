@@ -2,6 +2,36 @@ use super::*;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{NSApplication, NSStatusBarButton, NSView};
 
+pub(super) fn deactivate(app: &AppHandle) -> Result<()> {
+    let status = std::process::Command::new("/usr/bin/open")
+        .args(["-a", "Finder"])
+        .status()
+        .map_err(|error| error.to_string())?;
+    require(
+        status.success(),
+        "Could not activate Finder for idle acceptance",
+    )?;
+    await_native(
+        || {
+            let (send, receive) = std::sync::mpsc::sync_channel(1);
+            if app
+                .run_on_main_thread(move || {
+                    let inactive = MainThreadMarker::new()
+                        .is_some_and(|marker| !NSApplication::sharedApplication(marker).isActive());
+                    let _ = send.send(inactive);
+                })
+                .is_err()
+            {
+                return false;
+            }
+            receive
+                .recv_timeout(Duration::from_secs(1))
+                .unwrap_or(false)
+        },
+        "Idle acceptance requires an inactive application",
+    )
+}
+
 pub(super) fn check_tray_template(app: &AppHandle) -> Result<()> {
     let (send, receive) = std::sync::mpsc::sync_channel(1);
     app.run_on_main_thread(move || {

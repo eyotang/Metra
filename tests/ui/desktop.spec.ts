@@ -18,20 +18,33 @@ const fixture: Payload = {
   update: { version: '0.5.0', notes: 'A newer release', error: null, downloading: false },
   canInstall: false, version: '0.4.1', panel: 'details', peek: false, loginRunning: false,
 };
+// setup installs this in-process bridge before the application loads.
+interface UsageFixtureWindow extends Window {
+  fixture: Payload;
+  visibility(visible: boolean, target?: 'bubble' | 'panel'): void;
+  publish(): void;
+}
 async function setup(page: Page, overrides: Partial<Payload> = {}, visible = true) {
   await page.addInitScript(({ initial, catalogs, visible }) => {
     const w = window as any;
     w.fixture = initial; w.calls = []; w.failNext = null; w.viewVisible = visible;
-    const callbacks = new Map(); const listeners = new Map(); let next = 1;
-    w.visibility = (visible: boolean) => { w.viewVisible = visible; listeners.get('metra-visibility')?.forEach((id: number) => callbacks.get(id)({ payload: visible })); };
-    w.publish = () => listeners.get('metra-state')?.forEach((id: number) => callbacks.get(id)({ payload: structuredClone(w.fixture) }));
+    type Listener = { id: number; target: { kind: string; label?: string } };
+    const callbacks = new Map(); const listeners = new Map<string, Listener[]>(); let next = 1;
+    const label = new URLSearchParams(location.search).get('view') === 'bubble' ? 'bubble' : 'panel';
+    w.visibility = (visible: boolean, target = label) => {
+      if (target === label) w.viewVisible = visible;
+      listeners.get('metra-visibility')?.forEach(listener => {
+        if (listener.target.kind === 'Any' || listener.target.label === target) callbacks.get(listener.id)({ payload: visible });
+      });
+    };
+    w.publish = () => listeners.get('metra-state')?.forEach(({ id }) => callbacks.get(id)({ payload: structuredClone(w.fixture) }));
     w.__TAURI_INTERNALS__ = {
       transformCallback: (fn: Function) => { const id = next++; callbacks.set(id, fn); return id; },
       invoke: async (cmd: string, args: any = {}) => {
         w.calls.push({ cmd, args });
         if (w.hold === cmd) await new Promise<void>(resolve => { w.releaseTask = resolve; });
         if (w.failNext === cmd) { w.failNext = null; throw 'Could not save settings'; }
-        if (cmd === 'plugin:event|listen') { const list = listeners.get(args.event) || []; list.push(args.handler); listeners.set(args.event, list); return args.handler; }
+        if (cmd === 'plugin:event|listen') { const list = listeners.get(args.event) || []; list.push({ id: args.handler, target: args.target }); listeners.set(args.event, list); return args.handler; }
         if (cmd === 'get_state') return structuredClone(w.fixture);
         if (cmd === 'get_view_visible') return w.viewVisible;
         if (cmd === 'open_panel') w.fixture.panel = args.mode;
@@ -144,6 +157,32 @@ test('a natively visible capsule updates usage even when the webview reports hid
     w.publish();
   });
   await expect(page.locator('.bubble-entry').first()).toContainText('61%');
+});
+test('panel visibility cannot pause a visible capsule or resume a hidden one', async ({ page }) => {
+  await setup(page, { peek: true });
+  await page.setViewportSize({ width: 32, height: 56 });
+  await page.goto('/?view=bubble');
+  await expect(page.locator('.bubble-entry').first()).toContainText('77%');
+  await page.evaluate(() => {
+    const w = window as UsageFixtureWindow;
+    w.visibility(false, 'panel');
+    w.fixture.entries[0].value = 61;
+    w.publish();
+  });
+  await expect(page.locator('.bubble-entry').first()).toContainText('61%');
+  await page.evaluate(() => {
+    const w = window as UsageFixtureWindow;
+    w.visibility(false, 'bubble');
+    w.fixture.entries[0].value = 42;
+    w.publish();
+    w.visibility(true, 'panel');
+  });
+  await expect(page.locator('.bubble-entry').first()).toContainText('61%');
+  await page.evaluate(() => {
+    const w = window as UsageFixtureWindow;
+    w.visibility(true, 'bubble');
+  });
+  await expect(page.locator('.bubble-entry').first()).toContainText('42%');
 });
 test('dragging works without screen coordinates and does not open details', async ({ page }) => {
   // Embedded WebKit can withhold global screen coordinates; local pointer motion still works.

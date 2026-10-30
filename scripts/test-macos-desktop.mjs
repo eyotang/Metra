@@ -9,7 +9,7 @@ const root = resolve(import.meta.dirname, '..');
 const config = mkdtempSync(join(process.env.RUNNER_TEMP || tmpdir(), 'metra-native-'));
 const result = spawnSync(join(root, 'target/debug/metra'), ['--desktop-smoke-test'], {
   cwd: root, env: { ...process.env, METRA_CONFIG_DIR: config },
-  stdio: 'inherit', timeout: 60_000, killSignal: 'SIGKILL',
+  stdio: 'inherit', timeout: (Number(process.env.METRA_IDLE_SMOKE_SECONDS || 2) + 60) * 1000, killSignal: 'SIGKILL',
 });
 const reportPath = join(config, 'desktop-smoke.json');
 const report = existsSync(reportPath) ? JSON.parse(readFileSync(reportPath, 'utf8')) : null;

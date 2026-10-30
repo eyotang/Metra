@@ -53,8 +53,10 @@ jobs:
       - name: Build native desktop acceptance application
         if: runner.os != 'Linux'
         run: cargo build --locked --features desktop-smoke,custom-protocol
-      - name: macOS native tray template and overlay checks
+      - name: macOS native tray, overlay and idle usage checks
         if: runner.os == 'macOS'
+        env:
+          METRA_IDLE_SMOKE_SECONDS: 330
         run: node scripts/test-macos-desktop.mjs
       - name: Windows native tray, panels, capsule and resize checks
         if: runner.os == 'Windows'
