@@ -2,6 +2,7 @@
 use super::*;
 use crate::model::{ProviderStatus, QuotaWindow};
 use serde_json::json;
+use tauri::Listener;
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -191,6 +192,7 @@ fn exercise(app: &AppHandle) -> Result<serde_json::Value> {
         "Docked capsule width is incorrect",
     )?;
     check_unclipped_surface(&bubble)?;
+    check_idle_usage(app, &bubble)?;
     set_peek(app, false, false)?;
     settle();
     require(
@@ -205,9 +207,71 @@ fn exercise(app: &AppHandle) -> Result<serde_json::Value> {
     Ok(
         json!({ "ok": true, "os": std::env::consts::OS, "version": env!("CARGO_PKG_VERSION"),
         "nativeTray": true, "rotation": rotation, "modeSwitch": true, "panels": true, "menuDispatcher": true, "productionTimer": true,
-        "capsule": true, "smoothOutline": cfg!(windows), "transparentEdges": cfg!(windows), "solidSurfaces": cfg!(windows),
+        "capsule": true, "idleUsage": true, "smoothOutline": cfg!(windows), "transparentEdges": cfg!(windows), "solidSurfaces": cfg!(windows),
         "nativeTemplate": cfg!(target_os = "macos"), "isolated": true }),
     )
+}
+fn check_idle_usage(app: &AppHandle, bubble: &WebviewWindow) -> Result<()> {
+    let (send, receive) = std::sync::mpsc::channel();
+    let listener = app.listen("metra-smoke-usage", move |event| {
+        let _ = send.send(event.payload().to_owned());
+    });
+    let result = (|| {
+        bubble
+            .eval(
+                r#"(() => {
+                    const report = () => window.__TAURI_INTERNALS__.invoke('plugin:event|emit', {
+                        event: 'metra-smoke-usage',
+                        payload: document.querySelector('#bubble')?.textContent ?? ''
+                    });
+                    window.metraSmokeObserver = new MutationObserver(report);
+                    window.metraSmokeObserver.observe(document.querySelector('#app'), {
+                        subtree: true, childList: true, characterData: true
+                    });
+                    report();
+                })()"#,
+            )
+            .map_err(|error| error.to_string())?;
+        let initial = receive
+            .recv_timeout(Duration::from_secs(7))
+            .map_err(|error| format!("Capsule observer did not start: {error}"))?;
+        require(
+            initial.contains("37%"),
+            "Capsule did not show initial usage",
+        )?;
+        #[cfg(target_os = "macos")]
+        macos::deactivate(app)?;
+        let seconds = std::env::var("METRA_IDLE_SMOKE_SECONDS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(2);
+        std::thread::sleep(Duration::from_secs(seconds));
+        {
+            let state = app.state::<Desktop>();
+            let mut snapshot = state.service.snapshot.lock().map_err(|e| e.to_string())?;
+            let snapshot = &mut *snapshot;
+            for data in [&mut snapshot.cursor, &mut snapshot.codex] {
+                data.quotas = vec![QuotaWindow::from_used_percent("Smoke", 61., None, None)];
+            }
+        }
+        publish(app);
+        let deadline = Instant::now() + Duration::from_secs(7);
+        loop {
+            let text = receive
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .map_err(|error| format!("Idle capsule did not render updated usage: {error}"))?;
+            if text.matches("61%").count() == 2 {
+                break;
+            }
+        }
+        require(
+            app.state::<Desktop>().peek.load(Ordering::Acquire),
+            "Usage update unexpectedly expanded the capsule",
+        )
+    })();
+    app.unlisten(listener);
+    let _ = bubble.eval("window.metraSmokeObserver?.disconnect()");
+    result
 }
 fn check_unclipped_surface(window: &WebviewWindow) -> Result<()> {
     #[cfg(windows)]

@@ -61,7 +61,7 @@ The updater retains the existing GitHub `latest.json` and Minisign public key. W
 
 Common controls use Web Awesome (buttons, switches, checkboxes, text fields, selects, popovers and progress), with Lucide icons. All components and icons are bundled locally. Lit keeps control nodes stable during background updates. Each provider has its own refresh animation and publishes results as soon as it finishes.
 
-CI runs Rust and Chromium/WebKit UI checks on Windows, macOS and Linux using simulated IPC. Checks cover keyboard access, scaled windows, popup bounds, offline assets and per-provider progress, and retain screenshots for each OS. Native Windows checks inspect actual composited pixels for clear corners, smooth outlines and opaque surfaces over different desktop colors. macOS checks the tray template property; Windows installers are tested against the legacy silent upgrade contract. Mixed-DPI dragging still requires hardware acceptance.
+CI runs Rust and Chromium/WebKit UI checks on Windows, macOS and Linux using simulated IPC. Checks cover keyboard access, scaled windows, popup bounds, offline assets, per-provider progress and window-local visibility, and retain screenshots for each OS. Native Windows checks inspect actual composited pixels for clear corners, smooth outlines and opaque surfaces over different desktop colors. macOS checks the tray template property and capsule usage updates after 330 seconds in the background without hovering. Windows installers are tested against the legacy silent upgrade contract. Mixed-DPI dragging still requires hardware acceptance.
 
 ## Code layout
 

@@ -343,11 +343,12 @@ if (bubble) {
 }
 async function start() {
   try {
+    // A global listener would also receive visibility changes from the other window.
     await listen<boolean>('metra-visibility', event => {
       visible = event.payload;
       if (!visible) cancelProviderDrag();
       render();
-    });
+    }, { target: bubble ? 'bubble' : 'panel' });
     await listen<Payload>('metra-state', event => {
       state = event.payload;
       if (state.snapshot.refreshing || state.refreshingProviders.length) {
