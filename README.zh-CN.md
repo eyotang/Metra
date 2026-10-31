@@ -2,74 +2,74 @@
 
 [English](README.md) · **简体中文** · [日本語](README.ja.md) · [한국어](README.ko.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Русский](README.ru.md)
 
-Metra 使用 **Tauri 2、TypeScript 和 Rust** 展示 Cursor、Codex 与 Claude Code 的登录状态、额度、重置时间、Token 和费用。Windows 通过 WebView2 渲染，macOS 使用 WKWebView，Linux 使用 WebKitGTK；Rust 负责账户发现、采集、配置和签名更新。
+## 软件介绍
 
-- 保留 56px 悬浮球、拖动、置顶与吸边；启用吸边后松手即收为 32px 窄胶囊，悬停展开，离开再次收起。支持鼠标和键盘打开详情。
-- 全平台使用实色界面，不启用系统毛玻璃、背景模糊或半透明面板。圆球、吸边胶囊和面板的轮廓由浏览器抗锯齿绘制，避免 Windows 原生硬裁剪形成锯齿。
-- 状态栏每五秒轮播启用的服务；Windows 使用数字托盘图标，macOS 显示文字，Linux 的显示取决于面板支持。
-- 保留服务排序、显示开关、自定义标签、颜色、七种语言、刷新周期、开机启动和 Cursor 兼容模式确认。
-- 延用系统配置目录下的 `dev.metra.desktop/settings.db`，迁移旧窗口坐标并限制在显示器工作区域内。Cursor 凭据仍需用户明确同意后才会读取。
-- 保留独立 Rust 采集器和 Omarchy 的 Quickshell 插件，JSON 协议不变。
+**AI 编程用量，一眼掌握。**
 
-## 开发
+把 Cursor、Codex 和 Claude Code 的额度、Token 与费用留在桌面一角。支持 **macOS、Windows 和 Linux**。
 
-安装稳定版 Rust、Node.js 24+ 和对应系统的 Tauri 开发依赖后运行：
+- **随时看，不打断。** 悬浮球自由拖动、吸边收起，也可切换状态栏模式。
+- **三个工具，一处查看。** 快速了解可用额度、重置时间和使用情况。
+- **按你的习惯来。** 自定义服务顺序、标签、颜色和刷新周期；支持七种界面语言与自动识别。
+
+| 用量详情 | 显示设置 |
+| :---: | :---: |
+| <img src="docs/assets/readme/usage-demo.png" alt="用量详情" width="320"> | <img src="docs/assets/readme/settings-demo.png" alt="显示设置" width="320"> |
+
+当前界面，使用模拟用量展示，不含真实账号信息。可显示的数据取决于服务及登录方式。
+
+## 使用说明
+
+**[下载最新版本](https://github.com/eyotang/Metra/releases/latest)**
+
+| 系统 | 选择文件 | 安装方式 |
+| --- | --- | --- |
+| macOS | `*-macos-universal.dmg` | 打开 DMG，将 Metra 拖入 Applications。 |
+| Windows x64 | `*-windows-x64-setup.exe` | 运行安装包；也可选择便携 EXE（需已安装 WebView2）。 |
+| Linux x64 | `*-linux-x64.deb` | 安装软件包：`sudo apt install ./Metra-*-linux-x64.deb`。 |
+
+macOS：将应用移入 Applications 后，首次启动前执行，移除隔离标记：
+
+```sh
+sudo xattr -dr com.apple.quarantine /Applications/Metra.app
+```
+
+打开 Metra，登录你使用的工具，点击悬浮球即可查看用量。需要读取 Cursor 精确用量时，在设置中开启 **Cursor 兼容模式**，并确认读取本地凭据的授权。拖动即可调整位置，开启吸边后可收在屏幕边缘。
+
+在设置中调整语言、刷新周期和开机启动。关闭面板后继续后台运行；退出请使用设置或托盘菜单。
+
+[Linux 配置](docs/linux.md) · [Omarchy 插件](integrations/omarchy/README.md)
+
+## 开发贡献指南
+
+准备 **Node.js 24+**、**稳定版 Rust** 和下表中的系统工具。Fork 本仓库并克隆你的 Fork，在项目根目录运行：
+
+| 系统 | 开发工具 |
+| --- | --- |
+| macOS | Xcode 命令行工具 |
+| Windows | Visual Studio C++ 构建工具、Windows SDK、WebView2 |
+| Linux | WebKitGTK 4.1、GTK 3、AppIndicator；悬浮窗口需要 X11/XWayland |
 
 ```sh
 npm ci
 npm run dev
-npm run dev -- -- --settings
-npm run frontend:build
+```
+
+提交 PR 前验证：
+
+```sh
 npm run check
 cargo test --locked --all-targets
 npx playwright install chromium webkit
 npm run test:ui
-npm run build -- --no-bundle -- --locked
 ```
 
-`METRA_CONFIG_DIR` 可指定隔离的测试配置目录。关闭面板后继续后台运行，通过托盘或设置退出。Tauri 配置和 Cargo 工程保留在仓库根目录。开发使用 `npm run dev` 启动 Vite 和桌面应用；`npm run build` 会嵌入前端资源，直接 `cargo run` 不会启动前端服务器。
+修改界面从 `frontend/` 入手，采集逻辑看 `src/providers/`，刷新逻辑看 `src/service.rs`。使用 `METRA_CONFIG_DIR` 隔离测试配置。
 
-macOS 需要 Xcode 命令行工具。Windows 需要 Visual Studio C++ 构建工具、Windows SDK 和 WebView2（安装包会在缺失时引导安装）。Linux 需要 WebKitGTK 4.1、GTK 3、AppIndicator，定位悬浮窗口需要 X11/XWayland，详见 [Linux 说明](docs/linux.md)。
+每个 PR 聚焦一个问题，说明改动原因、效果和验证方式；界面改动附截图。涉及文案或说明时，同步更新七种语言的翻译和 README。
 
-无界面采集器不依赖 Node、Tauri 或 WebView：
+macOS 本地安装：先运行 `npm run build`，再运行 `npm run install:local`。
 
-```sh
-cargo build --release --locked --no-default-features --target-dir target/collector
-target/collector/release/metra --usage-json
-target/collector/release/metra --watch-json
-```
+[构建、打包与采集器参考](docs/development.md) · [Issues](https://github.com/eyotang/Metra/issues) · [Pull requests](https://github.com/eyotang/Metra/pulls)
 
-持续模式接收标准输入中的 `refresh`，输入关闭后退出。详见 [Omarchy 集成](integrations/omarchy/README.md)。
-
-## 打包与更新
-
-macOS 本地安装：构建 `.app` 后运行 `npm run install:local`，自动备份旧包、保留配置、清理扩展属性并验证本地签名。
-
-```sh
-npm ci
-node scripts/package-native.mjs
-# macOS 通用安装包：
-rustup target add aarch64-apple-darwin x86_64-apple-darwin
-node scripts/package-native.mjs --universal
-```
-
-Tauri 负责前端嵌入和平台打包，脚本将产物以原有发布文件名放入 `release-assets/`：Windows 为用户级 NSIS 安装包及便携 EXE，macOS 为 DMG，Linux 为 Debian 包。便携 Windows 版本需要系统已安装 WebView2；NSIS 工具由 Tauri 管理。支持 `CARGO_TARGET_DIR`。
-
-更新继续读取现有 GitHub `latest.json` 并使用原有 Minisign 公钥。Windows 安装版仅在用户点击更新后验证签名并启动安装器；便携版、macOS、Linux 打开对应版本下载页。签名工具继续接受现有 CI Secret 名称。
-
-通用控件使用 Web Awesome（按钮、开关、复选框、输入框、下拉、弹层、进度条），图标使用 Lucide；服务排序使用 SortableJS，支持把手拖动、紧凑预览、实时让位、Esc 取消和键盘上下移动。组件、图标和拖拽库全部本地打包。Lit 保持控件节点稳定，后台刷新保留输入焦点和弹层。每个产品刷新期间显示独立动画，完成后立即更新结果。
-
-CI 在 Windows、macOS、Linux 分别运行 Rust 和 Chromium/WebKit 交互检查，覆盖键盘、缩放、弹层边界、离线资源、逐产品刷新动画及窗口可见性隔离，并保存分平台截图。原生验收检查 Windows 胶囊、圆球与面板四角的实际桌面合成截图，背景切换后的实色表面和平滑边缘，以及 macOS 状态栏图标的模板属性和胶囊退到后台静置 330 秒后无需悬停即可更新用量。Windows 安装包还验证旧版静默升级；混合 DPI 拖动仍需要对应硬件验收。
-
-## 代码结构
-
-- `frontend/`：Lit 页面、Web Awesome 标准控件、Lucide 图标和实色表面样式。
-- `src/app.rs`、`src/geometry.rs`：Tauri 命令、事件、窗口、拖动与吸边。
-- `src/platform.rs`、`src/tray.rs`：原生输入、开机启动、Tauri 托盘。
-- `src/providers/`、`src/service.rs`：账户发现和后台采集。
-- `src/settings.rs`、`src/model.rs`：SQLite 配置和数据结构。
-- `src/headless.rs`、`src/updater.rs`：JSON 采集和签名更新。
-- `tauri.conf.json`、`capabilities/`：安装包、内容安全策略及本地窗口权限。
-- `tests/`、`tests/ui/`：Rust 契约测试及浏览器交互测试。
-
-项目使用 [MIT License](LICENSE)。Tauri 使用 MIT/Apache-2.0；Inter 字体的 OFL 许可保留在 `assets/fonts/`。
+[采用 MIT 许可证。](LICENSE)
