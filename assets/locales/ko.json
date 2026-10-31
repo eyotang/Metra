@@ -251,5 +251,8 @@
   "native.refreshing": "사용량 새로고침 중…",
   "native.included": "포함 사용량",
   "native.ondemand": "종량제 비용",
-  "native.upToDate": "Metra는 최신 버전입니다"
+  "native.upToDate": "Metra는 최신 버전입니다",
+  "menu.languageFrench": "Français",
+  "menu.languageGerman": "Deutsch",
+  "menu.languageRussian": "Русский"
 }

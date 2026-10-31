@@ -251,5 +251,8 @@
   "native.refreshing": "正在读取用量…",
   "native.included": "套餐用量",
   "native.ondemand": "按量费用",
-  "native.upToDate": "Metra 已是最新版本"
+  "native.upToDate": "Metra 已是最新版本",
+  "menu.languageFrench": "Français",
+  "menu.languageGerman": "Deutsch",
+  "menu.languageRussian": "Русский"
 }

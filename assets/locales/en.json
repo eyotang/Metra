@@ -251,5 +251,8 @@
   "native.refreshing": "Refreshing usage…",
   "native.included": "Included usage",
   "native.ondemand": "On-demand cost",
-  "native.upToDate": "Metra is up to date"
+  "native.upToDate": "Metra is up to date",
+  "menu.languageFrench": "Français",
+  "menu.languageGerman": "Deutsch",
+  "menu.languageRussian": "Русский"
 }

@@ -1,13 +1,13 @@
 # Metra
 
-[English](README.md) · **简体中文** · [日本語](README.ja.md) · [한국어](README.ko.md)
+[English](README.md) · **简体中文** · [日本語](README.ja.md) · [한국어](README.ko.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Русский](README.ru.md)
 
 Metra 使用 **Tauri 2、TypeScript 和 Rust** 展示 Cursor、Codex 与 Claude Code 的登录状态、额度、重置时间、Token 和费用。Windows 通过 WebView2 渲染，macOS 使用 WKWebView，Linux 使用 WebKitGTK；Rust 负责账户发现、采集、配置和签名更新。
 
 - 保留 56px 悬浮球、拖动、置顶与吸边；启用吸边后松手即收为 32px 窄胶囊，悬停展开，离开再次收起。支持鼠标和键盘打开详情。
 - 全平台使用实色界面，不启用系统毛玻璃、背景模糊或半透明面板。圆球、吸边胶囊和面板的轮廓由浏览器抗锯齿绘制，避免 Windows 原生硬裁剪形成锯齿。
 - 状态栏每五秒轮播启用的服务；Windows 使用数字托盘图标，macOS 显示文字，Linux 的显示取决于面板支持。
-- 保留服务排序、显示开关、自定义标签、颜色、四种语言、刷新周期、开机启动和 Cursor 兼容模式确认。
+- 保留服务排序、显示开关、自定义标签、颜色、七种语言、刷新周期、开机启动和 Cursor 兼容模式确认。
 - 延用系统配置目录下的 `dev.metra.desktop/settings.db`，迁移旧窗口坐标并限制在显示器工作区域内。Cursor 凭据仍需用户明确同意后才会读取。
 - 保留独立 Rust 采集器和 Omarchy 的 Quickshell 插件，JSON 协议不变。
 

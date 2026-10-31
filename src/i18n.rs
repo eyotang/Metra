@@ -14,6 +14,9 @@ fn catalogs() -> &'static BTreeMap<String, BTreeMap<String, String>> {
             ("en", include_str!("../assets/locales/en.json")),
             ("ja", include_str!("../assets/locales/ja.json")),
             ("ko", include_str!("../assets/locales/ko.json")),
+            ("fr", include_str!("../assets/locales/fr.json")),
+            ("de", include_str!("../assets/locales/de.json")),
+            ("ru", include_str!("../assets/locales/ru.json")),
         ]
         .into_iter()
         .map(|(locale, json)| {
@@ -38,6 +41,12 @@ pub fn resolve_locale(value: &str) -> &'static str {
         "ja"
     } else if value == "ko" || value.starts_with("ko-") {
         "ko"
+    } else if value == "fr" || value.starts_with("fr-") {
+        "fr"
+    } else if value == "de" || value.starts_with("de-") {
+        "de"
+    } else if value == "ru" || value.starts_with("ru-") {
+        "ru"
     } else {
         "en"
     }
@@ -127,6 +136,11 @@ mod tests {
         }
         assert_eq!(resolve_locale("zh_Hans_CN"), "zh-CN");
         assert_eq!(resolve_locale("ja-JP"), "ja");
-        assert_eq!(resolve_locale("fr-FR"), "en");
+        for locale in [
+            "fr-FR", "fr_CA", "fr", "de-DE", "de_AT", "de", "ru-RU", "ru_BY", "ru",
+        ] {
+            assert_eq!(resolve_locale(locale), &locale[..2]);
+        }
+        assert_eq!(resolve_locale("es-ES"), "en");
     }
 }

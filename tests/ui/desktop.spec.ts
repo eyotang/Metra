@@ -3,6 +3,9 @@ import en from '../../assets/locales/en.json' with { type: 'json' };
 import zh from '../../assets/locales/zh-CN.json' with { type: 'json' };
 import ja from '../../assets/locales/ja.json' with { type: 'json' };
 import ko from '../../assets/locales/ko.json' with { type: 'json' };
+import fr from '../../assets/locales/fr.json' with { type: 'json' };
+import de from '../../assets/locales/de.json' with { type: 'json' };
+import ru from '../../assets/locales/ru.json' with { type: 'json' };
 import type { Payload } from '../../frontend/types';
 const fixture: Payload = {
   refreshingProviders: [],
@@ -64,7 +67,7 @@ async function setup(page: Page, overrides: Partial<Payload> = {}, visible = tru
         w.publish();
       },
     };
-  }, { initial: { ...fixture, ...overrides }, catalogs: { en, 'zh-CN': zh, ja, ko }, visible });
+  }, { initial: { ...fixture, ...overrides }, catalogs: { en, 'zh-CN': zh, ja, ko, fr, de, ru }, visible });
 }
 async function settings(page: Page) { await page.getByRole('button', { name: 'Settings', exact: true }).click(); await expect(page.getByText('Provider display', { exact: true })).toBeVisible(); }
 
@@ -117,11 +120,14 @@ test('failed settings changes report errors and restore persisted values', async
 });
 test('languages switch live and retain provider preferences', async ({ page }) => {
   await setup(page); await page.goto('/?view=panel'); await settings(page);
-  for (const locale of ['zh-CN', 'ja', 'ko', 'en']) {
+  for (const locale of ['zh-CN', 'ja', 'ko', 'fr', 'de', 'ru', 'en']) {
     await page.getByRole('combobox').first().click();
-    await page.getByRole('option', { name: ({'zh-CN':'简体中文',ja:'日本語',ko:'한국어',en:'English'} as Record<string,string>)[locale], exact:true }).click();
+    await page.getByRole('option', { name: ({'zh-CN':'简体中文',ja:'日本語',ko:'한국어',fr:'Français',de:'Deutsch',ru:'Русский',en:'English'} as Record<string,string>)[locale], exact:true }).click();
     await expect(page.getByRole('listbox')).toBeHidden();
     await expect(page.locator('html')).toHaveAttribute('lang', locale);
+    const catalog = ({ 'zh-CN': zh, ja, ko, fr, de, ru, en } as Record<string, typeof en>)[locale];
+    await expect(page.getByText(catalog['config.title'], { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => (window as any).fixture.settings.uiLanguage)).toBe(locale);
     await expect(page.getByRole('textbox').first()).toHaveValue('C');
   }
 });

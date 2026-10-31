@@ -251,5 +251,8 @@
   "native.refreshing": "使用量を更新中…",
   "native.included": "プラン使用量",
   "native.ondemand": "従量課金",
-  "native.upToDate": "Metra は最新です"
+  "native.upToDate": "Metra は最新です",
+  "menu.languageFrench": "Français",
+  "menu.languageGerman": "Deutsch",
+  "menu.languageRussian": "Русский"
 }

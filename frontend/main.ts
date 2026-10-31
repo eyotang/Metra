@@ -211,7 +211,7 @@ function providerControls() {
 function settings() {
   const s = state.settings;
   return html`<section class="settings-group">
-    ${select('menu.language', 'language', s.uiLanguage, [['system', t('menu.languageSystem')], ['zh-CN', '简体中文'], ['en', 'English'], ['ja', '日本語'], ['ko', '한국어']])}
+    ${select('menu.language', 'language', s.uiLanguage, [['system', t('menu.languageSystem')], ['zh-CN', '简体中文'], ['en', 'English'], ['ja', '日本語'], ['ko', '한국어'], ['fr', 'Français'], ['de', 'Deutsch'], ['ru', 'Русский']])}
     ${select('menu.displayMode', 'display', s.displayMode, [['bubble', t('menu.displayBubble')], ['statusBar', t('menu.displayStatusBar')]])}
     ${select('menu.bubblePercentage', 'percent', s.bubblePercentMode, [['remaining', t('menu.remaining')], ['used', t('menu.used')]])}
     ${select('menu.refreshInterval', 'refresh', s.refreshMinutes, [1,5,15,30,60].map(n => [n, `${n} min`]))}
