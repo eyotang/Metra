@@ -28,10 +28,10 @@
 | Windows x64 | `*-windows-x64-setup.exe` | 运行安装包；也可选择便携 EXE（需已安装 WebView2）。 |
 | Linux x64 | `*-linux-x64.deb` | 安装软件包：`sudo apt install ./Metra-*-linux-x64.deb`。 |
 
-macOS：将应用移入 Applications 后，首次启动前执行，清除扩展属性（包括隔离标记）：
+macOS：将应用移入 Applications 后，首次启动前执行，移除隔离标记：
 
 ```sh
-xattr -cr /Applications/Metra.app
+sudo xattr -dr com.apple.quarantine /Applications/Metra.app
 ```
 
 打开 Metra，登录你使用的工具，点击悬浮球即可查看用量。需要读取 Cursor 精确用量时，在设置中开启 **Cursor 兼容模式**，并确认读取本地凭据的授权。拖动即可调整位置，开启吸边后可收在屏幕边缘。

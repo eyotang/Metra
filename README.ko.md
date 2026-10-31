@@ -28,10 +28,10 @@ Cursor, Codex, Claude Code의 한도, 토큰, 비용을 데스크톱 한쪽에�
 | Windows x64 | `*-windows-x64-setup.exe` | 설치 프로그램을 실행하세요. 포터블 EXE는 WebView2가 필요합니다. |
 | Linux x64 | `*-linux-x64.deb` | `sudo apt install ./Metra-*-linux-x64.deb`로 설치하세요. |
 
-macOS: Applications로 옮긴 뒤 처음 실행하기 전에 다음 명령으로 격리 표시를 포함한 확장 속성을 제거하세요.
+macOS: Applications로 옮긴 뒤 처음 실행하기 전에 다음 명령으로 격리 속성을 제거하세요.
 
 ```sh
-xattr -cr /Applications/Metra.app
+sudo xattr -dr com.apple.quarantine /Applications/Metra.app
 ```
 
 Metra를 실행하고 사용하는 도구에 로그인한 다음 버블을 클릭하면 사용량이 표시됩니다. 정확한 Cursor 사용량이 필요하면 설정에서 **Cursor 호환 모드**를 켜고 로컬 인증 정보 읽기에 동의하세요. 드래그로 이동하고 자동 고정을 켜면 화면 가장자리에 접어 둘 수 있습니다.

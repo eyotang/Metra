@@ -28,10 +28,10 @@ Interface actuelle avec données simulées, sans informations de compte réelles
 | Windows x64 | `*-windows-x64-setup.exe` | Lancez l’installateur ; l’EXE portable nécessite WebView2. |
 | Linux x64 | `*-linux-x64.deb` | Installez avec `sudo apt install ./Metra-*-linux-x64.deb`. |
 
-Sur macOS, après avoir déplacé l’application dans Applications, exécutez avant le premier lancement pour supprimer les attributs étendus, dont la quarantaine :
+Sur macOS, après avoir déplacé l’application dans Applications, exécutez avant le premier lancement pour supprimer l’attribut de quarantaine :
 
 ```sh
-xattr -cr /Applications/Metra.app
+sudo xattr -dr com.apple.quarantine /Applications/Metra.app
 ```
 
 Lancez Metra, connectez-vous aux outils utilisés, puis cliquez sur la bulle. Pour les données Cursor exactes, activez la **compatibilité Cursor** dans les paramètres et autorisez la lecture des identifiants locaux. Déplacez la bulle par glisser-déposer ; l’ancrage automatique la replie au bord de l’écran.

@@ -28,10 +28,10 @@ Aktuelle Oberfläche mit simulierten Daten, ohne echte Kontoinformationen. Verf�
 | Windows x64 | `*-windows-x64-setup.exe` | Installer starten; die portable EXE benötigt WebView2. |
 | Linux x64 | `*-linux-x64.deb` | Mit `sudo apt install ./Metra-*-linux-x64.deb` installieren. |
 
-Unter macOS nach dem Verschieben nach Applications vor dem ersten Start ausführen, um erweiterte Attribute einschließlich Quarantäne zu entfernen:
+Unter macOS nach dem Verschieben nach Applications vor dem ersten Start ausführen, um das Quarantäneattribut zu entfernen:
 
 ```sh
-xattr -cr /Applications/Metra.app
+sudo xattr -dr com.apple.quarantine /Applications/Metra.app
 ```
 
 Metra starten, bei den verwendeten Tools anmelden und auf die Blase klicken. Für genaue Cursor-Daten die **Cursor-Kompatibilität** in den Einstellungen aktivieren und dem Lesen lokaler Zugangsdaten zustimmen. Die Blase lässt sich ziehen und mit automatischem Andocken am Rand einklappen.

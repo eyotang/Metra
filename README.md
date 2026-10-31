@@ -28,10 +28,10 @@ Current interface with simulated usage data; no real account information. Availa
 | Windows x64 | `*-windows-x64-setup.exe` | Run the installer; or use the portable EXE (requires WebView2). |
 | Linux x64 | `*-linux-x64.deb` | Install the package: `sudo apt install ./Metra-*-linux-x64.deb`. |
 
-On macOS, after moving the app to Applications, run this before the first launch to clear extended attributes, including quarantine:
+On macOS, after moving the app to Applications, run this before the first launch to remove the quarantine attribute:
 
 ```sh
-xattr -cr /Applications/Metra.app
+sudo xattr -dr com.apple.quarantine /Applications/Metra.app
 ```
 
 Launch Metra, sign in to the tools you use, then click the bubble to see usage. Enable **Cursor compatibility** in Settings if you want exact Cursor usage; it requires your consent to read local credentials. Drag to reposition; enable auto-dock to tuck it against an edge.

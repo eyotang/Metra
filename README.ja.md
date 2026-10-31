@@ -28,10 +28,10 @@ Cursor、Codex、Claude Code の上限・トークン・費用をデスクトッ
 | Windows x64 | `*-windows-x64-setup.exe` | インストーラーを実行。ポータブル EXE は WebView2 が必要です。 |
 | Linux x64 | `*-linux-x64.deb` | `sudo apt install ./Metra-*-linux-x64.deb` でインストール。 |
 
-macOS：Applications に移動後、初回起動前に以下を実行し、隔離フラグを含む拡張属性を削除します。
+macOS：Applications に移動後、初回起動前に以下を実行し、隔離属性を削除します。
 
 ```sh
-xattr -cr /Applications/Metra.app
+sudo xattr -dr com.apple.quarantine /Applications/Metra.app
 ```
 
 Metra を起動し、利用するツールにログインして、バブルをクリックすると使用量を確認できます。Cursor の正確な使用量には、設定で **Cursor 互換モード** を有効にし、ローカル認証情報の読み取りに同意してください。ドラッグで移動し、自動吸着を有効にすると画面端に収納できます。

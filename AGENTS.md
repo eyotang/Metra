@@ -10,10 +10,10 @@ README 以 `README.md` 为英语入口，其他版本为 `README.zh-CN.md`、`RE
 
 # 发布描述
 
-创建或编辑发布说明（`docs/releases/<tag>.md` 和 GitHub Release 正文）时，始终先写完整英语部分，再写中文部分。每次发布都保留 macOS 的 `xattr` 说明及以下命令，说明在将应用移入 Applications 后、首次启动前执行，用于清除扩展属性（包括隔离标记）：
+创建或编辑发布说明（`docs/releases/<tag>.md` 和 GitHub Release 正文）时，始终先写完整英语部分，再写中文部分。每次发布都保留 macOS 的 `xattr` 说明及以下命令，说明在将应用移入 Applications 后、首次启动前执行，用于移除隔离标记：
 
 ```sh
-xattr -cr /Applications/Metra.app
+sudo xattr -dr com.apple.quarantine /Applications/Metra.app
 ```
 
 发布前检查两种语言的顺序及 `xattr` 命令均存在；编辑已有草稿时同步更新 GitHub Release 正文。
