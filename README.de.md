@@ -2,57 +2,74 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Français](README.fr.md) · **Deutsch** · [Русский](README.ru.md)
 
-Metra überwacht die Nutzung von Cursor, Codex und Claude Code mit **Tauri 2, TypeScript und Rust**. Windows verwendet WebView2, macOS WKWebView und Linux WebKitGTK. Alle Oberflächen sind undurchsichtig, ohne Hintergrundunschärfe und mit glatten Konturen.
+## Überblick
 
-Die verschiebbare 56-Pixel-Blase kann am Bildschirmrand zu einer 32-Pixel-Kapsel einklappen. Darüberfahren klappt sie auf; ein Klick oder die Eingabetaste öffnet Details. Im Statusleistenmodus wechseln die sichtbaren Anbieter alle fünf Sekunden. Details zeigen Kontostatus, Limits, Rücksetzzeiten, Tokens und Kosten. Gespeichert werden Anbieterreihenfolge, Sichtbarkeit, Beschriftungen, Farben, Sprache, Aktualisierungsintervall und Autostart. Sieben Sprachen stehen mit automatischer Erkennung bereit: Englisch, vereinfachtes Chinesisch, Japanisch, Koreanisch, Französisch, Deutsch und Russisch.
+**Die Nutzung Ihrer KI-Codingtools auf einen Blick.**
 
-Bestehende Einstellungen unter `dev.metra.desktop/settings.db` bleiben erhalten. Cursor-Zugangsdaten werden erst nach ausdrücklicher Zustimmung gelesen. Bei fehlgeschlagener Aktualisierung bleiben die letzten Daten als veraltet markiert sichtbar.
+Limits, Tokens und Kosten von Cursor, Codex und Claude Code in einer kleinen Desktop-Anzeige. Für **macOS, Windows und Linux**.
 
-## Entwicklung
+- **Immer im Blick.** Blase frei verschieben, am Rand andocken oder die Statusleiste nutzen.
+- **Drei Tools, ein Ort.** Verfügbare Limits, Rücksetzzeiten und Nutzung schnell prüfen.
+- **Nach Ihren Wünschen.** Reihenfolge, Beschriftungen, Farben und Intervalle anpassen. Sieben Sprachen mit automatischer Erkennung.
 
-Benötigt werden stabiles Rust, Node.js 24+ und die Tauri-Voraussetzungen: Xcode-Kommandozeilenwerkzeuge unter macOS; Visual-Studio-C++-Buildtools, Windows SDK und WebView2 unter Windows; WebKitGTK 4.1, GTK 3 und AppIndicator unter Linux (X11/XWayland für positionierte Fenster).
+| Nutzungsdetails | Anzeigeeinstellungen |
+| :---: | :---: |
+| <img src="docs/assets/readme/usage-demo.png" alt="Nutzungsdetails" width="320"> | <img src="docs/assets/readme/settings-demo.png" alt="Anzeigeeinstellungen" width="320"> |
+
+Aktuelle Oberfläche mit simulierten Daten, ohne echte Kontoinformationen. Verfügbare Daten hängen vom Anbieter und der Anmeldung ab.
+
+## Erste Schritte
+
+**[Neueste Version herunterladen](https://github.com/eyotang/Metra/releases/latest)**
+
+| System | Datei | Installation |
+| --- | --- | --- |
+| macOS | `*-macos-universal.dmg` | DMG öffnen und Metra nach Applications ziehen. |
+| Windows x64 | `*-windows-x64-setup.exe` | Installer starten; die portable EXE benötigt WebView2. |
+| Linux x64 | `*-linux-x64.deb` | Mit `sudo apt install ./Metra-*-linux-x64.deb` installieren. |
+
+Unter macOS nach dem Verschieben nach Applications vor dem ersten Start ausführen, um das Quarantäneattribut zu entfernen:
+
+```sh
+sudo xattr -dr com.apple.quarantine /Applications/Metra.app
+```
+
+Metra starten, bei den verwendeten Tools anmelden und auf die Blase klicken. Für genaue Cursor-Daten die **Cursor-Kompatibilität** in den Einstellungen aktivieren und dem Lesen lokaler Zugangsdaten zustimmen. Die Blase lässt sich ziehen und mit automatischem Andocken am Rand einklappen.
+
+Sprache, Aktualisierungsintervall und Autostart in den Einstellungen ändern. Das Schließen eines Panels lässt Metra weiterlaufen; über Einstellungen oder Tray-Menü beenden.
+
+[Linux-Einrichtung](docs/linux.md) · [Omarchy-Widget](integrations/omarchy/README.md)
+
+## Entwickeln und beitragen
+
+**Node.js 24+**, **stabiles Rust** und die folgenden Systemtools installieren. Repository forken, eigenen Fork klonen und im Stammverzeichnis ausführen:
+
+| System | Werkzeuge |
+| --- | --- |
+| macOS | Xcode-Kommandozeilenwerkzeuge |
+| Windows | Visual Studio C++ Buildtools, Windows SDK, WebView2 |
+| Linux | WebKitGTK 4.1, GTK 3, AppIndicator; X11/XWayland für schwebende Fenster |
 
 ```sh
 npm ci
 npm run dev
-npm run dev -- -- --settings
-npm run frontend:build
+```
+
+Vor dem Einreichen einer PR:
+
+```sh
 npm run check
 cargo test --locked --all-targets
 npx playwright install chromium webkit
 npm run test:ui
-npm run build -- --no-bundle -- --locked
 ```
 
-`METRA_CONFIG_DIR` legt ein separates Verzeichnis für Testeinstellungen fest. Das Schließen eines Panels beendet Metra nicht; zum Beenden das Menü verwenden. Siehe [Linux-Einrichtung](docs/linux.md).
+UI: `frontend/`; Datenerfassung: `src/providers/`; Aktualisierung: `src/service.rs`. `METRA_CONFIG_DIR` trennt Testeinstellungen von Ihren eigenen.
 
-Der Omarchy-Kollektor benötigt weder Node noch Desktop-Abhängigkeiten:
+Jede PR auf ein Problem beschränken und Problem, Änderung und Prüfung beschreiben. Bei UI-Änderungen Screenshots beifügen; betroffene Übersetzungen und README-Dateien in allen sieben Sprachen aktualisieren.
 
-```sh
-cargo build --release --locked --no-default-features --target-dir target/collector
-target/collector/release/metra --usage-json
-target/collector/release/metra --watch-json
-```
+Lokale macOS-Installation: `npm run build`, anschließend `npm run install:local`.
 
-Der Überwachungsmodus akzeptiert `refresh` über die Standardeingabe und endet, wenn diese geschlossen wird. Siehe [Omarchy-Anleitung](integrations/omarchy/README.md).
+[Referenz für Build, Pakete und Kollektor](docs/development.md) · [Issues](https://github.com/eyotang/Metra/issues) · [Pull requests](https://github.com/eyotang/Metra/pulls)
 
-## Pakete und Updates
-
-```sh
-node scripts/package-native.mjs
-# Universelles macOS-DMG für Apple Silicon und Intel:
-rustup target add aarch64-apple-darwin x86_64-apple-darwin
-node scripts/package-native.mjs --universal
-```
-
-Die Dateien landen in `release-assets/`: macOS-DMG, Windows-NSIS-Installer pro Benutzer und portable EXE sowie Linux-Debian-Paket. Die portable Windows-Version benötigt WebView2. `CARGO_TARGET_DIR` wird unterstützt.
-
-Für eine lokale macOS-Installation die App bauen und `npm run install:local` ausführen. Das sichert die bisherige App, erhält Einstellungen, entfernt erweiterte Attribute und prüft die Signatur. Eine heruntergeladene App nach Applications verschieben und vor dem ersten Start ausführen:
-
-```sh
-xattr -cr /Applications/Metra.app
-```
-
-Updates verwenden die vorhandene `latest.json` und den Minisign-Schlüssel. Die installierte Windows-Version prüft nach ausdrücklicher Benutzeraktion die Signatur und startet den Installer. Portable Versionen, macOS und Linux öffnen die Downloadseite zur manuellen Installation.
-
-Architektur und CI-Prüfungen stehen im [englischen README](README.md). [MIT-Lizenz](LICENSE); Tauri verwendet MIT/Apache-2.0, Inter behält seine OFL-Lizenz unter `assets/fonts/`.
+[MIT-Lizenz.](LICENSE)

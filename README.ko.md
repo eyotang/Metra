@@ -2,32 +2,74 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · **한국어** · [Français](README.fr.md) · [Deutsch](README.de.md) · [Русский](README.ru.md)
 
-Metra는 **Tauri 2, TypeScript, Rust**으로 구현된 Cursor, Codex, Claude Code 사용량 모니터입니다. Windows는 WebView2, macOS는 WKWebView, Linux는 WebKitGTK로 렌더링합니다. 화면 가장자리의 32px 캡슐을 유지하며, 모든 플랫폼에서 배경 흐림 없는 불투명한 화면과 매끄러운 윤곽을 사용합니다.
+## 소프트웨어 소개
 
-기본 플로팅 버블, 드래그와 화면 가장자리 고정, 상태 표시줄 모드, 사용량 상세 정보, 서비스 순서·표시 여부·레이블·색상, 한국어를 포함한 7개 언어를 지원합니다. 표시 방식은 SQLite에 저장되어 재시작 후에도 유지됩니다. 기존 `dev.metra.desktop/settings.db`와 사용자가 동의한 Cursor 호환 모드 설정을 그대로 사용합니다.
+**AI 코딩 사용량을 한눈에.**
 
-## 개발
+Cursor, Codex, Claude Code의 한도, 토큰, 비용을 데스크톱 한쪽에서 확인하세요. **macOS, Windows, Linux**를 지원합니다.
 
-현재 안정 버전 Rust와 운영체제에 맞는 네이티브 개발 도구를 설치하세요.
+- **작업 흐름을 그대로.** 버블을 자유롭게 이동하거나 화면 가장자리에 접어 두고, 상태 표시줄 모드도 사용하세요.
+- **세 도구를 한곳에서.** 제공되는 한도, 초기화 시간, 사용량을 빠르게 확인하세요.
+- **취향에 맞게.** 서비스 순서, 레이블, 색상, 갱신 주기를 설정하세요. 7개 언어와 자동 감지를 지원합니다.
+
+| 사용량 상세 | 표시 설정 |
+| :---: | :---: |
+| <img src="docs/assets/readme/usage-demo.png" alt="사용량 상세" width="320"> | <img src="docs/assets/readme/settings-demo.png" alt="표시 설정" width="320"> |
+
+현재 인터페이스를 가상 사용량으로 보여 줍니다. 실제 계정 정보는 포함하지 않습니다. 표시되는 정보는 서비스와 로그인 방식에 따라 다릅니다.
+
+## 사용 방법
+
+**[최신 버전 다운로드](https://github.com/eyotang/Metra/releases/latest)**
+
+| 시스템 | 파일 | 설치 방법 |
+| --- | --- | --- |
+| macOS | `*-macos-universal.dmg` | DMG를 열고 Metra를 Applications로 드래그하세요. |
+| Windows x64 | `*-windows-x64-setup.exe` | 설치 프로그램을 실행하세요. 포터블 EXE는 WebView2가 필요합니다. |
+| Linux x64 | `*-linux-x64.deb` | `sudo apt install ./Metra-*-linux-x64.deb`로 설치하세요. |
+
+macOS: Applications로 옮긴 뒤 처음 실행하기 전에 다음 명령으로 격리 속성을 제거하세요.
+
+```sh
+sudo xattr -dr com.apple.quarantine /Applications/Metra.app
+```
+
+Metra를 실행하고 사용하는 도구에 로그인한 다음 버블을 클릭하면 사용량이 표시됩니다. 정확한 Cursor 사용량이 필요하면 설정에서 **Cursor 호환 모드**를 켜고 로컬 인증 정보 읽기에 동의하세요. 드래그로 이동하고 자동 고정을 켜면 화면 가장자리에 접어 둘 수 있습니다.
+
+설정에서 언어, 갱신 주기, 자동 시작을 변경하세요. 패널을 닫아도 백그라운드에서 실행됩니다. 종료는 설정이나 트레이 메뉴를 사용하세요.
+
+[Linux 설정](docs/linux.md) · [Omarchy 위젯](integrations/omarchy/README.md)
+
+## 개발 및 기여 가이드
+
+**Node.js 24+**, **안정 버전 Rust**와 아래 시스템 도구를 준비하세요. 저장소를 Fork하고 자신의 Fork를 복제한 뒤 루트에서 실행하세요.
+
+| 시스템 | 개발 도구 |
+| --- | --- |
+| macOS | Xcode 명령줄 도구 |
+| Windows | Visual Studio C++ 빌드 도구, Windows SDK, WebView2 |
+| Linux | WebKitGTK 4.1, GTK 3, AppIndicator. 플로팅 창은 X11/XWayland 필요 |
 
 ```sh
 npm ci
 npm run dev
-npm run dev -- -- --settings
-npm run frontend:build
-cargo test --locked --all-targets
-npm run build -- --no-bundle -- --locked
 ```
 
-`METRA_CONFIG_DIR`로 별도 테스트 설정 경로를 지정할 수 있습니다. Linux에는 X11/XWayland, WebKitGTK 4.1, GTK 3/AppIndicator가 필요합니다.
-
-데스크톱 의존성이 없는 Omarchy 수집기도 별도로 빌드할 수 있습니다.
+PR 제출 전 확인:
 
 ```sh
-cargo build --release --locked --no-default-features --target-dir target/collector
-target/collector/release/metra --usage-json
+npm run check
+cargo test --locked --all-targets
+npx playwright install chromium webkit
+npm run test:ui
 ```
 
-개발 및 패키징에는 Node.js 24 이상이 필요합니다. `node scripts/package-native.mjs`로 현재 운영체제용 패키지를 만들고, macOS에서는 `--universal`로 Apple Silicon 및 Intel용 DMG를 만듭니다. Windows NSIS 도구와 WebView2 설치는 Tauri가 관리합니다. 결과는 `release-assets/`에 저장됩니다.
+UI는 `frontend/`, 수집 로직은 `src/providers/`, 갱신 로직은 `src/service.rs`에서 시작하세요. `METRA_CONFIG_DIR`로 테스트 설정을 분리할 수 있습니다.
 
-업데이트는 기존 `latest.json` 및 서명 키와 호환됩니다. Windows 설치 버전은 사용자 요청 후 서명을 검증하고 설치 프로그램을 실행합니다. 포터블 버전, macOS, Linux는 해당 버전의 다운로드 페이지를 엽니다. 자세한 구조·빌드·배포 안내는 [English README](README.md), Omarchy 안내는 [별도 문서](integrations/omarchy/README.md)를 참고하세요.
+PR은 한 가지 문제에 집중하고 이유, 변경 내용, 검증 방법을 설명하세요. UI 변경에는 스크린샷을 첨부하고, 관련 번역과 README는 7개 언어를 함께 갱신하세요.
+
+macOS 로컬 설치는 `npm run build` 후 `npm run install:local`을 실행하세요.
+
+[빌드·패키징·수집기 참고](docs/development.md) · [Issues](https://github.com/eyotang/Metra/issues) · [Pull requests](https://github.com/eyotang/Metra/pulls)
+
+[MIT 라이선스.](LICENSE)

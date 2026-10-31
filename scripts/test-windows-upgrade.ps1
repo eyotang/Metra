@@ -30,6 +30,10 @@ try {
   $legacy = Join-Path $work 'Metra-0.2.2-setup.exe'
   Invoke-WebRequest 'https://github.com/eyotang/Metra/releases/download/v0.2.2/Metra-0.2.2-windows-x64-setup.exe' -OutFile $legacy
   Run-Installer $legacy
+  # The legacy installer may launch Metra asynchronously through RunAsUser.
+  # Allow that optional launch to settle before stopping it for the upgrade.
+  $deadline = (Get-Date).AddSeconds(30)
+  while ((Installed-Processes).Count -eq 0 -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 250 }
   Stop-Installed
   Start-Sleep -Milliseconds 500
   $setup = (Resolve-Path "release-assets/Metra-$version-windows-x64-setup.exe").Path
