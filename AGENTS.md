@@ -6,7 +6,7 @@
 
 应用支持英语（en）、简体中文（zh-CN）、日语（ja）、韩语（ko）、法语（fr）、德语（de）、俄语（ru）。新增或修改界面文案时同步维护 `assets/locales/` 中全部语言，保持键名和占位符一致；新增语言时同时接通语言菜单、设置序列化和系统语言识别，并验证语言切换与设置往返保存。
 
-README 以 `README.md` 为英语入口，其他版本为 `README.zh-CN.md`、`README.ja.md`、`README.ko.md`、`README.fr.md`、`README.de.md`、`README.ru.md`。每份 README 顶部提供完整语言导航；功能、安装、构建和更新说明发生变化时同步维护各语言版本。
+README 以 `README.md` 为英语入口，其他版本为 `README.zh-CN.md`、`README.ja.md`、`README.ko.md`、`README.fr.md`、`README.de.md`、`README.ru.md`。每份 README 顶部提供完整语言导航；功能、安装、构建和更新说明发生变化时同步维护各语言版本。 README 正文统一按「软件介绍 → 使用说明 → 开发贡献指南」排列：介绍配当前界面的脱敏演示截图，使用说明优先给出最新版本下载和按系统安装步骤，贡献指南包含开发启动、验证和 PR 指引；保持简洁，详细构建与架构说明放入 `docs/development.md`。
 
 # 发布描述
 
