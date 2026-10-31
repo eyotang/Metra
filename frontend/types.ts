@@ -2,7 +2,7 @@ export type Provider = 'cursor' | 'codex' | 'claude';
 export interface Settings {
   displayMode: 'bubble' | 'statusBar'; refreshMinutes: number; autostart: boolean;
   cursorCompatEnabled: boolean; bubbleSnapEnabled: boolean; bubblePercentMode: 'used' | 'remaining';
-  uiLanguage: 'system' | 'zh-CN' | 'en' | 'ja' | 'ko';
+  uiLanguage: 'system' | 'zh-CN' | 'en' | 'ja' | 'ko' | 'fr' | 'de' | 'ru';
   bubbleProviderOrder: Provider[]; bubbleVisibleProviders: Provider[];
   cursorBubbleLabel: string; codexBubbleLabel: string; claudeBubbleLabel: string;
   cursorBubbleColor: string; codexBubbleColor: string; claudeBubbleColor: string;

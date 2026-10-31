@@ -1,6 +1,6 @@
 # Metra
 
-**English** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
+**English** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Русский](README.ru.md)
 
 Metra monitors Cursor, Codex and Claude Code usage with **Tauri 2, TypeScript and Rust**. Windows renders through WebView2, macOS through WKWebView, and Linux through WebKitGTK. Rust handles local account discovery, usage collection, settings and signed updates.
 
@@ -8,7 +8,7 @@ Metra monitors Cursor, Codex and Claude Code usage with **Tauri 2, TypeScript an
 - All platforms use opaque surfaces without system glass, backdrop blur or translucent panels. Browser antialiasing draws the bubble, edge capsule and panel outlines without a native hard clip.
 - Provider settings use SortableJS handle dragging with compact previews, live animated placement, Escape cancellation and keyboard reordering. Order is saved on drop and restored if saving fails.
 - Status bar mode cycles visible providers every five seconds. macOS shows text; Windows shows numeric tray icons; Linux depends on the panel host.
-- Details show account status, quota windows, reset countdowns, token totals and costs. Settings retain provider order, visibility, labels, colors, four languages, refresh interval and launch-at-startup.
+- Details show account status, quota windows, reset countdowns, token totals and costs. Settings retain provider order, visibility, labels, colors, seven languages, refresh interval and launch-at-startup.
 - Existing `dev.metra.desktop/settings.db` remains in the system configuration directory. Saved positions are migrated to Tauri physical coordinates and clamped to monitor work areas.
 - Cursor credentials are read only after explicit compatibility consent. Failed refreshes preserve successful data and mark it stale.
 - The independent collector and Omarchy Quickshell widget retain their JSON protocol.

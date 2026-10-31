@@ -50,6 +50,12 @@ pub enum UiLanguage {
     Ja,
     #[serde(rename = "ko")]
     Ko,
+    #[serde(rename = "fr")]
+    Fr,
+    #[serde(rename = "de")]
+    De,
+    #[serde(rename = "ru")]
+    Ru,
 }
 
 impl<'de> Deserialize<'de> for UiLanguage {
@@ -69,6 +75,9 @@ impl<'de> Deserialize<'de> for UiLanguage {
             "en" => Self::En,
             "ja" => Self::Ja,
             "ko" => Self::Ko,
+            "fr" => Self::Fr,
+            "de" => Self::De,
+            "ru" => Self::Ru,
             _ => Self::System,
         })
     }
@@ -82,6 +91,9 @@ impl UiLanguage {
             Self::En => Some("en"),
             Self::Ja => Some("ja"),
             Self::Ko => Some("ko"),
+            Self::Fr => Some("fr"),
+            Self::De => Some("de"),
+            Self::Ru => Some("ru"),
         }
     }
 }
@@ -153,7 +165,7 @@ mod tests {
     #[test]
     fn unknown_language_only_falls_back_to_system() {
         let settings: AppSettings = serde_json::from_str(
-            r#"{"refreshMinutes":15,"bubbleSnapEnabled":true,"uiLanguage":"fr"}"#,
+            r#"{"refreshMinutes":15,"bubbleSnapEnabled":true,"uiLanguage":"es"}"#,
         )
         .unwrap();
         assert_eq!(settings.refresh_minutes, 15);
@@ -177,6 +189,9 @@ mod tests {
             UiLanguage::En,
             UiLanguage::Ja,
             UiLanguage::Ko,
+            UiLanguage::Fr,
+            UiLanguage::De,
+            UiLanguage::Ru,
         ] {
             let settings = AppSettings {
                 ui_language: language,
