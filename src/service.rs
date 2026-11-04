@@ -40,6 +40,7 @@ impl RefreshService {
     pub fn new(store: SettingsStore) -> Self {
         let settings = store.load();
         let cursor_compat = Arc::new(AtomicBool::new(settings.cursor_compat_enabled));
+        crate::providers::cursor_token::set_enabled(settings.cursor_compat_enabled);
         let cursor = Arc::new(CursorProvider::new(cursor_compat.clone()));
         let codex = Arc::new(CodexProvider::default());
         let claude = Arc::new(ClaudeProvider::default());
@@ -209,6 +210,7 @@ impl RefreshService {
         change(&mut candidate);
         let candidate = candidate.normalized();
         self.store.save(&candidate)?;
+        crate::providers::cursor_token::set_enabled(candidate.cursor_compat_enabled);
         self.cursor_compat
             .store(candidate.cursor_compat_enabled, Ordering::Relaxed);
         *settings = candidate.clone();

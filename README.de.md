@@ -68,6 +68,10 @@ UI: `frontend/`; Datenerfassung: `src/providers/`; Aktualisierung: `src/service.
 
 Jede PR auf ein Problem beschränken und Problem, Änderung und Prüfung beschreiben. Bei UI-Änderungen Screenshots beifügen; betroffene Übersetzungen und README-Dateien in allen sieben Sprachen aktualisieren.
 
+Unter macOS speichert Metra das importierte Cursor-Anmeldetoken in einem eigenen Systemschlüsselbund-Eintrag und im Arbeitsspeicher. Bei Tokenänderungen oder fehlgeschlagener Authentifizierung wird es erneut importiert; beim Abmelden von Cursor oder Deaktivieren des Kompatibilitätsmodus wird der Cache gelöscht. Cursors Entschlüsselungsschlüssel wird nicht kopiert; Zugangsdaten erscheinen weder in Einstellungsdateien noch in Protokollen.
+
+Cursor-Nutzungsdaten verwenden bevorzugt die CLI-Anmeldung und bei fehlenden oder abgelehnten Zugangsdaten die Desktop-App.
+
 Lokale macOS-Installation: einmal `npm run setup:local-signing`, danach `npm run build` und `npm run install:local`. Verwenden Sie bei Updates dieselbe Signaturidentität, damit der Schlüsselbundzugriff an Metra gebunden bleibt.
 
 [Referenz für Build, Pakete und Kollektor](docs/development.md) · [Issues](https://github.com/eyotang/Metra/issues) · [Pull requests](https://github.com/eyotang/Metra/pulls)

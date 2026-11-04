@@ -68,6 +68,10 @@ npm run test:ui
 
 每个 PR 聚焦一个问题，说明改动原因、效果和验证方式；界面改动附截图。涉及文案或说明时，同步更新七种语言的翻译和 README。
 
+在 macOS 上，Metra 将导入的 Cursor 登录令牌保存到自己的系统钥匙串条目，并缓存在内存中。本地令牌变化或认证失效时重新导入；退出 Cursor 登录或关闭兼容模式时清除缓存。不复制 Cursor 解密密钥，凭据不会写入设置文件或日志。
+
+Cursor 用量优先复用 CLI 登录，凭据不可用或认证失败时回退到桌面应用。
+
 macOS 本地安装：首次运行 `npm run setup:local-signing`，之后运行 `npm run build` 和 `npm run install:local`。更新时复用同一签名身份，使钥匙串授权绑定到 Metra。
 
 [构建、打包与采集器参考](docs/development.md) · [Issues](https://github.com/eyotang/Metra/issues) · [Pull requests](https://github.com/eyotang/Metra/pulls)

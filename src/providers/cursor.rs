@@ -645,13 +645,13 @@ impl CursorProvider {
     }
 
     fn collect_compat(&self, plan: Option<String>) -> Result<ProviderSnapshot, String> {
-        let result = self.collect_compat_once(plan.clone());
+        let result = self.collect_compat_once(plan.clone(), true);
         if result
             .as_ref()
             .is_err_and(|error| error.contains("用量接口不可用") && error.contains("登录已失效"))
         {
             super::cursor_token::invalidate(false);
-            let retried = self.collect_compat_once(plan);
+            let retried = self.collect_compat_once(plan, false);
             if retried.as_ref().is_err_and(|error| {
                 error.contains("用量接口不可用") && error.contains("登录已失效")
             }) {
@@ -662,8 +662,12 @@ impl CursorProvider {
         result
     }
 
-    fn collect_compat_once(&self, plan: Option<String>) -> Result<ProviderSnapshot, String> {
-        let token = Zeroizing::new(read_access_token()?);
+    fn collect_compat_once(
+        &self,
+        plan: Option<String>,
+        prefer_cli: bool,
+    ) -> Result<ProviderSnapshot, String> {
+        let token = Zeroizing::new(read_access_token(prefer_cli)?);
         let plan = cursor_state_db()
             .ok()
             .and_then(|path| cached_membership_type_from(&path, &token))
@@ -1015,8 +1019,23 @@ fn cursor_state_db() -> Result<PathBuf, String> {
     }
 }
 
-fn read_access_token() -> Result<String, String> {
-    read_access_token_from(&cursor_state_db()?)
+fn read_access_token(prefer_cli: bool) -> Result<String, String> {
+    if prefer_cli
+        && let Some(token) = super::cursor_token::cli_token()
+        && !super::cursor_token::token_expired(&token)
+    {
+        diagnostics::info("cursor.token_source", "source=cli");
+        return super::cursor_token::decode(token.to_string());
+    }
+    diagnostics::info("cursor.token_source", "source=desktop");
+    let result = read_access_token_from(&cursor_state_db()?);
+    if result
+        .as_ref()
+        .is_err_and(|error| error == "Cursor 登录令牌不存在" || error == "未找到 Cursor 本地状态库")
+    {
+        super::cursor_token::clear();
+    }
+    result.and_then(super::cursor_token::decode)
 }
 
 fn cached_membership_type_from(path: &Path, token: &str) -> Option<String> {
@@ -1067,7 +1086,7 @@ fn read_access_token_from(path: &Path) -> Result<String, String> {
     if token.is_empty() {
         Err("Cursor 登录令牌不存在".into())
     } else {
-        super::cursor_token::decode(token)
+        Ok(token)
     }
 }
 

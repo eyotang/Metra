@@ -68,6 +68,10 @@ Commencez dans `frontend/` pour l’interface, `src/providers/` pour les collect
 
 Gardez chaque PR ciblée : expliquez le problème, la modification et les vérifications. Ajoutez des captures pour les changements visuels et synchronisez les sept traductions et README concernés.
 
+Sur macOS, Metra conserve le token Cursor importé dans sa propre entrée du trousseau système et en mémoire. Il le réimporte si le token local change ou si l’authentification échoue, et efface le cache à la déconnexion de Cursor ou à la désactivation du mode de compatibilité. La clé de déchiffrement de Cursor n’est pas copiée ; les identifiants ne figurent jamais dans les paramètres ni les journaux.
+
+Les données Cursor utilisent en priorité la connexion CLI, avec repli sur l’application de bureau si elle est indisponible ou refusée.
+
 Installation locale macOS : exécutez une fois `npm run setup:local-signing`, puis `npm run build` et `npm run install:local`. Réutilisez la même identité de signature lors des mises à jour pour lier l’accès au trousseau à Metra.
 
 [Référence de compilation, distribution et collecte](docs/development.md) · [Issues](https://github.com/eyotang/Metra/issues) · [Pull requests](https://github.com/eyotang/Metra/pulls)
