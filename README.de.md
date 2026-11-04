@@ -68,7 +68,7 @@ UI: `frontend/`; Datenerfassung: `src/providers/`; Aktualisierung: `src/service.
 
 Jede PR auf ein Problem beschränken und Problem, Änderung und Prüfung beschreiben. Bei UI-Änderungen Screenshots beifügen; betroffene Übersetzungen und README-Dateien in allen sieben Sprachen aktualisieren.
 
-Lokale macOS-Installation: `npm run build`, anschließend `npm run install:local`.
+Lokale macOS-Installation: einmal `npm run setup:local-signing`, danach `npm run build` und `npm run install:local`. Verwenden Sie bei Updates dieselbe Signaturidentität, damit der Schlüsselbundzugriff an Metra gebunden bleibt.
 
 [Referenz für Build, Pakete und Kollektor](docs/development.md) · [Issues](https://github.com/eyotang/Metra/issues) · [Pull requests](https://github.com/eyotang/Metra/pulls)
 

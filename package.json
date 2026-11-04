@@ -1,7 +1,7 @@
 {
   "name": "metra",
   "private": true,
-  "version": "0.5.13",
+  "version": "0.5.14",
   "type": "module",
   "engines": {
     "node": ">=24"
@@ -24,6 +24,7 @@
     "frontend:build": "tsc --noEmit && vite build",
     "test:ui": "playwright test",
     "tauri": "tauri",
+    "setup:local-signing": "node scripts/setup-local-signing.mjs",
     "install:local": "node scripts/install-macos-local.mjs"
   },
   "dependencies": {

@@ -68,7 +68,7 @@ UI는 `frontend/`, 수집 로직은 `src/providers/`, 갱신 로직은 `src/serv
 
 PR은 한 가지 문제에 집중하고 이유, 변경 내용, 검증 방법을 설명하세요. UI 변경에는 스크린샷을 첨부하고, 관련 번역과 README는 7개 언어를 함께 갱신하세요.
 
-macOS 로컬 설치는 `npm run build` 후 `npm run install:local`을 실행하세요.
+macOS 로컬 설치는 최초에 `npm run setup:local-signing`을 실행한 뒤 `npm run build`와 `npm run install:local`을 실행하세요. 업데이트에서도 같은 서명 ID를 사용해 키체인 접근 권한을 Metra에 연결합니다.
 
 [빌드·패키징·수집기 참고](docs/development.md) · [Issues](https://github.com/eyotang/Metra/issues) · [Pull requests](https://github.com/eyotang/Metra/pulls)
 

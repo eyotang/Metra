@@ -32,7 +32,11 @@ Watch mode accepts `refresh` lines on stdin and exits when stdin closes. See the
 
 ## Packaging and updates
 
-For local macOS installation, build the `.app` and run `npm run install:local`. It backs up the previous app, preserves settings, clears extended attributes and verifies the local signature.
+For local macOS installation, first run `npm run setup:local-signing` once, then build the `.app` and run `npm run install:local`. It backs up the previous app, preserves settings, clears extended attributes and verifies the local signature.
+
+The setup creates a persistent self-signed `Metra Local Development` identity in the default user Keychain, restricted to use by `codesign`. It does not add a trusted system root and is not a Developer ID for public distribution. Installation pins the designated requirement to `dev.metra.desktop` and the certificate fingerprint; missing or ambiguous identities fail instead of falling back to ad-hoc signing. `METRA_LOCAL_SIGNING_IDENTITY` can select another unique certificate name. Keep the same certificate and private key across updates.
+
+Cursor compatibility mode accesses the existing Cursor item directly through Security.framework, so the authorization belongs to Metra rather than `/usr/bin/security`. Choose Always Allow on the first system prompt to remember access. Tokens remain only in zeroized process-memory storage; a changed local token replaces the cache. When all usage endpoints reject authentication, Metra clears the cached token and retries once. A second rejection blocks that unchanged token until Cursor writes a new token, preventing repeated authorization prompts. Restarting clears the in-memory state. Never broaden the Cursor item’s ACL to all applications.
 
 ```sh
 npm ci

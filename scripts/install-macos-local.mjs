@@ -23,10 +23,15 @@ if (!existsSync(join(source, executable))) throw new Error(`Build Metra.app befo
 run('/usr/bin/ditto', [source, staging]);
 if (digest(join(source, executable)) !== digest(join(staging, executable))) throw new Error('Staged executable does not match the build');
 run('/usr/bin/xattr', ['-cr', staging]);
-// Local unsigned bundles may carry only the linker's incomplete bundle signature.
-if (spawnSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', staging]).status !== 0) {
-  run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', staging]);
-}
+// A persistent certificate gives Keychain ACLs a stable designated requirement.
+// Never silently replace it with ad-hoc signing after an update.
+const signingIdentity = process.env.METRA_LOCAL_SIGNING_IDENTITY || 'Metra Local Development';
+const certificates = run('/usr/bin/security', ['find-certificate', '-a', '-c', signingIdentity, '-Z']);
+const hashes = [...certificates.matchAll(/SHA-1 hash: ([A-Fa-f0-9]{40})/g)].map(match => match[1]);
+if (hashes.length !== 1) throw new Error('Expected one local signing certificate. Run npm run setup:local-signing or set METRA_LOCAL_SIGNING_IDENTITY to a unique certificate name.');
+const signingHash = hashes[0];
+const requirement = `designated => identifier "dev.metra.desktop" and certificate leaf = H"${signingHash}"`;
+run('/usr/bin/codesign', ['--force', '--deep', '--sign', signingHash, '--identifier', 'dev.metra.desktop', '--requirements', `=${requirement}`, '--timestamp=none', staging]);
 run('/usr/bin/codesign', ['--verify', '--deep', '--strict', staging]);
 const installedDigest = digest(join(staging, executable));
 const stopped = spawnSync('/usr/bin/pkill', ['-x', '-f', processPattern]);

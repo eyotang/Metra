@@ -645,6 +645,24 @@ impl CursorProvider {
     }
 
     fn collect_compat(&self, plan: Option<String>) -> Result<ProviderSnapshot, String> {
+        let result = self.collect_compat_once(plan.clone());
+        if result
+            .as_ref()
+            .is_err_and(|error| error.contains("用量接口不可用") && error.contains("登录已失效"))
+        {
+            super::cursor_token::invalidate(false);
+            let retried = self.collect_compat_once(plan);
+            if retried.as_ref().is_err_and(|error| {
+                error.contains("用量接口不可用") && error.contains("登录已失效")
+            }) {
+                super::cursor_token::invalidate(true);
+            }
+            return retried;
+        }
+        result
+    }
+
+    fn collect_compat_once(&self, plan: Option<String>) -> Result<ProviderSnapshot, String> {
         let token = Zeroizing::new(read_access_token()?);
         let plan = cursor_state_db()
             .ok()
@@ -1049,7 +1067,7 @@ fn read_access_token_from(path: &Path) -> Result<String, String> {
     if token.is_empty() {
         Err("Cursor 登录令牌不存在".into())
     } else {
-        Ok(token)
+        super::cursor_token::decode(token)
     }
 }
 
