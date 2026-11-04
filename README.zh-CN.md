@@ -68,7 +68,7 @@ npm run test:ui
 
 每个 PR 聚焦一个问题，说明改动原因、效果和验证方式；界面改动附截图。涉及文案或说明时，同步更新七种语言的翻译和 README。
 
-macOS 本地安装：先运行 `npm run build`，再运行 `npm run install:local`。
+macOS 本地安装：首次运行 `npm run setup:local-signing`，之后运行 `npm run build` 和 `npm run install:local`。更新时复用同一签名身份，使钥匙串授权绑定到 Metra。
 
 [构建、打包与采集器参考](docs/development.md) · [Issues](https://github.com/eyotang/Metra/issues) · [Pull requests](https://github.com/eyotang/Metra/pulls)
 

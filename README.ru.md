@@ -68,7 +68,7 @@ npm run test:ui
 
 Один PR — одна задача: опишите проблему, изменение и проверку. Для изменений интерфейса приложите скриншоты; обновите затронутые переводы и README на всех семи языках.
 
-Локальная установка macOS: `npm run build`, затем `npm run install:local`.
+Локальная установка macOS: один раз выполните `npm run setup:local-signing`, затем `npm run build` и `npm run install:local`. При обновлениях используйте ту же подпись, чтобы доступ к Связке ключей оставался привязан к Metra.
 
 [Справочник по сборке, пакетам и сборщику данных](docs/development.md) · [Issues](https://github.com/eyotang/Metra/issues) · [Pull requests](https://github.com/eyotang/Metra/pulls)
 

@@ -68,7 +68,7 @@ Commencez dans `frontend/` pour l’interface, `src/providers/` pour les collect
 
 Gardez chaque PR ciblée : expliquez le problème, la modification et les vérifications. Ajoutez des captures pour les changements visuels et synchronisez les sept traductions et README concernés.
 
-Installation locale macOS : `npm run build`, puis `npm run install:local`.
+Installation locale macOS : exécutez une fois `npm run setup:local-signing`, puis `npm run build` et `npm run install:local`. Réutilisez la même identité de signature lors des mises à jour pour lier l’accès au trousseau à Metra.
 
 [Référence de compilation, distribution et collecte](docs/development.md) · [Issues](https://github.com/eyotang/Metra/issues) · [Pull requests](https://github.com/eyotang/Metra/pulls)
 
