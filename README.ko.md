@@ -68,6 +68,10 @@ UI는 `frontend/`, 수집 로직은 `src/providers/`, 갱신 로직은 `src/serv
 
 PR은 한 가지 문제에 집중하고 이유, 변경 내용, 검증 방법을 설명하세요. UI 변경에는 스크린샷을 첨부하고, 관련 번역과 README는 7개 언어를 함께 갱신하세요.
 
+macOS에서는 가져온 Cursor 로그인 토큰을 Metra 전용 시스템 키체인 항목과 메모리에 저장합니다. 로컬 토큰이 바뀌거나 인증이 만료되면 다시 가져오며, Cursor에서 로그아웃하거나 호환 모드를 끄면 캐시를 삭제합니다. Cursor 복호화 키는 복사하지 않으며 인증 정보를 설정 파일이나 로그에 기록하지 않습니다.
+
+Cursor 사용량은 CLI 로그인을 우선 사용하며, 사용할 수 없거나 인증에 실패하면 데스크톱 앱으로 전환합니다.
+
 macOS 로컬 설치는 최초에 `npm run setup:local-signing`을 실행한 뒤 `npm run build`와 `npm run install:local`을 실행하세요. 업데이트에서도 같은 서명 ID를 사용해 키체인 접근 권한을 Metra에 연결합니다.
 
 [빌드·패키징·수집기 참고](docs/development.md) · [Issues](https://github.com/eyotang/Metra/issues) · [Pull requests](https://github.com/eyotang/Metra/pulls)

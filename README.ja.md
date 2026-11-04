@@ -68,6 +68,10 @@ UI は `frontend/`、収集処理は `src/providers/`、更新処理は `src/ser
 
 PR は1つの課題に絞り、理由・変更内容・検証方法を記載してください。UI 変更にはスクリーンショットを添付し、関連する翻訳と README は7言語を同期してください。
 
+macOS では、取り込んだ Cursor のログイントークンを Metra 専用のシステムキーチェーン項目とメモリに保存します。ローカルトークンの変更や認証失効時に再取得し、Cursor のログアウトや互換モードの無効化時に削除します。Cursor の復号鍵はコピーせず、認証情報を設定ファイルやログに記録しません。
+
+Cursor の使用量取得は CLI のログインを優先し、利用不可または認証失敗時にはデスクトップアプリに切り替えます。
+
 macOS へのローカルインストールは、初回のみ `npm run setup:local-signing` を実行し、その後 `npm run build` と `npm run install:local` を実行します。更新時も同じ署名 ID を使い、キーチェーンの許可を Metra に紐付けます。
 
 [ビルド・パッケージ・コレクターの詳細](docs/development.md) · [Issues](https://github.com/eyotang/Metra/issues) · [Pull requests](https://github.com/eyotang/Metra/pulls)

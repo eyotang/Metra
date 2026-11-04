@@ -68,6 +68,10 @@ Start in `frontend/` for UI, `src/providers/` for collectors, and `src/service.r
 
 Open a focused PR explaining the problem, the change and how you verified it. Include screenshots for UI changes; update all seven translation catalogs and README editions when affected.
 
+On macOS, Metra stores the imported Cursor sign-in token in its own system Keychain item and caches it in memory. A changed local token or failed authentication triggers reimport. Signing out of Cursor or disabling compatibility mode clears the cache. The Cursor decryption key is not copied; credentials never enter settings files or logs.
+
+Cursor usage prefers the CLI sign-in and falls back to the desktop app when unavailable or rejected.
+
 For a local macOS install, run `npm run setup:local-signing` once, then `npm run build` and `npm run install:local`. Reuse the same signing identity across updates so Keychain access remains bound to Metra.
 
 [Build, packaging and collector reference](docs/development.md) · [Issues](https://github.com/eyotang/Metra/issues) · [Pull requests](https://github.com/eyotang/Metra/pulls)

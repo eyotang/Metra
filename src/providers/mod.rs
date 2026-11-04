@@ -1,7 +1,7 @@
 pub mod claude;
 pub mod codex;
 pub mod cursor;
-mod cursor_token;
+pub(crate) mod cursor_token;
 pub mod discovery;
 
 use std::{path::PathBuf, process::Command};
