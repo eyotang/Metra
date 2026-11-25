@@ -4,7 +4,7 @@ use crate::{
 };
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
-pub(crate) struct StatusEntry {
+pub struct StatusEntry {
     pub provider: Provider,
     pub label: String,
     pub value: Option<u8>,
@@ -23,7 +23,7 @@ impl StatusEntry {
     }
 }
 
-pub(crate) fn entries(snapshot: &DashboardSnapshot, settings: &AppSettings) -> Vec<StatusEntry> {
+pub fn entries(snapshot: &DashboardSnapshot, settings: &AppSettings) -> Vec<StatusEntry> {
     settings
         .bubble_provider_order
         .iter()
@@ -73,7 +73,7 @@ pub(crate) fn entries(snapshot: &DashboardSnapshot, settings: &AppSettings) -> V
 // Windows has no tray title; some Linux panels also show only the icon.
 // A small bitmap keeps numeric usage readable without depending on system fonts.
 #[cfg(any(target_os = "windows", target_os = "linux", test))]
-pub(crate) fn usage_icon(entry: &StatusEntry) -> Vec<u8> {
+pub fn usage_icon(entry: &StatusEntry) -> Vec<u8> {
     let rgb = u32::from_str_radix(entry.color.trim_start_matches('#'), 16).unwrap_or(0x9c83ff);
     let background = [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8, 255];
     let luminance = u32::from(background[0]) * 299

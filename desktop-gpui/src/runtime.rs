@@ -12,6 +12,12 @@ use tray_icon::{
 pub(super) struct Runtime {
     pub dashboard: Entity<Dashboard>,
     pub panel: Option<AnyWindowHandle>,
+    bubble: Option<AnyWindowHandle>,
+    _state: Subscription,
+    tray_locale: String,
+    icon: tray_icon::Icon,
+    cycle: usize,
+    cycle_task: Option<Task<()>>,
     _tray: Option<TrayIcon>,
     _lock: File,
     _events: Task<()>,
@@ -78,6 +84,7 @@ pub(super) fn start(
         ("details", "native.details"),
         ("settings", "native.settings"),
         ("refresh", "native.refresh"),
+        ("display", "menu.displayStatusBar"),
     ] {
         menu.append(&MenuItem::with_id(id, t.t(key), true, None))
             .map_err(|e| e.to_string())?;
@@ -115,7 +122,7 @@ pub(super) fn start(
         tray_icon::Icon::from_rgba(image.into_raw(), width, height).map_err(|e| e.to_string())?;
     let tray = TrayIconBuilder::new()
         .with_tooltip("Metra")
-        .with_icon(icon)
+        .with_icon(icon.clone())
         .with_icon_as_template(cfg!(target_os = "macos"))
         .with_menu(Box::new(menu))
         .with_menu_on_left_click(false)
@@ -167,19 +174,42 @@ pub(super) fn start(
                     let view = cx.global::<Runtime>().dashboard.clone();
                     view.update(cx, |view, cx| view.refresh(cx));
                 }
+                "display" => {
+                    let view = cx.global::<Runtime>().dashboard.clone();
+                    view.update(cx, |view, cx| {
+                        use metra_lib::{settings::DisplayMode, settings_change::Change};
+                        let current = view.service.payload().settings.display_mode;
+                        view.save(
+                            Change::Display(if current == DisplayMode::Bubble {
+                                DisplayMode::StatusBar
+                            } else {
+                                DisplayMode::Bubble
+                            }),
+                            cx,
+                        );
+                    });
+                }
                 "quit" => cx.quit(),
                 _ => {}
             });
         }
     });
+    let state = cx.observe(&dashboard, |_, cx| sync(cx));
     cx.set_global(Runtime {
         dashboard,
         panel: None,
+        bubble: None,
+        _state: state,
+        tray_locale: String::new(),
+        icon,
+        cycle: 0,
+        cycle_task: None,
         _tray: tray,
         _lock: lock,
         _events: events,
         _activation: activation,
     });
+    sync(cx);
     open_panel(
         if std::env::args().any(|a| a == "--settings") {
             Page::Settings
@@ -189,6 +219,94 @@ pub(super) fn start(
         cx,
     );
     Ok(())
+}
+
+pub(super) fn sync(cx: &mut App) {
+    use metra_lib::{settings::DisplayMode, status_bar};
+    let data = cx.global::<Runtime>().dashboard.read(cx).service.payload();
+    let t = I18n::new(data.settings.ui_language);
+    let mode = data.settings.display_mode;
+    let entries = status_bar::entries(&data.snapshot, &data.settings);
+    let runtime = cx.global_mut::<Runtime>();
+    if let Some(tray) = &runtime._tray {
+        let summary = entries
+            .iter()
+            .map(status_bar::StatusEntry::headline)
+            .collect::<Vec<_>>()
+            .join(" | ");
+        let _ = tray.set_tooltip(Some(format!("Metra · {summary}")));
+        let key = format!("{}:{mode:?}", t.locale);
+        if runtime.tray_locale != key {
+            let menu = Menu::new();
+            for (id, key) in [
+                ("details", "native.details"),
+                ("settings", "native.settings"),
+                ("refresh", "native.refresh"),
+                (
+                    "display",
+                    if mode == DisplayMode::Bubble {
+                        "menu.displayStatusBar"
+                    } else {
+                        "menu.displayBubble"
+                    },
+                ),
+                ("quit", "menu.quit"),
+            ] {
+                if let Err(error) = menu.append(&MenuItem::with_id(id, t.t(key), true, None)) {
+                    eprintln!("{error}");
+                }
+            }
+            tray.set_menu(Some(Box::new(menu)));
+            runtime.tray_locale = key;
+        }
+    }
+    if let Some(tray) = &runtime._tray {
+        if mode == DisplayMode::StatusBar {
+            if let Some(entry) = entries.get(runtime.cycle % entries.len().max(1)) {
+                #[cfg(any(target_os = "macos", target_os = "linux"))]
+                tray.set_title(Some(entry.headline()));
+                #[cfg(any(target_os = "windows", target_os = "linux"))]
+                if let Ok(icon) = tray_icon::Icon::from_rgba(status_bar::usage_icon(entry), 32, 32)
+                {
+                    let _ = tray.set_icon(Some(icon));
+                }
+            }
+        } else {
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            tray.set_title(Some(""));
+            let _ = tray
+                .set_icon_with_as_template(Some(runtime.icon.clone()), cfg!(target_os = "macos"));
+        }
+    }
+    let show = mode == DisplayMode::Bubble || runtime._tray.is_none();
+    let existing = runtime.bubble;
+    if show && existing.is_none() {
+        match bubble::open(cx) {
+            Ok(handle) => cx.global_mut::<Runtime>().bubble = Some(handle),
+            Err(error) => eprintln!("{error}"),
+        }
+    } else if !show {
+        if let Some(handle) = existing {
+            let _ = handle.update(cx, |_, window, _| window.remove_window());
+            cx.global_mut::<Runtime>().bubble = None;
+        }
+    }
+    if mode == DisplayMode::StatusBar && cx.global::<Runtime>().cycle_task.is_none() {
+        let task = cx.spawn(async move |cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(3))
+                    .await;
+                cx.update(|cx| {
+                    cx.global_mut::<Runtime>().cycle = cx.global::<Runtime>().cycle.wrapping_add(1);
+                    sync(cx);
+                });
+            }
+        });
+        cx.global_mut::<Runtime>().cycle_task = Some(task);
+    } else if mode == DisplayMode::Bubble {
+        cx.global_mut::<Runtime>().cycle_task = None;
+    }
 }
 
 #[cfg(test)]

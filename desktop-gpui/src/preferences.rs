@@ -69,6 +69,35 @@ impl Dashboard {
                         })),
                 );
         }
+        let mode = s.display_mode;
+        let modes = div()
+            .h_flex()
+            .gap_2()
+            .child(
+                Button::new("display-bubble")
+                    .label(t.t("menu.displayBubble"))
+                    .selected(mode == metra_lib::settings::DisplayMode::Bubble)
+                    .disabled(busy)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.save(
+                            Change::Display(metra_lib::settings::DisplayMode::Bubble),
+                            cx,
+                        )
+                    })),
+            )
+            .child(
+                Button::new("display-tray")
+                    .label(t.t("menu.displayStatusBar"))
+                    .selected(mode == metra_lib::settings::DisplayMode::StatusBar)
+                    .disabled(busy)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.save(
+                            Change::Display(metra_lib::settings::DisplayMode::StatusBar),
+                            cx,
+                        )
+                    })),
+            );
+        view = view.child(t.t("menu.displayMode")).child(modes);
         view = view.child(languages).child(t.t("menu.bubblePercentage"));
         for (i, (mode, key)) in [
             (BubblePercentMode::Remaining, "menu.remaining"),

@@ -11,6 +11,7 @@ use metra_lib::{
 };
 use std::sync::Arc;
 
+mod bubble;
 mod preferences;
 mod runtime;
 mod usage;

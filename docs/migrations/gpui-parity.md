@@ -112,3 +112,16 @@ confirmed the second process exits successfully, the first consumes the
 activation request, and the first remains alive. No tray initialization error
 was logged. Tray clicking, closing/reopening panels, and other OS behavior are
 not yet accepted by this test.
+
+Shared status entries now drive an independent transparent popup bubble and the
+tray tooltip. Bubble observations compare displayed entries before notifying.
+Basic left-click details, right-click settings, and thresholded native dragging
+are wired. Display mode creates/removes the bubble, with a bubble fallback when
+tray creation fails. Tray menus rebuild on language/mode changes; status mode
+cycles every three seconds and uses the existing numeric bitmap on Linux/Windows
+and title on macOS. Returning to bubble mode restores the template/color icon.
+
+Linux native tests (3), build, and six-second startup smoke pass without logged
+errors. These do not establish pointer interaction, positioning, topmost/skip-
+taskbar parity or cross-platform correctness. Snap/peek, position persistence,
+keyboard bubble opening and panel anchoring remain outstanding.

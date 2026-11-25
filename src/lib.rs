@@ -10,8 +10,7 @@ pub mod providers;
 pub mod service;
 pub mod settings;
 pub mod settings_change;
-#[cfg(any(feature = "desktop", test))]
-pub(crate) mod status_bar;
+pub mod status_bar;
 pub mod updater;
 
 #[cfg(feature = "desktop")]
