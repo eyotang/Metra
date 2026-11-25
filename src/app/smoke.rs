@@ -64,6 +64,26 @@ fn exercise(app: &AppHandle) -> Result<serde_json::Value> {
     let state = app.state::<Desktop>();
     let bubble = app.get_webview_window("bubble").ok_or("Missing bubble")?;
     let panel = app.get_webview_window("panel").ok_or("Missing panel")?;
+    // Check the first visible window before any mode switch or hover can
+    // repair an incorrect native creation size.
+    let startup_width = if state.peek.load(Ordering::Acquire) {
+        32.
+    } else {
+        56.
+    };
+    await_native(
+        || {
+            let Ok(size) = bubble.inner_size() else {
+                return false;
+            };
+            let Ok(scale) = bubble.scale_factor() else {
+                return false;
+            };
+            (size.width as f64 / scale - startup_width).abs() <= 1.
+                && (size.height as f64 / scale - 56.).abs() <= 1.
+        },
+        "Initial bubble client size is incorrect before hover",
+    )?;
     require(
         app.tray_by_id("metra-status").is_some(),
         "Native tray was not created",
