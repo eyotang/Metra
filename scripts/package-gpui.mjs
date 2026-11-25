@@ -47,8 +47,8 @@ if(process.platform==='linux') {
  writeFileSync(`${destination}.sha256`,`${createHash('sha256').update(readFileSync(destination)).digest('hex')}  ${basename(destination)}\n`);
  console.log(destination);process.exit(0);
 }
-const config={build:{beforeBuildCommand:null,beforeBundleCommand:null},bundle:{windows:{webviewInstallMode:{type:'skip',silent:null}},linux:{deb:{depends:['libfontconfig1','libxkbcommon0','libxkbcommon-x11-0','libvulkan1']}}}};
-const args=[join(root,'node_modules/@tauri-apps/cli/tauri.js'),'bundle','--ci','--no-binary-patching','--bundles',bundle,'--config',JSON.stringify(config)];
+const config={build:{beforeBuildCommand:null,beforeBundleCommand:null},bundle:{macOS:{signingIdentity:process.env.APPLE_SIGNING_IDENTITY || '-'},windows:{webviewInstallMode:{type:'skip',silent:null}},linux:{deb:{depends:['libfontconfig1','libxkbcommon0','libxkbcommon-x11-0','libvulkan1']}}}};
+const args=[join(root,'node_modules/@tauri-apps/cli/tauri.js'),'bundle','--ci','--no-binary-patching','--bundles',process.platform==='darwin'?'app,dmg':bundle,'--config',JSON.stringify(config)];
 if(debug) args.push('--debug');
 if(universal) args.push('--target',targetName);
 run(process.execPath,args,{...process.env,CARGO_TARGET_DIR:staging});

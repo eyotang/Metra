@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 const root = resolve(import.meta.dirname, '..');
 const config = mkdtempSync(join(tmpdir(), 'metra-gpui-smoke-'));
-const executable = resolve(process.argv[2] || join(root, 'desktop-gpui/target/debug', process.platform === 'win32' ? 'metra-gpui.exe' : 'metra-gpui'));
+const legacy = process.argv.includes('--legacy-status');
+if (legacy) writeFileSync(join(config, 'settings.json'), JSON.stringify({ displayMode: 'statusBar', bubbleProviderOrder: ['codex', 'cursor', 'claude'], bubbleVisibleProviders: ['codex', 'cursor'], bubblePercentMode: 'used', cursorBubbleLabel: 'CU', autostart: false }));
+const executable = resolve(process.argv.slice(2).find(arg => !arg.startsWith('--')) || join(root, 'desktop-gpui/target/debug', process.platform === 'win32' ? 'metra-gpui.exe' : 'metra-gpui'));
 const child = spawn(executable, [], {
   cwd: root,
-  env: { ...process.env, METRA_CONFIG_DIR: config, METRA_GPUI_SMOKE: '1' },
+  env: { ...process.env, METRA_CONFIG_DIR: config, METRA_GPUI_SMOKE: '1', ...(legacy ? { METRA_GPUI_MIGRATION_SMOKE: '1', METRA_GPUI_DEMO: '1' } : {}) },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let output = '';

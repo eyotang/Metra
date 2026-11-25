@@ -63,7 +63,7 @@ except (sqlite3.Error, OSError):
     if ($saved -and $saved.bubblePositionVersion -eq 3) { break }
     Start-Sleep -Milliseconds 500
   } while ((Get-Date) -lt $deadline)
-  if (-not $saved -or $saved.bubblePositionVersion -ne 3) { throw 'Upgraded Tauri application did not migrate the expected configuration within 60 seconds' }
+  if (-not $saved -or $saved.bubblePositionVersion -ne 3) { throw 'Upgraded application did not migrate the expected configuration within 60 seconds' }
   Write-Output "Configuration migrated after $([Math]::Round($migrationWait.Elapsed.TotalSeconds, 1)) seconds of startup waiting"
   Start-Sleep -Seconds 3
   if ((Installed-Processes).Count -eq 0) { throw 'Upgraded application stopped after configuration migration' }

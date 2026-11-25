@@ -263,3 +263,22 @@ open/close and right-click settings, in addition to previous lifecycle checks.
 An OS-level XTest injection attempt did not establish event delivery under this
 Hyprland session; system mouse/drag/hover acceptance remains open. The temporary
 demo process was stopped, without modifying installed settings.
+
+Run 45559089888 passed Linux and Windows native lifecycle/input tests and package
+builds. macOS passed compilation and the native lifecycle/input test, then failed
+packaging because requesting only DMG caused the bundler to delete its temporary
+.app before metadata verification. Packaging now requests app,dmg and explicitly
+uses the supplied Apple signing identity or an ad-hoc distribution signature;
+local installation still requires the existing persistent local signing identity.
+The macOS packaging correction awaits CI.
+
+Reviewing the retained Windows upgrade acceptance found that status-bar-only
+startup never migrated the bubble coordinate version, and a new non-docked bubble
+never persisted its initial location. Both now persist version 3; status-bar
+startup uses a hidden temporary native window to determine coordinates without
+showing a bubble. The isolated --legacy-status smoke checks the original JSON
+migration and preserves display mode, percentage mode, labels, order, visibility
+and autostart. This and the full native lifecycle smoke pass locally. CI runs the
+migration test on each system and invokes the retained v0.2.2 /S installer upgrade
+acceptance against the GPUI Windows installer. Defaults and release workflow have
+not yet been switched; this avoids publishing before upgrade acceptance passes.

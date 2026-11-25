@@ -396,6 +396,18 @@ pub(super) fn start(
         _events: events,
         _activation: activation,
     });
+    let settings = cx
+        .global::<Runtime>()
+        .dashboard
+        .read(cx)
+        .service
+        .payload()
+        .settings;
+    if settings.bubble_position_version != 3
+        && settings.display_mode == metra_lib::settings::DisplayMode::StatusBar
+    {
+        bubble::initialize_position(cx)?;
+    }
     sync(cx);
     if std::env::args().any(|a| a == "--settings") {
         open_panel(Page::Settings, cx);
@@ -407,7 +419,11 @@ pub(super) fn start(
     }
     #[cfg(feature = "native-smoke")]
     if std::env::var_os("METRA_GPUI_SMOKE").is_some() {
-        smoke(cx);
+        if std::env::var_os("METRA_GPUI_MIGRATION_SMOKE").is_some() {
+            migration_smoke(cx);
+        } else {
+            smoke(cx);
+        }
     }
     Ok(())
 }
@@ -565,6 +581,7 @@ fn smoke(cx: &mut App) {
                     4=>{
                         let saved=dashboard.read(cx).service.store.load();
                         assert_eq!(saved.codex_bubble_label,"TES");assert_eq!(saved.refresh_minutes,15);
+                        assert_eq!(saved.bubble_position_version,3);
                         assert!(dashboard.read(cx).pending_settings.is_empty());
                         let input = dashboard.read(cx).labels.iter().find(|(provider, ..)| *provider == metra_lib::model::Provider::Codex).unwrap().1.clone();
                         assert_eq!(input.read(cx).value().as_ref(), "TES");
@@ -661,4 +678,52 @@ fn smoke_click(button: gpui_kit::MouseButton, cx: &mut App) {
             );
         })
         .unwrap();
+}
+
+#[cfg(feature = "native-smoke")]
+fn migration_smoke(cx: &mut App) {
+    let config = std::env::var_os("METRA_CONFIG_DIR").expect("isolated configuration required");
+    cx.spawn(async move |cx| {
+        for _ in 0..100 {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(100))
+                .await;
+            let done = cx.update(|cx| {
+                let runtime = cx.global::<Runtime>();
+                let saved = runtime.dashboard.read(cx).service.store.load();
+                if saved.bubble_position_version != 3 {
+                    return false;
+                }
+                use metra_lib::{
+                    model::Provider,
+                    settings::{BubblePercentMode, DisplayMode},
+                };
+                assert_eq!(saved.display_mode, DisplayMode::StatusBar);
+                assert_eq!(saved.bubble_percent_mode, BubblePercentMode::Used);
+                assert_eq!(saved.cursor_bubble_label, "CU");
+                assert_eq!(
+                    saved.bubble_provider_order,
+                    vec![Provider::Codex, Provider::Cursor, Provider::Claude]
+                );
+                assert_eq!(
+                    saved.bubble_visible_providers,
+                    vec![Provider::Codex, Provider::Cursor]
+                );
+                assert!(!saved.autostart);
+                assert_eq!(runtime.bubble.is_none(), runtime._tray.is_some());
+                std::fs::write(
+                    std::path::Path::new(&config).join("native-smoke.result"),
+                    "PASS: legacy status-bar preferences and coordinate migration",
+                )
+                .unwrap();
+                cx.quit();
+                true
+            });
+            if done {
+                return;
+            }
+        }
+        panic!("Legacy coordinate migration did not finish");
+    })
+    .detach();
 }

@@ -65,7 +65,11 @@ impl Bubble {
                 ));
             let (x, y) = work.clamp(x, y, 56. * scale, 56. * scale);
             native_window::move_to(window, x, y)?;
-            view.dock(view.snap, true, window, cx)
+            view.dock(view.snap, true, window, cx)?;
+            if !view.snap {
+                view.persist(window, cx);
+            }
+            Ok::<_, String>(())
         })();
         if let Err(error) = result {
             eprintln!("{error}");
@@ -354,6 +358,17 @@ impl Render for Bubble {
     }
 }
 pub(super) fn open(cx: &mut App) -> Result<AnyWindowHandle, String> {
+    open_with_visibility(cx, true)
+}
+
+pub(super) fn initialize_position(cx: &mut App) -> Result<(), String> {
+    let window = open_with_visibility(cx, false)?;
+    window
+        .update(cx, |_, window, _| window.remove_window())
+        .map_err(|e| e.to_string())
+}
+
+fn open_with_visibility(cx: &mut App, show: bool) -> Result<AnyWindowHandle, String> {
     let dashboard = cx.global::<runtime::Runtime>().dashboard.clone();
     let bounds = Bounds::centered(None, size(px(56.), px(56.)), cx);
     gpui_kit::open_window(
@@ -361,6 +376,7 @@ pub(super) fn open(cx: &mut App) -> Result<AnyWindowHandle, String> {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: None,
             focus: false,
+            show,
             kind: WindowKind::PopUp,
             is_resizable: false,
             is_minimizable: false,

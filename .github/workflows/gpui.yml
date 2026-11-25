@@ -35,19 +35,30 @@ jobs:
       - run: cargo test --locked --manifest-path desktop-gpui/Cargo.toml
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - name: Build native lifecycle smoke
         run: cargo build --locked --manifest-path desktop-gpui/Cargo.toml --features native-smoke
       - name: Native lifecycle smoke (Linux)
         if: runner.os == 'Linux'
-        run: dbus-run-session -- xvfb-run -a node scripts/smoke-gpui.mjs
+        run: |
+          dbus-run-session -- xvfb-run -a node scripts/smoke-gpui.mjs
+          dbus-run-session -- xvfb-run -a node scripts/smoke-gpui.mjs --legacy-status
       - name: Native lifecycle smoke (macOS/Windows)
         if: runner.os != 'Linux'
-        run: node scripts/smoke-gpui.mjs
+        run: |
+          node scripts/smoke-gpui.mjs
+          node scripts/smoke-gpui.mjs --legacy-status
       - name: Build experimental native installer
         run: node scripts/package-gpui.mjs --debug --output native-installer
+      - name: Verify legacy Windows silent upgrade
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path release-assets -Force | Out-Null
+          Copy-Item native-installer/* release-assets/
+          ./scripts/test-windows-upgrade.ps1
       - uses: actions/upload-artifact@v6
         with:
           name: gpui-experimental-${{ runner.os }}
