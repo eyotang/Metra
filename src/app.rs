@@ -716,6 +716,12 @@ fn create_windows(app: &AppHandle) -> Result<()> {
     bubble
         .set_position(PhysicalPosition::new(x, y))
         .map_err(|e| e.to_string())?;
+    // Windows can constrain the initial native window width during creation.
+    // Reapply the client size after positioning (and its DPI change), before
+    // showing it, so the first frame has the same bounds as hover expansion.
+    bubble
+        .set_size(LogicalSize::new(56., 56.))
+        .map_err(|e| e.to_string())?;
     save_position(app)?;
     if settings.bubble_snap_enabled {
         set_peek(app, true, true)?;
