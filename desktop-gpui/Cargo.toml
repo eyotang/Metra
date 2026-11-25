@@ -10,6 +10,7 @@ gpui-kit = "=0.11.0"
 async-channel = "2"
 chrono = "0.4"
 notify = "8.2"
+auto-launch = "0.5"
 tray-icon = { version = "0.25.1", default-features = false, features = ["ksni"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 
@@ -18,3 +19,6 @@ debug = 0
 
 [dev-dependencies]
 tempfile = "3"
+
+[features]
+native-smoke = []

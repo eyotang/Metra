@@ -25,6 +25,13 @@ enum Page {
 
 struct Dashboard {
     page: Page,
+    labels: Vec<(
+        metra_lib::model::Provider,
+        Entity<component::input::InputState>,
+        Subscription,
+        FocusHandle,
+    )>,
+    pending_settings: std::collections::VecDeque<metra_lib::settings_change::Change>,
     error: Option<String>,
     settings_task: Option<Task<()>>,
     interval_task: Option<Task<()>>,
@@ -84,7 +91,8 @@ impl Dashboard {
     }
 }
 impl Render for Dashboard {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.prepare_labels(window, cx);
         let payload = self.service.payload();
         let t = I18n::new(payload.settings.ui_language);
         let mut header = div()

@@ -1,5 +1,8 @@
 use super::*;
-use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::component::{
+    checkbox::Checkbox,
+    input::{Input, InputEvent, InputState},
+};
 use metra_lib::{
     model::Provider,
     settings::{BUBBLE_COLOR_PALETTE, BubblePercentMode, UiLanguage},
@@ -9,6 +12,7 @@ use metra_lib::{
 impl Dashboard {
     pub(super) fn save(&mut self, change: Change, cx: &mut Context<Self>) {
         if self.settings_task.is_some() {
+            self.pending_settings.push_back(change);
             return;
         }
         let settings = self.service.payload().settings;
@@ -19,9 +23,16 @@ impl Dashboard {
         }
         let refresh_after = matches!(change, Change::Compat(true));
         let service = self.service.clone();
-        let work = cx
-            .background_executor()
-            .spawn(async move { service.update_settings(|settings| change.apply(settings)) });
+        let work = cx.background_executor().spawn(async move {
+            if let Change::Autostart(enabled) = change {
+                set_autostart(enabled)?;
+            }
+            let result = service.update_settings(|settings| change.apply(settings));
+            if result.is_err() && matches!(change, Change::Autostart(_)) {
+                let _ = set_autostart(settings.autostart);
+            }
+            result
+        });
         self.settings_task = Some(cx.spawn(async move |this, cx| {
             let result = work.await;
             let _ = this.update(cx, |this, cx| {
@@ -32,6 +43,9 @@ impl Dashboard {
                     if refresh_after {
                         this.refresh(cx);
                     }
+                }
+                if let Some(next) = this.pending_settings.pop_front() {
+                    this.save(next, cx);
                 }
                 cx.notify();
             });
@@ -97,7 +111,15 @@ impl Dashboard {
                         )
                     })),
             );
-        view = view.child(t.t("menu.displayMode")).child(modes);
+        view = view.child(t.t("menu.displayMode")).child(modes).child(
+            Checkbox::new("autostart")
+                .label(t.t("menu.autostart"))
+                .checked(s.autostart)
+                .disabled(busy)
+                .on_change(cx.listener(|this, enabled: &bool, _, cx| {
+                    this.save(Change::Autostart(*enabled), cx)
+                })),
+        );
         view = view.child(languages).child(t.t("menu.bubblePercentage"));
         for (i, (mode, key)) in [
             (BubblePercentMode::Remaining, "menu.remaining"),
@@ -151,6 +173,64 @@ impl Dashboard {
                 Provider::Codex => ("Codex", &s.codex_bubble_color),
                 Provider::Claude => ("Claude Code", &s.claude_bubble_color),
             };
+            if let Some((_, input, _, focus)) =
+                self.labels.iter().find(|(p, _, _, _)| *p == provider)
+            {
+                let handle = div()
+                    .id(("order", i))
+                    .track_focus(focus)
+                    .tab_stop(true)
+                    .cursor_move()
+                    .child("≡")
+                    .on_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
+                        if event.keystroke.key == "escape" {
+                            cx.stop_active_drag(window);
+                            return;
+                        }
+                        let shift = match event.keystroke.key.as_str() {
+                            "up" => -1,
+                            "down" => 1,
+                            _ => return,
+                        };
+                        this.move_provider(provider, shift, cx);
+                    }))
+                    .when(!busy, |handle| {
+                        handle.on_drag(DraggedProvider(provider), |value, _, _, cx| {
+                            cx.new(|_| *value)
+                        })
+                    });
+                view = view
+                    .child(
+                        div()
+                            .id(("provider-order", i))
+                            .h_flex()
+                            .gap_2()
+                            .child(handle)
+                            .child(name)
+                            .on_drop(cx.listener(move |this, value: &DraggedProvider, _, cx| {
+                                let mut order =
+                                    this.service.payload().settings.bubble_provider_order;
+                                let Some(from) = order.iter().position(|p| *p == value.0) else {
+                                    return;
+                                };
+                                let Some(to) = order.iter().position(|p| *p == provider) else {
+                                    return;
+                                };
+                                if from != to {
+                                    let moved = order.remove(from);
+                                    order.insert(to, moved);
+                                    this.save(Change::Order(order), cx);
+                                }
+                            })),
+                    )
+                    .child(
+                        Input::new(input)
+                            .aria_label(
+                                t.format("config.bubbleLabel", &[("provider", name.into())]),
+                            )
+                            .disabled(busy),
+                    );
+            }
             let mut palette = div().h_flex().flex_wrap().gap_1();
             for (j, value) in BUBBLE_COLOR_PALETTE.iter().copied().enumerate() {
                 palette = palette.child(
@@ -216,5 +296,94 @@ impl Dashboard {
                     })),
             )
             .into_any_element()
+    }
+}
+
+fn set_autostart(enabled: bool) -> Result<(), String> {
+    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+    let launch = auto_launch::AutoLaunchBuilder::new()
+        .set_app_name("Metra")
+        .set_app_path(
+            executable
+                .to_str()
+                .ok_or("Application path is not valid Unicode")?,
+        )
+        .set_use_launch_agent(true)
+        .set_args(&["--autostart"])
+        .build()
+        .map_err(|e| e.to_string())?;
+    if enabled {
+        launch.enable()
+    } else {
+        launch.disable()
+    }
+    .map_err(|e| e.to_string())
+}
+
+#[derive(Clone, Copy)]
+struct DraggedProvider(Provider);
+impl Render for DraggedProvider {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .p_2()
+            .rounded_md()
+            .bg(rgb(0x232938))
+            .text_color(rgb(0xffffff))
+            .child(match self.0 {
+                Provider::Cursor => "Cursor",
+                Provider::Codex => "Codex",
+                Provider::Claude => "Claude Code",
+            })
+    }
+}
+impl Dashboard {
+    pub(super) fn prepare_labels(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.labels.is_empty() {
+            return;
+        }
+        let s = self.service.payload().settings;
+        for (provider, label) in [
+            (Provider::Cursor, s.cursor_bubble_label),
+            (Provider::Codex, s.codex_bubble_label),
+            (Provider::Claude, s.claude_bubble_label),
+        ] {
+            let input = cx.new(|cx| {
+                let mut input = InputState::new(window, cx);
+                input.set_value(label, window, cx);
+                input
+            });
+            let subscription = cx.subscribe(&input, move |this, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
+                    let value = input.read(cx).value().to_string();
+                    let settings = this.service.payload().settings;
+                    let previous = match provider {
+                        Provider::Cursor => settings.cursor_bubble_label,
+                        Provider::Codex => settings.codex_bubble_label,
+                        Provider::Claude => settings.claude_bubble_label,
+                    };
+                    if value != previous {
+                        this.save(
+                            Change::Label {
+                                provider,
+                                label: value,
+                            },
+                            cx,
+                        );
+                    }
+                }
+            });
+            self.labels
+                .push((provider, input, subscription, cx.focus_handle()));
+        }
+    }
+    fn move_provider(&mut self, provider: Provider, shift: isize, cx: &mut Context<Self>) {
+        let mut order = self.service.payload().settings.bubble_provider_order;
+        if let Some(from) = order.iter().position(|p| *p == provider) {
+            let to = from as isize + shift;
+            if to >= 0 && (to as usize) < order.len() {
+                order.swap(from, to as usize);
+                self.save(Change::Order(order), cx);
+            }
+        }
     }
 }

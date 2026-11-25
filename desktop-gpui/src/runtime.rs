@@ -132,6 +132,8 @@ pub(super) fn start(
     let dashboard = cx.new(|cx| {
         let mut view = Dashboard {
             page: Page::Details,
+            labels: Vec::new(),
+            pending_settings: std::collections::VecDeque::new(),
             error: None,
             settings_task: None,
             interval_task: None,
@@ -218,6 +220,10 @@ pub(super) fn start(
         },
         cx,
     );
+    #[cfg(feature = "native-smoke")]
+    if std::env::var_os("METRA_GPUI_SMOKE").is_some() {
+        smoke(cx);
+    }
     Ok(())
 }
 
@@ -323,4 +329,57 @@ mod tests {
         drop(first);
         assert!(super::instance(directory.path()).unwrap().is_some());
     }
+}
+
+#[cfg(feature = "native-smoke")]
+fn smoke(cx: &mut App) {
+    let config = std::env::var_os("METRA_CONFIG_DIR")
+        .expect("Native smoke requires isolated METRA_CONFIG_DIR");
+    cx.spawn(async move |cx| {
+        use metra_lib::{settings::{DisplayMode,UiLanguage},settings_change::Change};
+        for phase in 0..6 {
+            cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
+            cx.update(|cx| {
+                let dashboard=cx.global::<Runtime>().dashboard.clone();
+                assert!(dashboard.read(cx).error.is_none(),"settings operation failed");
+                match phase {
+                    0=>{
+                        assert!(cx.global::<Runtime>().bubble.is_some());
+                        let panel=cx.global::<Runtime>().panel.unwrap();
+                        panel.update(cx,|_,window,_|window.remove_window()).unwrap();
+                        open_panel(Page::Settings,cx);
+                        assert_eq!(cx.windows().len(),2);
+                        dashboard.update(cx,|view,cx|view.save(Change::Display(DisplayMode::StatusBar),cx));
+                    },
+                    1=>{
+                        assert!(cx.global::<Runtime>().bubble.is_none());
+                        assert_eq!(cx.windows().len(),1);
+                        dashboard.update(cx,|view,cx|view.save(Change::Language(UiLanguage::Ja),cx));
+                    },
+                    2=>{
+                        assert!(cx.global::<Runtime>().tray_locale.starts_with("ja:"));
+                        dashboard.update(cx,|view,cx|view.save(Change::Display(DisplayMode::Bubble),cx));
+                    },
+                    3=>{
+                        assert!(cx.global::<Runtime>().bubble.is_some());
+                        assert!(cx.global::<Runtime>().cycle_task.is_none());
+                        assert_eq!(cx.windows().len(),2);
+                        dashboard.update(cx,|view,cx| {
+                            view.save(Change::Label {provider:metra_lib::model::Provider::Codex,label:"TEST".into()},cx);
+                            view.save(Change::Refresh(15),cx);
+                        });
+                    },
+                    4=>{
+                        let saved=dashboard.read(cx).service.store.load();
+                        assert_eq!(saved.codex_bubble_label,"TES");assert_eq!(saved.refresh_minutes,15);
+                        assert!(dashboard.read(cx).pending_settings.is_empty());
+                    },
+                    _=>{
+                        std::fs::write(std::path::Path::new(&config).join("native-smoke.result"),"PASS: panel recreation, display modes, language menu, queued settings persistence").unwrap();
+                        cx.quit();
+                    },
+                }
+            });
+        }
+    }).detach();
 }

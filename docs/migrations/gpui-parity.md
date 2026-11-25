@@ -125,3 +125,18 @@ Linux native tests (3), build, and six-second startup smoke pass without logged
 errors. These do not establish pointer interaction, positioning, topmost/skip-
 taskbar parity or cross-platform correctness. Snap/peek, position persistence,
 keyboard bubble opening and panel anchoring remain outstanding.
+
+Provider label editors now retain InputState across refreshes and save on blur or
+Enter. Provider handles support native drag/drop and keyboard arrows (Escape
+cancels an active drag). Autostart registration uses auto-launch and rolls back
+registration on database save failure. Settings commands queue while a previous
+save is running. Pointer-driven reorder/editor acceptance and draft normalization
+feedback remain to verify.
+
+A `native-smoke` feature runs isolated assertions for panel destruction/recreation,
+bubble/status mode switching, Japanese tray menu synchronization, queued label
+and interval persistence, and normal application quit. This passed on Linux with
+exit 0. An initial test incorrectly expected four-character labels; the existing
+normalization limit is three. Its assertion failure was followed by a SIGSEGV in
+Wayland/Vulkan swapchain teardown (systemd core evidence). Corrected normal exit
+passed; panic-unwind teardown is still a known diagnostic concern.
