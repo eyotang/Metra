@@ -188,6 +188,23 @@ impl Dashboard {
                 card = card.child(t.message(message));
             }
         }
+        if provider == Provider::Cursor
+            && matches!(
+                snapshot.status,
+                ProviderStatus::NotLoggedIn | ProviderStatus::DesktopInstalled
+            )
+        {
+            card = card.child(
+                Button::new("cursor-login")
+                    .label(t.t(if self.login_task.is_some() {
+                        "cursor.opening"
+                    } else {
+                        "cursor.login"
+                    }))
+                    .disabled(self.login_task.is_some())
+                    .on_click(cx.listener(|this, _, _, cx| this.login(cx))),
+            );
+        }
         if provider == Provider::Cursor && !self.service.payload().settings.cursor_compat_enabled {
             card = card.child(
                 Button::new("cursor-consent")

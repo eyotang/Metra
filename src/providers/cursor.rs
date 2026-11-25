@@ -886,12 +886,10 @@ pub(crate) fn cursor_agent_executable() -> Option<ResolvedExecutable> {
     )
 }
 
-#[cfg(feature = "desktop")]
 pub(crate) fn cursor_login_executable() -> Option<ResolvedExecutable> {
     cursor_agent_executable().filter(|executable| is_cursor_login_executable(executable.path()))
 }
 
-#[cfg(any(feature = "desktop", test))]
 fn is_cursor_login_executable(path: &Path) -> bool {
     path.file_stem()
         .and_then(|name| name.to_str())

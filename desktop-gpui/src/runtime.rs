@@ -186,6 +186,10 @@ pub(super) fn start(
     let dashboard = cx.new(|cx| {
         let mut view = Dashboard {
             page: Page::Details,
+            updater: Arc::new(metra_lib::updater::Updater::default()),
+            update_task: None,
+            update_timer: None,
+            login_task: None,
             labels: Vec::new(),
             pending_settings: std::collections::VecDeque::new(),
             error: None,
@@ -197,6 +201,7 @@ pub(super) fn start(
         };
         view.refresh(cx);
         view.schedule_refresh(cx);
+        view.schedule_update(std::time::Duration::from_secs(20), cx);
         view
     });
     let activation_path = config.join("activate");

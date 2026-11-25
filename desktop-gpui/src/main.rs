@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 mod bubble;
 mod native_window;
+mod operations;
 #[path = "../../src/platform.rs"]
 mod platform;
 mod preferences;
@@ -28,6 +29,10 @@ enum Page {
 
 struct Dashboard {
     page: Page,
+    updater: Arc<metra_lib::updater::Updater>,
+    update_task: Option<Task<()>>,
+    update_timer: Option<Task<()>>,
+    login_task: Option<Task<()>>,
     labels: Vec<(
         metra_lib::model::Provider,
         Entity<component::input::InputState>,
@@ -58,15 +63,24 @@ impl Dashboard {
     }
 
     fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.refresh_mode(false, cx);
+    }
+    fn refresh_mode(&mut self, recheck: bool, cx: &mut Context<Self>) {
         if self.refresh_task.is_some() {
             return;
         }
         let service = self.service.clone();
         let (sender, receiver) = async_channel::unbounded();
         let work = cx.background_executor().spawn(async move {
-            service.refresh_with_progress(true, |provider, running| {
+            metra_lib::providers::discovery::invalidate_shell_cache();
+            let progress = |provider, running| {
                 let _ = sender.send_blocking((provider, running));
-            });
+            };
+            if recheck {
+                service.refresh_cursor_login_status_with_progress(progress);
+            } else {
+                service.refresh_with_progress(true, progress);
+            }
         });
         self.refresh_task = Some(cx.spawn(async move |this, cx| {
             while let Ok((provider, running)) = receiver.recv().await {
@@ -146,6 +160,9 @@ impl Render for Dashboard {
             .flex_1()
             .min_h_0()
             .overflow_y_scroll();
+        if self.page == Page::Details {
+            header = header.child(self.update_banner(cx));
+        }
         if let Some(error) = &self.error {
             header = header.child(error.clone());
         }
@@ -171,6 +188,23 @@ impl Render for Dashboard {
             };
             content = content.child(self.usage_card(provider, snapshot, t, cx));
         }
+        content = content.child(
+            div()
+                .h_flex()
+                .gap_2()
+                .child(
+                    Button::new("recheck")
+                        .label(t.t("native.recheck"))
+                        .disabled(self.refresh_task.is_some())
+                        .on_click(cx.listener(|this, _, _, cx| this.refresh_mode(true, cx))),
+                )
+                .child(
+                    Button::new("check-update")
+                        .label(t.t("native.checkUpdate"))
+                        .disabled(self.update_task.is_some())
+                        .on_click(cx.listener(|this, _, _, cx| this.check_update(true, cx))),
+                ),
+        );
         div().v_flex().size_full().child(header).child(content)
     }
 }

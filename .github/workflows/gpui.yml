@@ -1,0 +1,35 @@
+name: GPUI migration checks
+on:
+  push:
+    branches: [feat/gpui-desktop-migration]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: gpui-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux platform dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake pkg-config libfontconfig1-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libssl-dev libasound2-dev libvulkan-dev
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          workspaces: |
+            . -> target
+            desktop-gpui -> target
+      - run: cargo test --locked --no-default-features --all-targets
+      - run: cargo check --locked --manifest-path desktop-gpui/Cargo.toml --all-targets --features native-smoke
+      - run: cargo test --locked --manifest-path desktop-gpui/Cargo.toml

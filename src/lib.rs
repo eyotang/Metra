@@ -1,5 +1,6 @@
 #[cfg(feature = "desktop")]
 pub mod app;
+pub mod desktop_actions;
 pub mod diagnostics;
 pub mod headless;
 pub mod i18n;

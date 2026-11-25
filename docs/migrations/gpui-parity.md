@@ -151,3 +151,11 @@ resize and clamp near the bubble or tray. Linux native smoke passes with actual
 bubble position/work-area containment assertions. AppKit/Win32 adapters still
 need CI compilation and hardware mixed-DPI validation. Pointer drag/hover,
 monitor removal, focus policy, topmost and skip-taskbar acceptance remain open.
+
+Cursor sign-in and URL launching are now shared desktop operations used by both
+shells. GPUI provides login/recheck actions, background update checks after 20s
+and daily thereafter, manual check, release notes, and signed installer/manual
+release actions using the existing Updater. Core headless contracts and native
+unit tests pass locally; installer execution and login UI are not accepted by
+these tests. A branch-scoped three-platform CI workflow now checks native builds
+and contracts; its first remote results are pending.
