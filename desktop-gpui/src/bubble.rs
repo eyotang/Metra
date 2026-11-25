@@ -1,6 +1,10 @@
 use super::*;
 use metra_lib::status_bar::{StatusEntry, entries};
 
+#[cfg(feature = "native-smoke")]
+pub(super) static LAST_RENDERED_USAGE: std::sync::atomic::AtomicU8 =
+    std::sync::atomic::AtomicU8::new(255);
+
 pub(super) struct Bubble {
     entries: Vec<StatusEntry>,
     _subscription: Subscription,
@@ -301,6 +305,14 @@ impl Render for Bubble {
             .bg(rgb(0x121a2b))
             .gap(px(1.))
             .px(px(if self.peek { 1. } else { 5. }));
+        #[cfg(feature = "native-smoke")]
+        LAST_RENDERED_USAGE.store(
+            self.entries
+                .first()
+                .and_then(|entry| entry.value)
+                .unwrap_or(255),
+            std::sync::atomic::Ordering::SeqCst,
+        );
         for entry in &self.entries {
             let accent =
                 u32::from_str_radix(entry.color.trim_start_matches('#'), 16).unwrap_or(0x9c83ff);

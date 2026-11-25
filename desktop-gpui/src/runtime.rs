@@ -26,6 +26,8 @@ pub(super) struct Runtime {
     _activation: notify::RecommendedWatcher,
 }
 impl Global for Runtime {}
+#[cfg(feature = "native-smoke")]
+mod idle;
 
 pub(super) fn instance(config: &std::path::Path) -> Result<Option<File>, String> {
     let lock = OpenOptions::new()
@@ -432,6 +434,7 @@ pub(super) fn start(
         open_panel(Page::Settings, cx);
     } else if cfg!(feature = "native-smoke")
         && std::env::var_os("METRA_GPUI_MIGRATION_SMOKE").is_none()
+        && std::env::var_os("METRA_GPUI_IDLE_SMOKE").is_none()
         && (std::env::var_os("METRA_GPUI_SMOKE").is_some()
             || std::env::var_os("METRA_GPUI_DEMO").is_some())
     {
@@ -441,6 +444,8 @@ pub(super) fn start(
     if std::env::var_os("METRA_GPUI_SMOKE").is_some() {
         if std::env::var_os("METRA_GPUI_MIGRATION_SMOKE").is_some() {
             migration_smoke(cx);
+        } else if std::env::var_os("METRA_GPUI_IDLE_SMOKE").is_some() {
+            idle::start(cx);
         } else {
             smoke(cx);
         }
@@ -522,7 +527,7 @@ pub(super) fn sync(cx: &mut App) {
         let task = cx.spawn(async move |cx| {
             loop {
                 cx.background_executor()
-                    .timer(std::time::Duration::from_secs(3))
+                    .timer(std::time::Duration::from_secs(5))
                     .await;
                 cx.update(|cx| {
                     cx.global_mut::<Runtime>().cycle = cx.global::<Runtime>().cycle.wrapping_add(1);
@@ -566,6 +571,8 @@ fn smoke(cx: &mut App) {
                 match phase {
                     0=>{
                         assert!(cx.global::<Runtime>().bubble.is_some());
+                        #[cfg(target_os = "windows")]
+                        cx.global::<Runtime>().bubble.unwrap().update(cx, |_,window,_| idle::check_windows_surface(window)).unwrap();
                         let panel=cx.global::<Runtime>().panel.unwrap();
                         panel.update(cx,|_,window,_|window.remove_window()).unwrap();
                         open_panel(Page::Settings,cx);

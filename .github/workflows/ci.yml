@@ -59,6 +59,17 @@ jobs:
         run: |
           node scripts/smoke-gpui.mjs
           node scripts/smoke-gpui.mjs --legacy-status
+      - name: Inactive native bubble repaint (macOS)
+        if: runner.os == 'macOS'
+        env:
+          METRA_IDLE_SMOKE_SECONDS: 330
+        run: node scripts/smoke-gpui.mjs --idle
+      - name: Native bubble repaint (Windows)
+        if: runner.os == 'Windows'
+        run: node scripts/smoke-gpui.mjs --idle
+      - name: Native bubble repaint (Linux)
+        if: runner.os == 'Linux'
+        run: dbus-run-session -- xvfb-run -a node scripts/smoke-gpui.mjs --idle
       - name: Windows installer and legacy upgrade acceptance before release
         if: runner.os == 'Windows' && github.event_name == 'pull_request'
         shell: pwsh

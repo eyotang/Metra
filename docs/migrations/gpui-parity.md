@@ -333,3 +333,15 @@ cover negative-origin secondary displays, version-2 logical positions and a
 removed display fallback. A single FIFO background writer preserves the order
 of drag/hover position saves. Root/native tests and both local native smoke
 scenarios pass; Windows/macOS compilation of this change is pending CI.
+
+### Inactive native paint acceptance
+
+Added a feature-gated synthetic-data idle scenario. It asserts a compact bubble
+actually enters its render callback with updated 37% -> 61% usage after an idle
+period, without opening panels or expanding. macOS explicitly activates Finder,
+asserts Metra is inactive, and verifies native status-bar images retain their
+template flag. Windows additionally reads client rectangles and extended window
+styles to validate compact/startup size, topmost and taskbar exclusion. CI runs
+the macOS idle interval for 330 seconds and shorter Linux/Windows checks. The
+short local Linux scenario passes; platform-specific CI is pending. Tray cycling
+now uses the original five-second interval.
