@@ -1,6 +1,6 @@
 //! Overlay geometry in physical pixels. Window dimensions remain logical at the API boundary.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct WorkArea {
+pub struct WorkArea {
     pub x: f64,
     pub y: f64,
     pub width: f64,
@@ -61,7 +61,7 @@ mod tests {
 }
 
 /// Position version 2 used logical pixels; older and current formats use physical pixels.
-pub(crate) fn saved_physical(
+pub fn saved_physical(
     position: crate::settings::SavedPosition,
     version: u8,
     scale: f64,

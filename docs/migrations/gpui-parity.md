@@ -140,3 +140,14 @@ exit 0. An initial test incorrectly expected four-character labels; the existing
 normalization limit is three. Its assertion failure was followed by a SIGSEGV in
 Wayland/Vulkan swapchain teardown (systemd core evidence). Corrected normal exit
 passed; panic-unwind teardown is still a known diagnostic concern.
+
+Positioned overlays now use raw native window adapters (Xcb, Win32, AppKit),
+sharing the existing physical-coordinate geometry and version-2 migration rules.
+Linux selects X11/XWayland when DISPLAY is available, matching the existing
+positioned-overlay support contract. Bubble dimensions are 56x56 expanded and
+32x56 docked. Hover expands, leave delays collapse by 500ms, native drag release
+is observed before docking/persisting, and snap is exposed in settings. Panels
+resize and clamp near the bubble or tray. Linux native smoke passes with actual
+bubble position/work-area containment assertions. AppKit/Win32 adapters still
+need CI compilation and hardware mixed-DPI validation. Pointer drag/hover,
+monitor removal, focus policy, topmost and skip-taskbar acceptance remain open.

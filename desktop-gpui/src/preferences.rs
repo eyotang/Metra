@@ -25,11 +25,11 @@ impl Dashboard {
         let service = self.service.clone();
         let work = cx.background_executor().spawn(async move {
             if let Change::Autostart(enabled) = change {
-                set_autostart(enabled)?;
+                platform::set_autostart(enabled)?;
             }
             let result = service.update_settings(|settings| change.apply(settings));
             if result.is_err() && matches!(change, Change::Autostart(_)) {
-                let _ = set_autostart(settings.autostart);
+                let _ = platform::set_autostart(settings.autostart);
             }
             result
         });
@@ -83,6 +83,16 @@ impl Dashboard {
                         })),
                 );
         }
+        view =
+            view.child(
+                Checkbox::new("snap")
+                    .label(t.t("menu.autoSnap"))
+                    .checked(s.bubble_snap_enabled)
+                    .disabled(busy)
+                    .on_change(cx.listener(|this, enabled: &bool, _, cx| {
+                        this.save(Change::Snap(*enabled), cx)
+                    })),
+            );
         let mode = s.display_mode;
         let modes = div()
             .h_flex()
@@ -297,27 +307,6 @@ impl Dashboard {
             )
             .into_any_element()
     }
-}
-
-fn set_autostart(enabled: bool) -> Result<(), String> {
-    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
-    let launch = auto_launch::AutoLaunchBuilder::new()
-        .set_app_name("Metra")
-        .set_app_path(
-            executable
-                .to_str()
-                .ok_or("Application path is not valid Unicode")?,
-        )
-        .set_use_launch_agent(true)
-        .set_args(&["--autostart"])
-        .build()
-        .map_err(|e| e.to_string())?;
-    if enabled {
-        launch.enable()
-    } else {
-        launch.disable()
-    }
-    .map_err(|e| e.to_string())
 }
 
 #[derive(Clone, Copy)]

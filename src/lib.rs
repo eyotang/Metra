@@ -16,5 +16,4 @@ pub mod updater;
 #[cfg(feature = "desktop")]
 mod tray;
 
-#[cfg(feature = "desktop")]
-mod geometry;
+pub mod geometry;

@@ -51,7 +51,10 @@ pub(super) fn open_panel(page: Page, cx: &mut App) {
     });
     if let Some(panel) = cx.global::<Runtime>().panel {
         if panel
-            .update(cx, |_, window, _| window.activate_window())
+            .update(cx, |_, window, cx| {
+                position_panel(page, window, cx);
+                window.activate_window();
+            })
             .is_ok()
         {
             return;
@@ -64,10 +67,61 @@ pub(super) fn open_panel(page: Page, cx: &mut App) {
             ..Default::default()
         },
         cx,
-        move |_, _| dashboard,
+        move |window, cx| {
+            position_panel(page, window, cx);
+            dashboard
+        },
     ) {
         Ok((panel, _)) => cx.global_mut::<Runtime>().panel = Some(panel),
         Err(error) => eprintln!("Unable to open Metra panel: {error}"),
+    }
+}
+
+fn position_panel(page: Page, window: &mut Window, cx: &mut App) {
+    let result = (|| {
+        let (mut work, mut scale) = native_window::work_area(window, cx)?;
+        let anchor = if let Some(bubble) = cx.global::<Runtime>().bubble {
+            bubble
+                .update(cx, |_, bubble, cx| {
+                    if let Ok((area, factor)) = native_window::work_area(bubble, cx) {
+                        work = area;
+                        scale = factor;
+                    }
+                    native_window::position(bubble)
+                })
+                .ok()
+                .and_then(Result::ok)
+        } else {
+            None
+        };
+        let width = if page == Page::Settings { 340. } else { 360. };
+        let height: f64 = if page == Page::Consent { 300. } else { 560. };
+        let height = height.min(work.height / scale - 16.).max(160.);
+        window.resize(size(px(width as f32), px(height as f32)));
+        let (mut x, mut y) = (
+            work.x + work.width - (width + 12.) * scale,
+            work.y + 12. * scale,
+        );
+        if let Some((bx, by)) = anchor {
+            x = bx as f64 - (width + 8.) * scale;
+            if x < work.x {
+                x = bx as f64 + 64. * scale;
+            }
+            y = by as f64;
+        } else if let Some(rect) = cx
+            .global::<Runtime>()
+            ._tray
+            .as_ref()
+            .and_then(|tray| tray.rect())
+        {
+            x = rect.position.x - width * scale;
+            y = rect.position.y + 24. * scale;
+        }
+        let (x, y) = work.clamp(x, y, width * scale, height * scale);
+        native_window::move_to(window, x, y)
+    })();
+    if let Err(error) = result {
+        eprintln!("Unable to position panel: {error}");
     }
 }
 
@@ -373,6 +427,15 @@ fn smoke(cx: &mut App) {
                         let saved=dashboard.read(cx).service.store.load();
                         assert_eq!(saved.codex_bubble_label,"TES");assert_eq!(saved.refresh_minutes,15);
                         assert!(dashboard.read(cx).pending_settings.is_empty());
+                        let bubble=cx.global::<Runtime>().bubble.unwrap();
+                        bubble.update(cx,|_,window,cx| {
+                            let (x,y)=native_window::position(window).unwrap();
+                            let (work,scale)=native_window::work_area(window,cx).unwrap();
+                            let width=f64::from(f32::from(window.bounds().size.width))*scale;
+                            assert!(x as f64>=work.x-2. && y as f64>=work.y-2.);
+                            assert!(x as f64+width<=work.x+work.width+2.);
+                            assert!(y as f64+56.*scale<=work.y+work.height+2.);
+                        }).unwrap();
                     },
                     _=>{
                         std::fs::write(std::path::Path::new(&config).join("native-smoke.result"),"PASS: panel recreation, display modes, language menu, queued settings persistence").unwrap();

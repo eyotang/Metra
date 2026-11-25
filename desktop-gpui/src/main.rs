@@ -12,6 +12,9 @@ use metra_lib::{
 use std::sync::Arc;
 
 mod bubble;
+mod native_window;
+#[path = "../../src/platform.rs"]
+mod platform;
 mod preferences;
 mod runtime;
 mod usage;
@@ -172,6 +175,16 @@ impl Render for Dashboard {
     }
 }
 fn main() {
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("DISPLAY").is_some() {
+        // The positioned overlay contract uses X11/XWayland, as the existing shell does.
+        // Set before GPUI or any collector threads are started.
+        unsafe {
+            std::env::remove_var("WAYLAND_DISPLAY");
+            std::env::remove_var("WAYLAND_SOCKET");
+        }
+    }
+
     let config = config_dir().expect("configuration directory");
     std::fs::create_dir_all(&config).expect("create configuration directory");
     let lock = match runtime::instance(&config) {
