@@ -142,3 +142,55 @@ mod monitor_tests {
         assert!(saved_work_area(&[], None, 3).is_none());
     }
 }
+
+/// Choose the containing or closest work area for a live window. A point in a
+/// taskbar strip or just beyond an edge must not jump to an unrelated primary.
+pub fn nearby_work_area(areas: &[(WorkArea, f64)], x: f64, y: f64) -> Option<(WorkArea, f64)> {
+    areas
+        .iter()
+        .copied()
+        .find(|(area, _)| area.contains(x, y))
+        .or_else(|| {
+            let distance = |area: WorkArea| {
+                let dx = x - x.clamp(area.x, area.x + area.width);
+                let dy = y - y.clamp(area.y, area.y + area.height);
+                dx * dx + dy * dy
+            };
+            areas
+                .iter()
+                .copied()
+                .min_by(|(a, _), (b, _)| distance(*a).total_cmp(&distance(*b)))
+        })
+}
+
+#[cfg(test)]
+mod nearby_tests {
+    use super::*;
+    #[test]
+    fn dragging_into_secondary_taskbar_or_past_edge_stays_on_secondary() {
+        let areas = [
+            (
+                WorkArea {
+                    x: 0.,
+                    y: 40.,
+                    width: 1920.,
+                    height: 1040.,
+                },
+                1.,
+            ),
+            (
+                WorkArea {
+                    x: 1920.,
+                    y: 80.,
+                    width: 2560.,
+                    height: 1360.,
+                },
+                2.,
+            ),
+        ];
+        for (x, y) in [(2000., 30.), (4500., 100.), (1920., 100.)] {
+            let (area, scale) = nearby_work_area(&areas, x, y).unwrap();
+            assert_eq!((area.x, scale), (1920., 2.));
+        }
+    }
+}

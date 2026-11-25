@@ -31,6 +31,7 @@ enum Page {
 }
 
 struct Dashboard {
+    focus: FocusHandle,
     panel_activation: Option<Subscription>,
     saved_labels: Vec<(metra_lib::model::Provider, String, String)>,
     update_notes_expanded: bool,
@@ -49,6 +50,7 @@ struct Dashboard {
     error: Option<String>,
     settings_task: Option<Task<()>>,
     interval_task: Option<Task<()>>,
+    last_refresh: std::time::Instant,
     service: Arc<RefreshService>,
     refresh_task: Option<Task<()>>,
     refreshing: Vec<metra_lib::model::Provider>,
@@ -58,12 +60,18 @@ impl Dashboard {
         let delay = std::time::Duration::from_secs(
             self.service.payload().settings.refresh_minutes.max(1) * 60,
         );
+        let delay = delay
+            .saturating_sub(self.last_refresh.elapsed())
+            .max(std::time::Duration::from_secs(1));
         let timer = cx.background_executor().timer(delay);
         self.interval_task = Some(cx.spawn(async move |this, cx| {
             timer.await;
             let _ = this.update(cx, |this, cx| {
-                this.refresh(cx);
-                this.schedule_refresh(cx);
+                if this.refresh_task.is_some() {
+                    this.schedule_refresh(cx);
+                } else {
+                    this.refresh(cx);
+                }
             });
         }));
     }
@@ -75,6 +83,8 @@ impl Dashboard {
         if self.refresh_task.is_some() {
             return;
         }
+        self.last_refresh = std::time::Instant::now();
+        self.schedule_refresh(cx);
         let service = self.service.clone();
         let (sender, receiver) = async_channel::unbounded();
         let work = cx.background_executor().spawn(async move {
@@ -235,6 +245,9 @@ impl Render for Dashboard {
             return div()
                 .v_flex()
                 .size_full()
+                .id("panel")
+                .track_focus(&self.focus)
+                .on_key_down(runtime::panel_key_down)
                 .rounded(px(22.))
                 .overflow_hidden()
                 .text_sm()
@@ -249,6 +262,9 @@ impl Render for Dashboard {
             return div()
                 .v_flex()
                 .size_full()
+                .id("panel")
+                .track_focus(&self.focus)
+                .on_key_down(runtime::panel_key_down)
                 .rounded(px(22.))
                 .overflow_hidden()
                 .text_sm()
@@ -287,6 +303,9 @@ impl Render for Dashboard {
         div()
             .v_flex()
             .size_full()
+            .id("panel")
+            .track_focus(&self.focus)
+            .on_key_down(runtime::panel_key_down)
             .rounded(px(22.))
             .overflow_hidden()
             .text_sm()
@@ -336,6 +355,11 @@ fn main() {
         .with_assets(gpui_kit::assets::Assets);
     #[cfg(target_os = "macos")]
     let application = application.with_windowing(WindowingRequest::Headless);
+    application.on_reopen(|cx| {
+        if cx.has_global::<runtime::Runtime>() {
+            cx.defer(|cx| runtime::open_panel(Page::Details, cx));
+        }
+    });
     application.run(move |cx| {
         gpui_kit::init(cx);
         component::Theme::change(component::ThemeMode::Dark, None, cx);

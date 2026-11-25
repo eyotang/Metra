@@ -72,18 +72,18 @@ pub(super) fn start(cx: &mut App) {
                 surface
             });
             cx.background_executor().timer(Duration::from_secs(1)).await;
-            let green = cx.update(|cx| sample(surface,cx));
-            save(&directory.join(format!("{name}-green.png")),&green);
-            let corner_pixels = corners(&green);
+            let green_surface = cx.update(|cx| sample(surface,cx));
+            save(&directory.join(format!("{name}-green_surface.png")),&green_surface);
+            let corner_pixels = corners(&green_surface);
             assert!(corner_pixels.iter().all(|pixel| pixel.iter().zip([40u8,160,88]).all(|(a,b)| a.abs_diff(b)<=2)), "{name}: opaque corner pixels {corner_pixels:?}");
-            assert!(green.2.chunks_exact(4).any(|pixel| pixel[..3].iter().map(|p| *p as u32).sum::<u32>()<150), "Missing painted opaque content");
+            assert!(green_surface.2.chunks_exact(4).any(|pixel| pixel[..3].iter().map(|p| *p as u32).sum::<u32>()<150), "Missing painted opaque content");
             cx.update(|cx| view.update(cx, |view,cx| { view.0=0xb43282; cx.notify(); }));
             cx.background_executor().timer(Duration::from_secs(1)).await;
-            let purple = cx.update(|cx| sample(surface,cx));
-            save(&directory.join(format!("{name}-purple.png")),&purple);
-            assert!(corners(&purple).iter().all(|pixel| pixel.iter().zip([180u8,50,130]).all(|(a,b)| a.abs_diff(b)<=2)), "{name}: backdrop did not update through corners");
-            let center = ((green.1/2*green.0+green.0/2)*4) as usize;
-            assert!(green.2[center..center+3].iter().zip(&purple.2[center..center+3]).all(|(a,b)| a.abs_diff(*b)<=1), "{name}: center is translucent");
+            let purple_surface = cx.update(|cx| sample(surface,cx));
+            save(&directory.join(format!("{name}-purple_surface.png")),&purple_surface);
+            assert!(corners(&purple_surface).iter().all(|pixel| pixel.iter().zip([180u8,50,130]).all(|(a,b)| a.abs_diff(b)<=2)), "{name}: backdrop did not update through corners");
+            let center = ((green_surface.1/2*green_surface.0+green_surface.0/2)*4) as usize;
+            assert!(green_surface.2[center..center+3].iter().zip(&purple_surface.2[center..center+3]).all(|(a,b)| a.abs_diff(*b)<=1), "{name}: center is translucent");
             cx.update(|cx| view.update(cx, |view,cx| { view.0=0x28a058; cx.notify(); }));
         }
         cx.update(|cx| {

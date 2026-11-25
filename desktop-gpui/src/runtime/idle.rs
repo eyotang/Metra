@@ -29,11 +29,16 @@ pub(super) fn start(cx: &mut App) {
                 std::process::Command::new("/usr/bin/open").args(["-a", "Finder"]).status()
             }).await.expect("Activate Finder");
             assert!(result.success());
-            cx.background_executor().timer(Duration::from_secs(1)).await;
-            cx.update(|_| {
-                let marker = objc2::MainThreadMarker::new().unwrap();
-                assert!(!objc2_app_kit::NSApplication::sharedApplication(marker).isActive(), "Idle paint acceptance requires an inactive application");
-            });
+            let mut inactive = false;
+            for _ in 0..70 {
+                cx.background_executor().timer(Duration::from_millis(100)).await;
+                inactive = cx.update(|_| {
+                    let marker = objc2::MainThreadMarker::new().unwrap();
+                    !objc2_app_kit::NSApplication::sharedApplication(marker).isActive()
+                });
+                if inactive { break; }
+            }
+            assert!(inactive, "Idle paint acceptance requires an inactive application after Finder activation");
         }
         cx.background_executor().timer(Duration::from_secs(seconds)).await;
         cx.update(|cx| publish(61., cx));

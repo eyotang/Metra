@@ -179,11 +179,9 @@ fn monitor_areas(window: &Window, cx: &App) -> Result<Vec<(WorkArea, f64)>, Stri
 
 pub(super) fn work_area(window: &Window, cx: &App) -> Result<(WorkArea, f64), String> {
     let areas = monitor_areas(window, cx)?;
-    let position = position(window).ok();
-    areas
-        .iter()
-        .copied()
-        .find(|(area, _)| position.is_some_and(|(x, y)| area.contains(x as f64, y as f64)))
+    position(window)
+        .ok()
+        .and_then(|(x, y)| metra_lib::geometry::nearby_work_area(&areas, x as f64, y as f64))
         .or_else(|| areas.first().copied())
         .ok_or("No display available".into())
 }

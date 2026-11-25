@@ -21,6 +21,16 @@ impl Dashboard {
             cx.notify();
             return;
         }
+        if matches!(
+            change,
+            Change::Display(metra_lib::settings::DisplayMode::StatusBar)
+        ) && !runtime::tray_available(cx)
+        {
+            self.error = Some("Status bar is unavailable on this desktop".into());
+            cx.notify();
+            return;
+        }
+        let interval_changed = matches!(change, Change::Refresh(_));
         let label_submission = match &change {
             Change::Label { provider, label } => Some((*provider, label.clone())),
             _ => None,
@@ -52,7 +62,9 @@ impl Dashboard {
                         };
                         this.saved_labels.push((provider, submitted, normalized));
                     }
-                    this.schedule_refresh(cx);
+                    if interval_changed {
+                        this.schedule_refresh(cx);
+                    }
                     if refresh_after {
                         this.refresh(cx);
                     }
@@ -213,8 +225,9 @@ impl Dashboard {
                     .cursor_move()
                     .child("≡")
                     .on_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
-                        if event.keystroke.key == "escape" {
+                        if event.keystroke.key == "escape" && cx.has_active_drag() {
                             cx.stop_active_drag(window);
+                            cx.stop_propagation();
                             return;
                         }
                         if this.settings_task.is_some() {

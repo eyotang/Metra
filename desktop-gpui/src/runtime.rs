@@ -49,6 +49,20 @@ pub(super) fn instance(config: &std::path::Path) -> Result<Option<File>, String>
     }
 }
 
+pub(super) fn tray_available(cx: &App) -> bool {
+    cx.global::<Runtime>()._tray.is_some()
+}
+
+pub(super) fn panel_key_down(event: &KeyDownEvent, window: &mut Window, cx: &mut App) {
+    if event.keystroke.key == "escape" {
+        if !cx.stop_active_drag(window) {
+            window.remove_window();
+            cx.global_mut::<Runtime>().panel = None;
+        }
+        cx.stop_propagation();
+    }
+}
+
 pub(super) fn toggle_panel(cx: &mut App) {
     let runtime = cx.global::<Runtime>();
     if runtime.dashboard.read(cx).page == Page::Details {
@@ -76,6 +90,8 @@ pub(super) fn open_panel(page: Page, cx: &mut App) {
             .update(cx, |_, window, cx| {
                 position_panel(page, window, cx);
                 window.activate_window();
+                let focus = dashboard.read(cx).focus.clone();
+                window.focus(&focus, cx);
             })
             .is_ok()
         {
@@ -96,6 +112,7 @@ pub(super) fn open_panel(page: Page, cx: &mut App) {
         move |window, cx| {
             position_panel(page, window, cx);
             dashboard.update(cx, |view, cx| {
+                window.focus(&view.focus, cx);
                 view.panel_activation =
                     Some(cx.observe_window_activation(window, |_, window, cx| {
                         if !window.is_window_active() {
@@ -327,6 +344,7 @@ pub(super) fn start(
         .detach();
     let dashboard = cx.new(|cx| {
         let mut view = Dashboard {
+            focus: cx.focus_handle(),
             panel_activation: None,
             saved_labels: Vec::new(),
             update_notes_expanded: false,
@@ -340,13 +358,13 @@ pub(super) fn start(
             error: None,
             settings_task: None,
             interval_task: None,
+            last_refresh: std::time::Instant::now(),
             service,
             refresh_task: None,
             refreshing: Vec::new(),
         };
         if !(cfg!(feature = "native-smoke") && std::env::var_os("METRA_GPUI_DEMO").is_some()) {
             view.refresh(cx);
-            view.schedule_refresh(cx);
             view.schedule_update(std::time::Duration::from_secs(20), cx);
         }
         view
@@ -584,7 +602,13 @@ fn smoke(cx: &mut App) {
                         panel.update(cx,|_,window,_|window.remove_window()).unwrap();
                         open_panel(Page::Settings,cx);
                         assert_eq!(cx.windows().len(),2);
-                        dashboard.update(cx,|view,cx|view.save(Change::Display(DisplayMode::StatusBar),cx));
+                        dashboard.update(cx,|view,cx| {
+                            view.save(Change::Display(DisplayMode::StatusBar),cx);
+                            if !tray_available(cx) {
+                                assert!(view.error.as_deref().is_some_and(|e| e.contains("Status bar is unavailable")));
+                                view.error=None;
+                            }
+                        });
                     },
                     1=>{
                         let tray_available = cx.global::<Runtime>()._tray.is_some();
@@ -668,7 +692,12 @@ fn smoke(cx: &mut App) {
                     _=>{
                         assert!(dashboard.read(cx).page == Page::Settings);
                         assert!(cx.global::<Runtime>().panel.is_some());
-                        std::fs::write(std::path::Path::new(&config).join("native-smoke.result"),"PASS: panel recreation, display modes, locale, settings persistence, label drafts, offscreen recovery, bubble clicks").unwrap();
+                        let panel = cx.global::<Runtime>().panel.unwrap();
+                        panel.update(cx, |_,window,cx| {
+                            window.dispatch_event(PlatformInput::KeyDown(KeyDownEvent { keystroke:Keystroke::parse("escape").unwrap(),is_held:false,prefer_character_input:false }),cx);
+                        }).unwrap();
+                        assert!(cx.global::<Runtime>().panel.is_none(), "Escape must close the panel");
+                        std::fs::write(std::path::Path::new(&config).join("native-smoke.result"),"PASS: panel recreation, display modes, locale, settings persistence, label drafts, offscreen recovery, bubble clicks, Escape close").unwrap();
                         cx.quit();
                     },
                 }

@@ -212,5 +212,6 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" --draft --title "Metra ${GITHUB_REF_NAME#v}" --notes-file "docs/releases/${GITHUB_REF_NAME}.md"
           fi
+          gh release edit "$GITHUB_REF_NAME" --notes-file "docs/releases/${GITHUB_REF_NAME}.md"
           gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
           gh release edit "$GITHUB_REF_NAME" --draft=false --latest

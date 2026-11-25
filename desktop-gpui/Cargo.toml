@@ -1,6 +1,6 @@
 [package]
 name = "metra-gpui"
-version = "0.5.18"
+version = "0.6.0"
 edition = "2024"
 publish = false
 
@@ -42,3 +42,14 @@ objc2-foundation = "0.3"
 
 [target.'cfg(windows)'.build-dependencies]
 tauri-winres = "=0.3.7"
+
+[profile.release]
+panic = "abort"
+codegen-units = 16
+lto = "thin"
+opt-level = "s"
+strip = true
+
+# Preserve the existing macOS host macro linker workaround.
+[profile.release.build-override]
+strip = "none"
