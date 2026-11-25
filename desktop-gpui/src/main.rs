@@ -40,12 +40,14 @@ fn open_overlay<V: Render>(
     let (handle, view) = gpui_kit::open_window(options, cx, build).map_err(|e| e.to_string())?;
     handle
         .update(cx, |_, window, cx| {
+            native_window::configure_overlay(window)?;
             gpui_kit::base::Root::update(window, cx, |root, _, cx| {
                 root.style().background = Some(transparent_black().into());
                 cx.notify();
             });
+            Ok::<_, String>(())
         })
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())??;
     Ok((handle, view))
 }
 

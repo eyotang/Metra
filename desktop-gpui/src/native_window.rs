@@ -331,3 +331,36 @@ pub(super) fn move_to(window: &Window, x: i32, y: i32) -> Result<(), String> {
     }
     Err("Positioned overlays require a supported native window (X11/XWayland on Linux)".into())
 }
+
+/// Transparent overlays draw their own outlines; Windows must not paint a
+/// non-client frame over the alpha surface. Preserve GPUI's client metrics.
+pub(super) fn configure_overlay(window: &Window) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::Graphics::Dwm::{
+            DWMNCRP_DISABLED, DWMWA_NCRENDERING_POLICY, DwmSetWindowAttribute,
+        };
+        let RawWindowHandle::Win32(handle) = HasWindowHandle::window_handle(window)
+            .map_err(|e| e.to_string())?
+            .as_raw()
+        else {
+            return Err("Expected a Windows overlay".into());
+        };
+        let policy = DWMNCRP_DISABLED;
+        // SAFETY: GPUI owns this live HWND; the policy pointer and size agree.
+        let result = unsafe {
+            DwmSetWindowAttribute(
+                handle.hwnd.get() as _,
+                DWMWA_NCRENDERING_POLICY as u32,
+                (&policy as *const i32).cast(),
+                std::mem::size_of_val(&policy) as u32,
+            )
+        };
+        if result < 0 {
+            return Err(format!("Could not disable overlay frame: {result:#x}"));
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = window;
+    Ok(())
+}
