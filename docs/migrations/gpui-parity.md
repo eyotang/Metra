@@ -2,7 +2,9 @@
 
 Branch: `feat/gpui-desktop-migration`. Baseline: v0.5.18 (`8a55f80`).
 The isolated worktree excludes unrelated, uncommitted changes in the original
-checkout. Candidate version: **0.6.0; not published**.
+checkout. Released version: **[0.6.0](https://github.com/eyotang/Metra/releases/tag/v0.6.0)**,
+published on 2026-11-25 from tag commit `d176a66`.
+The branch's subsequent documentation commit records the completed release audit.
 
 ## Feature inventory
 
@@ -55,6 +57,20 @@ checkout. Candidate version: **0.6.0; not published**.
   from the final tagged CI run.
 - README screenshots are from the native v0.6.0 application with isolated,
   synthetic provider data, inspected after capture.
+- Tagged [run 45569629174](https://github.com/eyotang/Metra/actions/runs/45569629174)
+  passed all three verification jobs, all three release jobs and publication.
+  macOS packaging verified both architectures, strict app signing, identity and
+  DMG integrity. The production Windows installer passed the v0.2.2 silent
+  upgrade and signature check against the existing public key.
+- All ten public release files were downloaded and checked against the published
+  sizes/digests, package checksum files and exact updater manifest. Release notes
+  match `docs/releases/v0.6.0.md`, including English-first/Chinese-second order and
+  both macOS quarantine commands. The release is public, stable and latest.
+- Downloaded Windows PE metadata and the public installer signature passed local
+  verification. The downloaded Linux package's executable passed the no-display
+  JSON/watch/refresh/EOF contract; package version, architecture, permissions,
+  dependencies and Omarchy manifest version passed. Public Windows/Linux files
+  match the independently checked CI artifacts byte for byte.
 
 Consent navigation resizes consistently; failed compatibility enablement keeps
 the consent page open. Native lifecycle checks cover consent-size transitions.
@@ -62,16 +78,16 @@ The feature-gated macOS harness explicitly deactivates the visible app, asserts
 actual inactive/non-hidden state, and checks render delivery after 330 seconds.
 Production activation behavior is unchanged by that test setup.
 
-## Remaining release gates
+## Completed release gates
 
 - [x] Final candidate passes native compilation and lifecycle checks on all platforms.
 - [x] Windows composited pixel test passes for bubble, capsule and panel: corners
       follow two synthetic backdrop colors while center content remains opaque.
 - [x] Final macOS inactive paint/template test passes, including its activation precondition.
 - [x] Final full workflow passes collector, native, legacy regression, Omarchy and signing-tool checks.
-- [ ] Tagged release builds universal macOS DMG, Windows installer/portable and
+- [x] Tagged release builds universal macOS DMG, Windows installer/portable and
       Linux/Omarchy assets; signatures, metadata, hashes and old-version upgrade pass.
-- [ ] Publish English-first/Chinese-second release notes and compatible updater manifest.
+- [x] Publish English-first/Chinese-second release notes and compatible updater manifest.
 
 No performance improvement or physical mixed-DPI hardware validation is claimed.
 Geometry and native monitor APIs have automated coverage; real multi-monitor
