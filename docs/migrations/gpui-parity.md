@@ -241,3 +241,25 @@ notices. The optional earlier Windows artifact download was stopped after it rem
 pending; PE inspection will run directly on the newly linked executable in CI.
 No local installed application has been replaced. The Linux native smoke also
 passes a real offscreen move followed by the display-recovery clamp.
+
+Run 45557609039 passed on all three systems (including locale dependencies and
+experimental installers). The next run, manually dispatched as 45558411829,
+verified Windows native startup/lifecycle, PE icon/version/DPI/asInvoker metadata
+and installer packaging successfully. macOS exposed an invalid Application
+initialization call: the prelaunch accessory policy now uses the supported
+with_windowing API. Linux Xvfb correctly had no StatusNotifierWatcher; smoke
+now verifies the persisted locale without requiring a nonexistent tray menu,
+while retaining the real-menu assertion when a tray is present. Both corrections
+await the next CI run.
+
+Bubble rendering now preserves the original gradient border, compact label
+badges, percentage sizes, stale opacity and remaining-quota warning thresholds
+in either percentage mode. A 0..100 boundary contract passes for both modes and
+missing values. Locale/mode changes invalidate the bubble presentation. It has
+a localized accessible button name, usage tooltip, focus handling and a 300ms
+post-drag click guard. Linux synthetic-data screenshot inspection confirmed no
+label/value clipping. Toolkit-dispatched native mouse events verify left-click
+open/close and right-click settings, in addition to previous lifecycle checks.
+An OS-level XTest injection attempt did not establish event delivery under this
+Hyprland session; system mouse/drag/hover acceptance remains open. The temporary
+demo process was stopped, without modifying installed settings.

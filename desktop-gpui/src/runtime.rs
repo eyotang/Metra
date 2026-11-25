@@ -522,7 +522,7 @@ fn smoke(cx: &mut App) {
         .expect("Native smoke requires isolated METRA_CONFIG_DIR");
     cx.spawn(async move |cx| {
         use metra_lib::{settings::{DisplayMode,UiLanguage},settings_change::Change};
-        for phase in 0..7 {
+        for phase in 0..10 {
             cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
             cx.update(|cx| {
                 let dashboard=cx.global::<Runtime>().dashboard.clone();
@@ -543,7 +543,10 @@ fn smoke(cx: &mut App) {
                         dashboard.update(cx,|view,cx|view.save(Change::Language(UiLanguage::Ja),cx));
                     },
                     2=>{
-                        assert!(cx.global::<Runtime>().tray_locale.starts_with("ja:"));
+                        assert_eq!(dashboard.read(cx).service.payload().settings.ui_language, UiLanguage::Ja);
+                        if cx.global::<Runtime>()._tray.is_some() {
+                            assert!(cx.global::<Runtime>().tray_locale.starts_with("ja:"));
+                        }
                         dashboard.update(cx,|view,cx|view.save(Change::Display(DisplayMode::Bubble),cx));
                     },
                     3=>{
@@ -597,12 +600,65 @@ fn smoke(cx: &mut App) {
                         assert_eq!(input.read(cx).value().as_ref(), "NEW");
                         assert_eq!(dashboard.read(cx).service.store.load().codex_bubble_label, "OLD");
                     },
+                    6=> smoke_click(gpui_kit::MouseButton::Left, cx),
+                    7=> {
+                        assert!(dashboard.read(cx).page == Page::Details);
+                        assert!(cx.global::<Runtime>().panel.is_some());
+                        smoke_click(gpui_kit::MouseButton::Left, cx);
+                    },
+                    8=> {
+                        assert!(cx.global::<Runtime>().panel.is_none(), "bubble click must close details");
+                        smoke_click(gpui_kit::MouseButton::Right, cx);
+                    },
                     _=>{
-                        std::fs::write(std::path::Path::new(&config).join("native-smoke.result"),"PASS: panel recreation, display modes, language menu, queued settings persistence").unwrap();
+                        assert!(dashboard.read(cx).page == Page::Settings);
+                        assert!(cx.global::<Runtime>().panel.is_some());
+                        std::fs::write(std::path::Path::new(&config).join("native-smoke.result"),"PASS: panel recreation, display modes, locale, settings persistence, label drafts, offscreen recovery, bubble clicks").unwrap();
                         cx.quit();
                     },
                 }
             });
         }
     }).detach();
+}
+
+#[cfg(feature = "native-smoke")]
+fn smoke_click(button: gpui_kit::MouseButton, cx: &mut App) {
+    cx.global::<Runtime>()
+        .bubble
+        .unwrap()
+        .update(cx, |_, window, cx| {
+            let position = point(
+                window.bounds().size.width / 2.,
+                window.bounds().size.height / 2.,
+            );
+            window.dispatch_event(
+                PlatformInput::MouseMove(MouseMoveEvent {
+                    position,
+                    modifiers: Default::default(),
+                    pressed_button: None,
+                }),
+                cx,
+            );
+            window.dispatch_event(
+                PlatformInput::MouseDown(MouseDownEvent {
+                    button,
+                    position,
+                    modifiers: Default::default(),
+                    click_count: 1,
+                    first_mouse: false,
+                }),
+                cx,
+            );
+            window.dispatch_event(
+                PlatformInput::MouseUp(MouseUpEvent {
+                    button,
+                    position,
+                    modifiers: Default::default(),
+                    click_count: 1,
+                }),
+                cx,
+            );
+        })
+        .unwrap();
 }

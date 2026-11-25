@@ -10,6 +10,9 @@ pub(super) struct Bubble {
     peek: bool,
     focus: FocusHandle,
     snap: bool,
+    percent_mode: metra_lib::settings::BubblePercentMode,
+    locale: &'static str,
+    drag_finished: Option<std::time::Instant>,
     pending: Option<Task<()>>,
 }
 impl Bubble {
@@ -18,7 +21,14 @@ impl Bubble {
         let subscription = cx.observe(&dashboard, |this, view, cx| {
             let data = view.read(cx).service.payload();
             let next = entries(&data.snapshot, &data.settings);
-            if next != this.entries || this.snap != data.settings.bubble_snap_enabled {
+            let locale = I18n::new(data.settings.ui_language).locale;
+            if next != this.entries
+                || this.snap != data.settings.bubble_snap_enabled
+                || this.percent_mode != data.settings.bubble_percent_mode
+                || this.locale != locale
+            {
+                this.percent_mode = data.settings.bubble_percent_mode;
+                this.locale = locale;
                 this.entries = next;
                 cx.notify();
             }
@@ -32,6 +42,9 @@ impl Bubble {
             peek: false,
             focus: cx.focus_handle(),
             snap: data.settings.bubble_snap_enabled,
+            percent_mode: data.settings.bubble_percent_mode,
+            locale: I18n::new(data.settings.ui_language).locale,
+            drag_finished: None,
             pending: None,
         };
         let result = (|| {
@@ -132,6 +145,7 @@ impl Bubble {
             }
             let _ = this.update_in(cx, |this, window, cx| {
                 this.dragging = false;
+                this.drag_finished = Some(std::time::Instant::now());
                 this.pointer = None;
                 if this.service.payload().settings.bubble_snap_enabled {
                     if let Err(error) = this.dock(true, true, window, cx) {
@@ -153,8 +167,45 @@ impl Render for Bubble {
                 eprintln!("{error}");
             }
         }
-        let mut content = div()
+        let t = I18n {
+            locale: self.locale,
+        };
+        let usage = self
+            .entries
+            .iter()
+            .map(|entry| {
+                format!(
+                    "{} {}",
+                    entry.label,
+                    entry
+                        .value
+                        .map(|v| format!("{v}%"))
+                        .unwrap_or_else(|| "—".into())
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(&t.t("bubble.usageSeparator"));
+        let accessible = t.format(
+            "bubble.ariaLabel",
+            &[
+                ("usage", usage.clone()),
+                (
+                    "dragHint",
+                    t.t(if snap {
+                        "bubble.snapHint"
+                    } else {
+                        "bubble.freeHint"
+                    }),
+                ),
+            ],
+        );
+        let content = div()
             .id("bubble")
+            .role(Role::Button)
+            .aria_label(accessible)
+            .tooltip(move |window, cx| {
+                component::tooltip::Tooltip::new(usage.clone()).build(window, cx)
+            })
             .track_focus(&self.focus)
             .tab_stop(true)
             .on_key_down(|event, _, cx| {
@@ -169,11 +220,25 @@ impl Render for Bubble {
             .text_xs()
             .size_full()
             .rounded_full()
-            .bg(rgb(0x171b26))
+            .p(px(3.))
+            .cursor_pointer()
+            .bg(linear_gradient(
+                138.,
+                linear_color_stop(rgb(0x8d72ff), 0.),
+                linear_color_stop(rgb(0x28d1b3), 1.),
+            ))
+            .hover(|style| {
+                style.bg(linear_gradient(
+                    138.,
+                    linear_color_stop(rgb(0xa18aff), 0.),
+                    linear_color_stop(rgb(0x47e3c7), 1.),
+                ))
+            })
             .text_color(rgb(0xf0f2f7))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, event: &MouseDownEvent, _, _| {
+                cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                    window.focus(&this.focus, cx);
                     this.pointer = Some(event.position);
                     this.dragging = false;
                 }),
@@ -194,13 +259,19 @@ impl Render for Bubble {
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    if !this.dragging && this.pointer.take().is_some() {
-                        cx.defer(|cx| runtime::toggle_panel(cx));
-                    }
+                cx.listener(|this, _, _, _| {
                     this.pointer = None;
                 }),
             )
+            .on_click(cx.listener(|this, _, _, cx| {
+                if !this.dragging
+                    && this
+                        .drag_finished
+                        .is_none_or(|time| time.elapsed() > std::time::Duration::from_millis(300))
+                {
+                    cx.defer(runtime::toggle_panel);
+                }
+            }))
             .on_hover(cx.listener(|this, hovered: &bool, window, cx| {
                 if this.dragging {
                     return;
@@ -226,24 +297,60 @@ impl Render for Bubble {
             .on_mouse_down(MouseButton::Right, |_, _, cx| {
                 cx.defer(|cx| runtime::open_panel(Page::Settings, cx))
             });
+        let mut rows = div()
+            .v_flex()
+            .size_full()
+            .justify_center()
+            .rounded_full()
+            .bg(rgb(0x121a2b))
+            .gap(px(1.))
+            .px(px(if self.peek { 1. } else { 5. }));
         for entry in &self.entries {
-            let color =
+            let accent =
                 u32::from_str_radix(entry.color.trim_start_matches('#'), 16).unwrap_or(0x9c83ff);
-            content = content.child(
+            let value_color = quota_color(entry.value, self.percent_mode, accent);
+            rows = rows.child(
                 div()
                     .h_flex()
                     .items_center()
-                    .text_color(rgb(color))
-                    .when(!self.peek, |row| row.child(entry.label.clone()))
+                    .h(px(12.))
+                    .w_full()
+                    .gap(px(2.))
+                    .when(self.peek, |row| row.justify_center())
+                    .when(!self.peek, |row| row.justify_between())
+                    .when(entry.stale, |row| row.opacity(0.55))
+                    .when(!self.peek, |row| {
+                        row.child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .min_w(px(12.))
+                                .max_w(px(15.))
+                                .h(px(10.))
+                                .rounded(px(3.))
+                                .text_size(px(6.5))
+                                .font_weight(FontWeight::BOLD)
+                                .text_color(rgb(accent))
+                                .bg(rgba((accent << 8) | 46))
+                                .child(entry.label.clone()),
+                        )
+                    })
                     .child(
-                        entry
-                            .value
-                            .map(|v| format!("{v}%"))
-                            .unwrap_or_else(|| "—".into()),
+                        div()
+                            .text_size(px(if self.peek { 8. } else { 9. }))
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(rgb(value_color))
+                            .child(
+                                entry
+                                    .value
+                                    .map(|v| format!("{v}%"))
+                                    .unwrap_or_else(|| "—".into()),
+                            ),
                     ),
             );
         }
-        content
+        content.child(rows)
     }
 }
 pub(super) fn open(cx: &mut App) -> Result<AnyWindowHandle, String> {
@@ -266,4 +373,45 @@ pub(super) fn open(cx: &mut App) -> Result<AnyWindowHandle, String> {
     )
     .map(|(handle, _)| handle)
     .map_err(|e| e.to_string())
+}
+
+fn quota_color(
+    value: Option<u8>,
+    mode: metra_lib::settings::BubblePercentMode,
+    accent: u32,
+) -> u32 {
+    let remaining = value.map(|v| {
+        if mode == metra_lib::settings::BubblePercentMode::Used {
+            100u8.saturating_sub(v)
+        } else {
+            v
+        }
+    });
+    match remaining {
+        Some(0..=10) => 0xff667d,
+        Some(11..=25) => 0xffd15a,
+        _ => accent,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[::core::prelude::v1::test]
+    fn warning_colors_follow_remaining_quota_in_both_display_modes() {
+        use metra_lib::settings::BubblePercentMode::{Remaining, Used};
+        for remaining in 0..=100 {
+            let expected = if remaining <= 10 {
+                0xff667d
+            } else if remaining <= 25 {
+                0xffd15a
+            } else {
+                0x123456
+            };
+            assert_eq!(quota_color(Some(remaining), Remaining, 0x123456), expected);
+            assert_eq!(quota_color(Some(100 - remaining), Used, 0x123456), expected);
+        }
+        assert_eq!(quota_color(None, Remaining, 0x123456), 0x123456);
+        assert_eq!(quota_color(None, Used, 0x123456), 0x123456);
+    }
 }

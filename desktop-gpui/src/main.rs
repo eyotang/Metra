@@ -272,7 +272,7 @@ fn main() {
     )));
     let application = gpui_kit::application().with_assets(gpui_kit::assets::Assets);
     #[cfg(target_os = "macos")]
-    application.update(|cx| cx.set_activation_policy(ActivationPolicy::Accessory));
+    let application = application.with_windowing(WindowingRequest::Headless);
     application.run(move |cx| {
         gpui_kit::init(cx);
         component::Theme::change(component::ThemeMode::Dark, None, cx);
