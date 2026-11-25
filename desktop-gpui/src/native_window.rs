@@ -222,18 +222,17 @@ pub(super) fn position(window: &Window) -> Result<(i32, i32), String> {
     }
     #[cfg(windows)]
     if let RawWindowHandle::Win32(handle) = handle {
-        let mut rect = windows_sys::Win32::Foundation::RECT::default();
-        // SAFETY: GPUI owns this live HWND; the rectangle is writable for the call.
+        let mut origin = windows_sys::Win32::Foundation::POINT::default();
+        // Geometry uses GPUI's content size, so its origin must also be the
+        // client origin. Popup HWNDs can retain invisible non-client margins.
+        // SAFETY: live HWND and writable POINT initialized to client (0,0).
         if unsafe {
-            windows_sys::Win32::UI::WindowsAndMessaging::GetWindowRect(
-                handle.hwnd.get() as _,
-                &mut rect,
-            )
+            windows_sys::Win32::Graphics::Gdi::ClientToScreen(handle.hwnd.get() as _, &mut origin)
         } == 0
         {
             return Err(std::io::Error::last_os_error().to_string());
         }
-        return Ok((rect.left, rect.top));
+        return Ok((origin.x, origin.y));
     }
     #[cfg(target_os = "macos")]
     if let RawWindowHandle::AppKit(handle) = handle {
@@ -279,20 +278,37 @@ pub(super) fn move_to(window: &Window, x: i32, y: i32) -> Result<(), String> {
     #[cfg(windows)]
     if let RawWindowHandle::Win32(handle) = handle {
         use windows_sys::Win32::UI::WindowsAndMessaging::*;
-        // SAFETY: live HWND, no pointer arguments; preserve focus and dimensions.
-        if unsafe {
-            SetWindowPos(
-                handle.hwnd.get() as _,
-                HWND_TOPMOST,
-                x,
-                y,
-                0,
-                0,
-                SWP_NOSIZE | SWP_NOACTIVATE,
-            )
-        } == 0
-        {
-            return Err(std::io::Error::last_os_error().to_string());
+        use windows_sys::Win32::{
+            Foundation::{POINT, RECT},
+            Graphics::Gdi::ClientToScreen,
+        };
+        for _ in 0..2 {
+            let mut outer = RECT::default();
+            let mut client = POINT::default();
+            // SAFETY: GPUI owns the live HWND; output structures are writable.
+            unsafe {
+                if GetWindowRect(handle.hwnd.get() as _, &mut outer) == 0
+                    || ClientToScreen(handle.hwnd.get() as _, &mut client) == 0
+                {
+                    return Err(std::io::Error::last_os_error().to_string());
+                }
+                if SetWindowPos(
+                    handle.hwnd.get() as _,
+                    HWND_TOPMOST,
+                    x - (client.x - outer.left),
+                    y - (client.y - outer.top),
+                    0,
+                    0,
+                    SWP_NOSIZE | SWP_NOACTIVATE,
+                ) == 0
+                {
+                    return Err(std::io::Error::last_os_error().to_string());
+                }
+            }
+            // Re-read once after a possible per-monitor DPI transition.
+            if position(window)? == (x, y) {
+                break;
+            }
         }
         return Ok(());
     }

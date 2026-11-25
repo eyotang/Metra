@@ -55,6 +55,14 @@ checkout. Candidate version: **0.6.0; not published**.
 - README screenshots are from the native v0.6.0 application with isolated,
   synthetic provider data, inspected after capture.
 
+The v0.6.0 candidate `4fac267` additionally exposed a Windows client/outer-origin
+mismatch in composited capture and a macOS activation-policy test precondition.
+The native Windows adapter now uses client origins consistently with GPUI content
+sizes, including non-client margins during moves. macOS acceptance now requests a
+cooperative focus transfer to Finder, checks actual inactive state, and checks
+that the later repaint does not reactivate Metra. These corrections require a new
+CI run; the failed runs are not treated as passing evidence.
+
 ## Remaining release gates
 
 - [ ] Final candidate passes native compilation and lifecycle checks on all platforms.

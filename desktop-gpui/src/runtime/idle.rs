@@ -29,6 +29,25 @@ pub(super) fn start(cx: &mut App) {
                 std::process::Command::new("/usr/bin/open").args(["-a", "Finder"]).status()
             }).await.expect("Activate Finder");
             assert!(result.success());
+            cx.update(|_| {
+                use objc2::{runtime::NSObjectProtocol, sel};
+                use objc2_app_kit::{NSApplication, NSApplicationActivationOptions, NSRunningApplication};
+                let marker = objc2::MainThreadMarker::new().unwrap();
+                let application = NSApplication::sharedApplication(marker);
+                let finder = NSRunningApplication::runningApplicationsWithBundleIdentifier(&objc2_foundation::NSString::from_str("com.apple.finder")).firstObject().expect("Finder must be running");
+                if !application.isActive() { return; }
+                if application.respondsToSelector(sel!(yieldActivationToApplication:)) {
+                    // Modern macOS requires cooperative focus transfer from the
+                    // active app; a separate `open` process may not take focus.
+                    application.yieldActivationToApplication(&finder);
+                    let requested = finder.activateFromApplication_options(&NSRunningApplication::currentApplication(), NSApplicationActivationOptions::ActivateAllWindows);
+                    eprintln!("Cooperative Finder activation requested: {requested}");
+                } else {
+                    #[allow(deprecated)]
+                    let activated = finder.activateWithOptions(NSApplicationActivationOptions::ActivateIgnoringOtherApps | NSApplicationActivationOptions::ActivateAllWindows);
+                    eprintln!("Finder activation requested: {activated}");
+                }
+            });
             let mut inactive = false;
             for _ in 0..70 {
                 cx.background_executor().timer(Duration::from_millis(100)).await;
@@ -103,8 +122,15 @@ fn check(value: u8, cx: &mut App) {
             }
         }
         let marker = objc2::MainThreadMarker::new().unwrap();
+        let application = NSApplication::sharedApplication(marker);
+        if value == 61 {
+            assert!(
+                !application.isActive(),
+                "Idle update must not activate Metra"
+            );
+        }
         let mut templates = Vec::new();
-        for window in NSApplication::sharedApplication(marker).windows() {
+        for window in application.windows() {
             if let Some(view) = window.contentView() {
                 collect(&view, &mut templates);
             }
