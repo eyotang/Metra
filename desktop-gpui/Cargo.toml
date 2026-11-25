@@ -1,0 +1,13 @@
+[package]
+name = "metra-gpui"
+version = "0.5.18"
+edition = "2024"
+publish = false
+
+[dependencies]
+metra = { path = "..", default-features = false }
+gpui-kit = "=0.11.0"
+async-channel = "2"
+
+[profile.dev]
+debug = 0

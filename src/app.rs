@@ -1,4 +1,5 @@
 //! Tauri desktop shell. Collectors and persisted settings remain UI-independent.
+use crate::settings_change::Change;
 use crate::{
     diagnostics,
     geometry::WorkArea,
@@ -6,14 +7,11 @@ use crate::{
     model::Provider,
     platform,
     service::{AppPayload, RefreshService},
-    settings::{
-        AppSettings, BUBBLE_COLOR_PALETTE, BubblePercentMode, DisplayMode, SavedPosition,
-        SettingsStore, UiLanguage,
-    },
+    settings::{BUBBLE_COLOR_PALETTE, DisplayMode, SavedPosition, SettingsStore},
     status_bar, tray,
     updater::{UpdateStatus, Updater},
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::{
     fs::{File, OpenOptions},
     sync::{
@@ -152,68 +150,11 @@ fn get_state(state: State<'_, Desktop>) -> DesktopPayload {
     state.payload()
 }
 
-#[derive(Deserialize)]
-#[serde(tag = "kind", content = "value", rename_all = "camelCase")]
-enum Change {
-    Display(DisplayMode),
-    Percent(BubblePercentMode),
-    Refresh(u64),
-    Language(UiLanguage),
-    Snap(bool),
-    Autostart(bool),
-    Compat(bool),
-    Visible { provider: Provider, visible: bool },
-    Label { provider: Provider, label: String },
-    Color { provider: Provider, color: String },
-    Order(Vec<Provider>),
-}
-impl Change {
-    fn apply(&self, settings: &mut AppSettings) {
-        match self {
-            Self::Display(v) => settings.display_mode = *v,
-            Self::Percent(v) => settings.bubble_percent_mode = *v,
-            Self::Refresh(v) => settings.refresh_minutes = *v,
-            Self::Language(v) => settings.ui_language = *v,
-            Self::Snap(v) => settings.bubble_snap_enabled = *v,
-            Self::Autostart(v) => settings.autostart = *v,
-            Self::Compat(v) => settings.cursor_compat_enabled = *v,
-            Self::Visible { provider, visible } => {
-                settings.bubble_visible_providers.retain(|p| p != provider);
-                if *visible {
-                    settings.bubble_visible_providers.push(*provider);
-                }
-            }
-            Self::Order(order) => settings.bubble_provider_order = order.clone(),
-            Self::Label { provider, label } => {
-                *match provider {
-                    Provider::Cursor => &mut settings.cursor_bubble_label,
-                    Provider::Codex => &mut settings.codex_bubble_label,
-                    Provider::Claude => &mut settings.claude_bubble_label,
-                } = label.clone()
-            }
-            Self::Color { provider, color } => {
-                *match provider {
-                    Provider::Cursor => &mut settings.cursor_bubble_color,
-                    Provider::Codex => &mut settings.codex_bubble_color,
-                    Provider::Claude => &mut settings.claude_bubble_color,
-                } = color.clone()
-            }
-        }
-    }
-}
 fn change_settings(app: &AppHandle, change: Change) -> Result<()> {
     let state = app.state::<Desktop>();
     let _guard = state.settings_gate.lock().map_err(|e| e.to_string())?;
     let previous = state.service.payload().settings;
-    if let Change::Visible {
-        provider,
-        visible: false,
-    } = &change
-        && previous.bubble_visible_providers.len() == 1
-        && previous.bubble_visible_providers.contains(provider)
-    {
-        return Err(I18n::new(previous.ui_language).t("config.keepOne"));
-    }
+    change.validate(&previous)?;
     if matches!(change, Change::Display(DisplayMode::StatusBar))
         && app.tray_by_id("metra-status").is_none()
     {

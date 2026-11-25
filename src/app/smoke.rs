@@ -1,6 +1,7 @@
 //! Native acceptance checks, compiled only for CI with `desktop-smoke`.
 use super::*;
 use crate::model::{ProviderStatus, QuotaWindow};
+use crate::settings::BubblePercentMode;
 use serde_json::json;
 use tauri::Listener;
 
