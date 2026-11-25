@@ -30,6 +30,25 @@ enum Page {
     Consent,
 }
 
+/// Retain GPUI Kit's focus/input/tooltip plugins while overriding its opaque
+/// root surface. Native alpha alone does not remove the theme background.
+fn open_overlay<V: Render>(
+    options: WindowOptions,
+    cx: &mut App,
+    build: impl FnOnce(&mut Window, &mut App) -> Entity<V>,
+) -> Result<(AnyWindowHandle, Entity<V>), String> {
+    let (handle, view) = gpui_kit::open_window(options, cx, build).map_err(|e| e.to_string())?;
+    handle
+        .update(cx, |_, window, cx| {
+            gpui_kit::base::Root::update(window, cx, |root, _, cx| {
+                root.style().background = Some(transparent_black().into());
+                cx.notify();
+            });
+        })
+        .map_err(|e| e.to_string())?;
+    Ok((handle, view))
+}
+
 struct Dashboard {
     focus: FocusHandle,
     panel_activation: Option<Subscription>,
@@ -56,6 +75,12 @@ struct Dashboard {
     refreshing: Vec<metra_lib::model::Provider>,
 }
 impl Dashboard {
+    fn navigate(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
+        runtime::position_panel(page, window, cx);
+        self.page = page;
+        cx.notify();
+    }
+
     fn schedule_refresh(&mut self, cx: &mut Context<Self>) {
         let delay = std::time::Duration::from_secs(
             self.service.payload().settings.refresh_minutes.max(1) * 60,
@@ -146,9 +171,7 @@ impl Render for Dashboard {
                     .accessibility_label(t.t("native.details"))
                     .tooltip(t.t("native.details"))
                     .on_click(cx.listener(|this, _, window, cx| {
-                        runtime::position_panel(Page::Details, window, cx);
-                        this.page = Page::Details;
-                        cx.notify();
+                        this.navigate(Page::Details, window, cx);
                     })),
             );
         }
@@ -159,9 +182,7 @@ impl Render for Dashboard {
                     .accessibility_label(t.t("native.settings"))
                     .tooltip(t.t("native.settings"))
                     .on_click(cx.listener(|this, _, window, cx| {
-                        runtime::position_panel(Page::Settings, window, cx);
-                        this.page = Page::Settings;
-                        cx.notify();
+                        this.navigate(Page::Settings, window, cx);
                     })),
             );
         }

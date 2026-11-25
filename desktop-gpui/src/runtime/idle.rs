@@ -47,6 +47,9 @@ pub(super) fn start(cx: &mut App) {
                     let activated = finder.activateWithOptions(NSApplicationActivationOptions::ActivateIgnoringOtherApps | NSApplicationActivationOptions::ActivateAllWindows);
                     eprintln!("Finder activation requested: {activated}");
                 }
+                // Relinquish active status explicitly in the GUI runner. This
+                // leaves the overlay visible, unlike hiding the application.
+                application.deactivate();
             });
             let mut inactive = false;
             for _ in 0..70 {

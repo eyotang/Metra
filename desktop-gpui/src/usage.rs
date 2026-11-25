@@ -229,9 +229,8 @@ impl Dashboard {
             card = card.child(
                 Button::new("cursor-consent")
                     .label(t.t("cursor.readExactUsage"))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.page = Page::Consent;
-                        cx.notify();
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.navigate(Page::Consent, window, cx);
                     })),
             );
         }

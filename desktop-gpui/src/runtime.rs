@@ -99,7 +99,7 @@ pub(super) fn open_panel(page: Page, cx: &mut App) {
         }
     }
     let bounds = Bounds::centered(None, size(px(420.), px(680.)), cx);
-    match gpui_kit::open_window(
+    match open_overlay(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             kind: WindowKind::PopUp,
@@ -588,7 +588,7 @@ fn smoke(cx: &mut App) {
         .expect("Native smoke requires isolated METRA_CONFIG_DIR");
     cx.spawn(async move |cx| {
         use metra_lib::{settings::{DisplayMode,UiLanguage},settings_change::Change};
-        for phase in 0..10 {
+        for phase in 0..12 {
             cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
             cx.update(|cx| {
                 let dashboard=cx.global::<Runtime>().dashboard.clone();
@@ -689,15 +689,32 @@ fn smoke(cx: &mut App) {
                         assert!(cx.global::<Runtime>().panel.is_none(), "bubble click must close details");
                         smoke_click(gpui_kit::MouseButton::Right, cx);
                     },
-                    _=>{
+                    9=>{
                         assert!(dashboard.read(cx).page == Page::Settings);
+                        let panel = cx.global::<Runtime>().panel.unwrap();
+                        panel.update(cx, |_,window,cx| {
+                            dashboard.update(cx, |view,cx| view.navigate(Page::Consent,window,cx));
+                        }).unwrap();
+                    },
+                    10=>{
+                        assert!(dashboard.read(cx).page == Page::Consent);
+                        let panel = cx.global::<Runtime>().panel.unwrap();
+                        panel.update(cx, |_,window,cx| {
+                            let (work,scale) = native_window::work_area(window,cx).unwrap();
+                            let expected = 300f64.min(work.height/scale-16.).max(160.);
+                            assert!((f32::from(window.bounds().size.height) as f64-expected).abs()<=1., "Consent must resize the panel");
+                            dashboard.update(cx, |view,cx| view.navigate(Page::Details,window,cx));
+                        }).unwrap();
+                    },
+                    _=>{
+                        assert!(dashboard.read(cx).page == Page::Details);
                         assert!(cx.global::<Runtime>().panel.is_some());
                         let panel = cx.global::<Runtime>().panel.unwrap();
                         panel.update(cx, |_,window,cx| {
                             window.dispatch_event(PlatformInput::KeyDown(KeyDownEvent { keystroke:Keystroke::parse("escape").unwrap(),is_held:false,prefer_character_input:false }),cx);
                         }).unwrap();
                         assert!(cx.global::<Runtime>().panel.is_none(), "Escape must close the panel");
-                        std::fs::write(std::path::Path::new(&config).join("native-smoke.result"),"PASS: panel recreation, display modes, locale, settings persistence, label drafts, offscreen recovery, bubble clicks, Escape close").unwrap();
+                        std::fs::write(std::path::Path::new(&config).join("native-smoke.result"),"PASS: panel recreation, display modes, locale, settings persistence, label drafts, offscreen recovery, bubble clicks, consent navigation, Escape close").unwrap();
                         cx.quit();
                     },
                 }

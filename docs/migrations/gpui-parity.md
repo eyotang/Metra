@@ -69,6 +69,18 @@ cooperative focus transfer to Finder, checks actual inactive state, and checks
 that the later repaint does not reactivate Metra. These corrections require a new
 CI run; the failed runs are not treated as passing evidence.
 
+The next pixel run confirmed an additional opaque surface from GPUI Kit's root
+plugin. Overlay roots now explicitly override that theme background with alpha
+while retaining input, focus and tooltip plugins. Consent navigation now resizes
+consistently, and the consent page is retained if enabling compatibility fails.
+Local native lifecycle tests include consent-size transitions and pass.
+
+The macOS GUI runner accepted Finder activation without actually relinquishing
+Metra's active state. The idle harness now explicitly deactivates Metra using
+AppKit (without hiding it), then still asserts genuine inactive/non-hidden state
+and render delivery after the idle period. No production activation behavior is
+changed by this feature-gated test setup.
+
 ## Remaining release gates
 
 - [ ] Final candidate passes native compilation and lifecycle checks on all platforms.

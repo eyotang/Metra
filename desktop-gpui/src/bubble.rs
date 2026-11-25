@@ -375,7 +375,7 @@ pub(super) fn initialize_position(cx: &mut App) -> Result<(), String> {
 fn open_with_visibility(cx: &mut App, show: bool) -> Result<AnyWindowHandle, String> {
     let dashboard = cx.global::<runtime::Runtime>().dashboard.clone();
     let bounds = Bounds::centered(None, size(px(56.), px(56.)), cx);
-    gpui_kit::open_window(
+    open_overlay(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: None,

@@ -66,6 +66,14 @@ impl Dashboard {
                         this.schedule_refresh(cx);
                     }
                     if refresh_after {
+                        if this.page == Page::Consent {
+                            this.page = Page::Details;
+                            if let Some(panel) = cx.global::<runtime::Runtime>().panel {
+                                let _ = panel.update(cx, |_, window, cx| {
+                                    runtime::position_panel(Page::Details, window, cx)
+                                });
+                            }
+                        }
                         this.refresh(cx);
                     }
                 }
@@ -198,10 +206,9 @@ impl Dashboard {
                     .label(t.t("menu.cursorCompat"))
                     .checked(s.cursor_compat_enabled)
                     .disabled(busy)
-                    .on_change(cx.listener(|this, enabled: &bool, _, cx| {
+                    .on_change(cx.listener(|this, enabled: &bool, window, cx| {
                         if *enabled {
-                            this.page = Page::Consent;
-                            cx.notify();
+                            this.navigate(Page::Consent, window, cx);
                         } else {
                             this.save(Change::Compat(false), cx);
                         }
@@ -352,9 +359,8 @@ impl Dashboard {
             .child(
                 Button::new("cancel-consent")
                     .label(t.t("common.cancel"))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.page = Page::Details;
-                        cx.notify();
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.navigate(Page::Details, window, cx);
                     })),
             )
             .child(
@@ -363,7 +369,6 @@ impl Dashboard {
                     .disabled(self.settings_task.is_some())
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.save(Change::Compat(true), cx);
-                        this.page = Page::Details;
                     })),
             )
             .into_any_element()
