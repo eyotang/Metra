@@ -345,3 +345,17 @@ styles to validate compact/startup size, topmost and taskbar exclusion. CI runs
 the macOS idle interval for 330 seconds and shorter Linux/Windows checks. The
 short local Linux scenario passes; platform-specific CI is pending. Tray cycling
 now uses the original five-second interval.
+
+### Native surface evidence preparation
+
+The local Linux 330-second compact-bubble idle paint scenario passed. The Windows
+native surface assertions initially hit a GPUI/raw-window-handle method-name
+collision; the code now explicitly calls the raw handle trait. The earlier
+Win32 `BOOL` import failure is also corrected. No failing check is waived.
+
+Panels now retain the original 22-pixel rounded outline with a transparent native
+window and opaque content. Added a Windows-only composited pixel scenario using
+a synthetic opaque backdrop: bubble, capsule and panel corners must follow green
+and purple backgrounds while center pixels remain unchanged. Captures are saved
+as CI artifacts. Local compilation/lifecycle checks pass; actual Windows pixel
+acceptance remains pending the next CI run.

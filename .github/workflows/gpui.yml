@@ -58,6 +58,9 @@ jobs:
       - name: Native bubble repaint (Windows)
         if: runner.os == 'Windows'
         run: node scripts/smoke-gpui.mjs --idle
+      - name: Native composited surfaces (Windows)
+        if: runner.os == 'Windows'
+        run: node scripts/smoke-gpui.mjs --pixels
       - name: Native bubble repaint (Linux)
         if: runner.os == 'Linux'
         run: dbus-run-session -- xvfb-run -a node scripts/smoke-gpui.mjs --idle
@@ -74,4 +77,11 @@ jobs:
         with:
           name: gpui-experimental-${{ runner.os }}
           path: native-installer/*
+          retention-days: 7
+      - name: Native pixel evidence
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v6
+        with:
+          name: gpui-native-pixels-Windows
+          path: test-results/native-gpui-windows/*
           retention-days: 7

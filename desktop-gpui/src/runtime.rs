@@ -28,6 +28,8 @@ pub(super) struct Runtime {
 impl Global for Runtime {}
 #[cfg(feature = "native-smoke")]
 mod idle;
+#[cfg(all(feature = "native-smoke", target_os = "windows"))]
+mod paint_windows;
 
 pub(super) fn instance(config: &std::path::Path) -> Result<Option<File>, String> {
     let lock = OpenOptions::new()
@@ -87,6 +89,7 @@ pub(super) fn open_panel(page: Page, cx: &mut App) {
             kind: WindowKind::PopUp,
             titlebar: None,
             window_min_size: Some(size(px(280.), px(160.))),
+            window_background: WindowBackgroundAppearance::Transparent,
             ..Default::default()
         },
         cx,
@@ -435,6 +438,7 @@ pub(super) fn start(
     } else if cfg!(feature = "native-smoke")
         && std::env::var_os("METRA_GPUI_MIGRATION_SMOKE").is_none()
         && std::env::var_os("METRA_GPUI_IDLE_SMOKE").is_none()
+        && std::env::var_os("METRA_GPUI_PAINT_SMOKE").is_none()
         && (std::env::var_os("METRA_GPUI_SMOKE").is_some()
             || std::env::var_os("METRA_GPUI_DEMO").is_some())
     {
@@ -446,6 +450,9 @@ pub(super) fn start(
             migration_smoke(cx);
         } else if std::env::var_os("METRA_GPUI_IDLE_SMOKE").is_some() {
             idle::start(cx);
+        } else if std::env::var_os("METRA_GPUI_PAINT_SMOKE").is_some() {
+            #[cfg(target_os = "windows")]
+            paint_windows::start(cx);
         } else {
             smoke(cx);
         }

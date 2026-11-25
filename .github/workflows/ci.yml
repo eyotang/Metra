@@ -67,6 +67,9 @@ jobs:
       - name: Native bubble repaint (Windows)
         if: runner.os == 'Windows'
         run: node scripts/smoke-gpui.mjs --idle
+      - name: Native composited surfaces (Windows)
+        if: runner.os == 'Windows'
+        run: node scripts/smoke-gpui.mjs --pixels
       - name: Native bubble repaint (Linux)
         if: runner.os == 'Linux'
         run: dbus-run-session -- xvfb-run -a node scripts/smoke-gpui.mjs --idle

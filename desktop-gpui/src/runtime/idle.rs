@@ -121,7 +121,8 @@ pub(super) fn check_windows_surface(window: &Window) {
             GWL_EXSTYLE, GetClientRect, GetWindowLongPtrW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
         },
     };
-    let RawWindowHandle::Win32(handle) = window.window_handle().unwrap().as_raw() else {
+    let RawWindowHandle::Win32(handle) = HasWindowHandle::window_handle(window).unwrap().as_raw()
+    else {
         panic!("Expected Win32 surface");
     };
     let width = f32::from(window.bounds().size.width);
