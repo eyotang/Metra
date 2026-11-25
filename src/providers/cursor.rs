@@ -485,10 +485,11 @@ use rusqlite::{Connection, OpenFlags, types::ValueRef};
 use zeroize::Zeroizing;
 
 use super::{
-    Detection, UsageProvider,
+    Detection, UsageProvider, cursor_token,
     discovery::{ResolvedExecutable, command_for, find_executable_with_override},
 };
 
+const CURSOR_STATE_DB: &str = "User/globalStorage/state.vscdb";
 const CURSOR_CLI_ACCOUNT_TIMEOUT: Duration = Duration::from_secs(4);
 const CURSOR_ACCOUNT_PROTOCOLS: &[(&str, &[&str])] = &[
     ("status", &["status"]),
@@ -496,6 +497,44 @@ const CURSOR_ACCOUNT_PROTOCOLS: &[(&str, &[&str])] = &[
     ("about_json", &["about", "--format", "json"]),
     ("about", &["about"]),
 ];
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum CursorError {
+    MissingStateDb,
+    MissingCredential,
+    Decryption,
+    Unauthorized,
+    Network(String),
+    Protocol(String),
+}
+
+impl CursorError {
+    fn message(&self) -> &str {
+        match self {
+            Self::MissingStateDb => "未找到 Cursor 本地状态库",
+            Self::MissingCredential => "Cursor 登录令牌不存在",
+            Self::Decryption => "无法解密 Cursor 本地登录令牌",
+            Self::Unauthorized => "Cursor 登录已失效",
+            Self::Network(message) | Self::Protocol(message) => message,
+        }
+    }
+
+    fn snapshot(self, cli_signed_in: bool, plan: Option<String>) -> ProviderSnapshot {
+        let status = match self {
+            Self::Unauthorized => ProviderStatus::NotLoggedIn,
+            Self::MissingCredential if !cli_signed_in => ProviderStatus::NotLoggedIn,
+            _ if cli_signed_in => ProviderStatus::Available,
+            Self::Network(_) => ProviderStatus::NetworkError,
+            _ => ProviderStatus::ProtocolError,
+        };
+        let mut snapshot = ProviderSnapshot::unavailable(Provider::Cursor, status, self.message());
+        if status == ProviderStatus::Available {
+            snapshot.plan = plan;
+            snapshot.stale = true;
+        }
+        snapshot
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct CursorProvider {
@@ -644,61 +683,54 @@ impl CursorProvider {
         .any(|marker| normalized.contains(&marker.to_ascii_lowercase()))
     }
 
-    fn collect_compat(&self, plan: Option<String>) -> Result<ProviderSnapshot, String> {
-        let result = self.collect_compat_once(plan.clone(), true);
-        if result
-            .as_ref()
-            .is_err_and(|error| error.contains("用量接口不可用") && error.contains("登录已失效"))
-        {
-            super::cursor_token::invalidate(false);
-            let retried = self.collect_compat_once(plan, false);
-            if retried.as_ref().is_err_and(|error| {
-                error.contains("用量接口不可用") && error.contains("登录已失效")
-            }) {
-                super::cursor_token::invalidate(true);
-            }
-            return retried;
+    fn collect_compat(&self, plan: Option<String>) -> Result<ProviderSnapshot, CursorError> {
+        let token = Zeroizing::new(read_access_token(true)?);
+        let result = self.collect_compat_once(plan.clone(), &token);
+        if !matches!(result, Err(CursorError::Unauthorized)) {
+            return result;
         }
-        result
+
+        cursor_token::invalidate(&token, false);
+        let token = Zeroizing::new(read_access_token(false)?);
+        let retried = self.collect_compat_once(plan, &token);
+        if matches!(retried, Err(CursorError::Unauthorized)) {
+            cursor_token::invalidate(&token, true);
+        }
+        retried
     }
 
     fn collect_compat_once(
         &self,
         plan: Option<String>,
-        prefer_cli: bool,
-    ) -> Result<ProviderSnapshot, String> {
-        let token = Zeroizing::new(read_access_token(prefer_cli)?);
-        let plan = cursor_state_db()
+        token: &str,
+    ) -> Result<ProviderSnapshot, CursorError> {
+        let plan = cursor_profile_dir()
             .ok()
-            .and_then(|path| cached_membership_type_from(&path, &token))
+            .and_then(|path| cached_membership_type_from(&path.join(CURSOR_STATE_DB), token))
             .or(plan);
         let client = Client::builder()
             .redirect(Policy::none())
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(8))
             .build()
-            .map_err(|_| "无法初始化 Cursor 网络客户端".to_string())?;
-        let auth_result = request_json(
+            .map_err(|_| CursorError::Network("无法初始化 Cursor 网络客户端".into()))?;
+        let auth = request_json(
             &client,
             "GET",
             "https://api2.cursor.sh/auth/usage",
-            CursorRequestAuth::Bearer(&token),
+            CursorRequestAuth::Bearer(token),
             None,
         );
-        let auth_error = auth_result.as_ref().err().cloned();
-        let auth = auth_result.ok();
-        let dashboard_result = request_json(
+        let dashboard = request_json(
             &client,
             "POST",
             "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
-            CursorRequestAuth::Bearer(&token),
+            CursorRequestAuth::Bearer(token),
             Some(serde_json::json!({})),
         );
-        let dashboard_error = dashboard_result.as_ref().err().cloned();
-        let dashboard = dashboard_result.ok();
-        let session_cookie = extract_cursor_user_id(&token)
-            .map(|user_id| Zeroizing::new(cursor_session_cookie(&user_id, &token)));
-        let summary_result = session_cookie.as_deref().map(|cookie| {
+        let session_cookie = extract_cursor_user_id(token)
+            .map(|user_id| Zeroizing::new(cursor_session_cookie(&user_id, token)));
+        let summary = session_cookie.as_deref().map(|cookie| {
             request_json(
                 &client,
                 "GET",
@@ -707,11 +739,16 @@ impl CursorProvider {
                 None,
             )
         });
-        let summary_error = summary_result
-            .as_ref()
-            .and_then(|result| result.as_ref().err())
-            .cloned();
-        let summary = summary_result.and_then(Result::ok);
+        if let (Err(auth), Err(dashboard)) = (&auth, &dashboard)
+            && summary.as_ref().is_none_or(Result::is_err)
+        {
+            let summary = summary.as_ref().and_then(|result| result.as_ref().err());
+            return Err(usage_request_error(auth, dashboard, summary));
+        }
+
+        let auth = auth.ok();
+        let dashboard = dashboard.ok();
+        let summary = summary.and_then(Result::ok);
         let plan = resolved_cursor_plan(plan, summary.as_ref());
         let is_ultra = plan
             .as_deref()
@@ -722,7 +759,7 @@ impl CursorProvider {
                     &client,
                     "POST",
                     "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus",
-                    CursorRequestAuth::Bearer(&token),
+                    CursorRequestAuth::Bearer(token),
                     Some(serde_json::json!({})),
                 )
                 .ok()
@@ -734,27 +771,12 @@ impl CursorProvider {
                     &client,
                     "POST",
                     "https://api2.cursor.sh/aiserver.v1.DashboardService/GetHardLimit",
-                    CursorRequestAuth::Bearer(&token),
+                    CursorRequestAuth::Bearer(token),
                     Some(serde_json::json!({})),
                 )
                 .ok()
             })
             .flatten();
-        if auth.is_none() && summary.is_none() && dashboard.is_none() {
-            let reasons = [
-                auth_error.map(|error| format!("账户用量：{error}")),
-                dashboard_error.map(|error| format!("当前周期：{error}")),
-                summary_error.map(|error| format!("用量摘要：{error}")),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
-            return Err(if reasons.is_empty() {
-                "Cursor 用量接口不可用或登录已失效".into()
-            } else {
-                format!("Cursor 用量接口不可用（{}）", reasons.join("；"))
-            });
-        }
         let on_demand_events_cents = (!is_ultra)
             .then(|| {
                 session_cookie.as_deref().and_then(|cookie| {
@@ -772,6 +794,7 @@ impl CursorProvider {
             plan,
             on_demand_events_cents,
         )
+        .map_err(CursorError::Protocol)
     }
 }
 
@@ -828,25 +851,10 @@ impl UsageProvider for CursorProvider {
         if !self.compat_enabled.load(Ordering::Relaxed) {
             return self.account_status();
         }
-        let plan = self.cli_account().ok().and_then(|(_, plan)| plan);
-        match self.collect_compat(plan) {
-            Ok(snapshot) => snapshot,
-            Err(message) if message.contains("登录") => ProviderSnapshot::unavailable(
-                Provider::Cursor,
-                ProviderStatus::NotLoggedIn,
-                message,
-            ),
-            Err(message) if message.contains("接口") => ProviderSnapshot::unavailable(
-                Provider::Cursor,
-                ProviderStatus::NetworkError,
-                message,
-            ),
-            Err(message) => ProviderSnapshot::unavailable(
-                Provider::Cursor,
-                ProviderStatus::ProtocolError,
-                message,
-            ),
-        }
+        let account = self.cli_account();
+        let plan = account.as_ref().ok().and_then(|(_, plan)| plan.clone());
+        self.collect_compat(plan.clone())
+            .unwrap_or_else(|error| error.snapshot(account.is_ok(), plan))
     }
 }
 
@@ -1001,41 +1009,47 @@ fn cursor_agent_missing_state(desktop_installed: bool) -> (ProviderStatus, &'sta
     }
 }
 
-fn cursor_state_db() -> Result<PathBuf, String> {
+fn cursor_profile_dir() -> Result<PathBuf, CursorError> {
     #[cfg(not(windows))]
-    let home = dirs::home_dir().ok_or_else(|| "无法确定用户目录".to_string())?;
+    let home = dirs::home_dir().ok_or_else(|| CursorError::Protocol("无法确定用户目录".into()))?;
     #[cfg(windows)]
     {
-        let appdata = std::env::var_os("APPDATA").ok_or_else(|| "APPDATA 未设置".to_string())?;
-        Ok(PathBuf::from(appdata).join("Cursor/User/globalStorage/state.vscdb"))
+        let appdata = std::env::var_os("APPDATA")
+            .ok_or_else(|| CursorError::Protocol("APPDATA 未设置".into()))?;
+        Ok(PathBuf::from(appdata).join("Cursor"))
     }
     #[cfg(target_os = "macos")]
     {
-        Ok(home.join("Library/Application Support/Cursor/User/globalStorage/state.vscdb"))
+        Ok(home.join("Library/Application Support/Cursor"))
     }
     #[cfg(all(not(windows), not(target_os = "macos")))]
     {
-        Ok(home.join(".config/Cursor/User/globalStorage/state.vscdb"))
+        Ok(home.join(".config/Cursor"))
     }
 }
 
-fn read_access_token(prefer_cli: bool) -> Result<String, String> {
+fn read_access_token(prefer_cli: bool) -> Result<String, CursorError> {
+    let mut cli_error = None;
     if prefer_cli
-        && let Some(token) = super::cursor_token::cli_token()
-        && !super::cursor_token::token_expired(&token)
+        && let Some(token) = cursor_token::cli_token()
+        && !cursor_token::token_expired(&token)
     {
         diagnostics::info("cursor.token_source", "source=cli");
-        return super::cursor_token::decode(token.to_string());
+        match cursor_token::decode(token.to_string(), None) {
+            Ok(token) => return Ok(token),
+            Err(error) => cli_error = Some(error),
+        }
     }
     diagnostics::info("cursor.token_source", "source=desktop");
-    let result = read_access_token_from(&cursor_state_db()?);
-    if result
-        .as_ref()
-        .is_err_and(|error| error == "Cursor 登录令牌不存在" || error == "未找到 Cursor 本地状态库")
-    {
-        super::cursor_token::clear();
-    }
-    result.and_then(super::cursor_token::decode)
+    let profile = cursor_profile_dir()?;
+    let token = match read_access_token_from(&profile.join(CURSOR_STATE_DB)) {
+        Err(error @ (CursorError::MissingCredential | CursorError::MissingStateDb)) => {
+            cursor_token::clear();
+            return Err(cli_error.unwrap_or(error));
+        }
+        result => result?,
+    };
+    cursor_token::decode(token, Some(&profile))
 }
 
 fn cached_membership_type_from(path: &Path, token: &str) -> Option<String> {
@@ -1063,30 +1077,38 @@ fn cached_membership_type_from(path: &Path, token: &str) -> Option<String> {
     (!plan.trim().is_empty()).then(|| plan.trim().to_ascii_lowercase())
 }
 
-fn read_access_token_from(path: &Path) -> Result<String, String> {
-    if !path.is_file() {
-        return Err("未找到 Cursor 本地状态库".into());
+fn read_access_token_from(path: &Path) -> Result<String, CursorError> {
+    let open_error = || CursorError::Protocol("无法只读打开 Cursor 状态库".into());
+    if !path.try_exists().map_err(|_| open_error())? {
+        return Err(CursorError::MissingStateDb);
     }
     let connection = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
-    .map_err(|_| "无法只读打开 Cursor 状态库".to_string())?;
+    .map_err(|_| open_error())?;
+    let schema_error = || CursorError::Protocol("Cursor 状态库结构不兼容".into());
     let mut statement = connection
         .prepare("SELECT value FROM ItemTable WHERE key = ?1 LIMIT 1")
-        .map_err(|_| "Cursor 状态库结构不兼容".to_string())?;
-    let token = statement
-        .query_row(["cursorAuth/accessToken"], |row| match row.get_ref(0)? {
-            ValueRef::Text(bytes) | ValueRef::Blob(bytes) => {
-                Ok(String::from_utf8_lossy(bytes).into_owned())
-            }
-            _ => Ok(String::new()),
-        })
-        .map_err(|_| "Cursor 登录令牌不存在".to_string())?;
-    if token.is_empty() {
-        Err("Cursor 登录令牌不存在".into())
+        .map_err(|_| schema_error())?;
+    let mut rows = statement
+        .query(["cursorAuth/accessToken"])
+        .map_err(|_| schema_error())?;
+    let row = rows
+        .next()
+        .map_err(|_| schema_error())?
+        .ok_or(CursorError::MissingCredential)?;
+    let token = match row.get_ref(0).map_err(|_| schema_error())? {
+        ValueRef::Text(bytes) | ValueRef::Blob(bytes) => {
+            std::str::from_utf8(bytes).map_err(|_| schema_error())?
+        }
+        ValueRef::Null => return Err(CursorError::MissingCredential),
+        _ => return Err(schema_error()),
+    };
+    if token.trim().is_empty() {
+        Err(CursorError::MissingCredential)
     } else {
-        Ok(token)
+        Ok(token.to_owned())
     }
 }
 
@@ -1106,7 +1128,7 @@ fn sum_on_demand_events(
     client: &Client,
     session_cookie: &str,
     (start, end): (i64, i64),
-) -> Result<u64, String> {
+) -> Result<u64, CursorError> {
     const PAGE_SIZE: u64 = 200;
     const MAX_PAGES: u64 = 40;
     let mut page = 1;
@@ -1132,7 +1154,9 @@ fn sum_on_demand_events(
             .and_then(Value::as_u64)
             .unwrap_or(total);
         let Some(events) = response.get("usageEventsDisplay").and_then(Value::as_array) else {
-            return Err("Cursor 用量事件响应结构不兼容".into());
+            return Err(CursorError::Protocol(
+                "Cursor 用量事件响应结构不兼容".into(),
+            ));
         };
         if events.is_empty() {
             break;
@@ -1153,9 +1177,32 @@ fn sum_on_demand_events(
     }
 
     if !charged_cents.is_finite() || charged_cents < 0.0 {
-        return Err("Cursor 用量事件金额无效".into());
+        return Err(CursorError::Protocol("Cursor 用量事件金额无效".into()));
     }
     Ok(charged_cents.round() as u64)
+}
+
+fn usage_request_error(
+    auth: &CursorError,
+    dashboard: &CursorError,
+    summary: Option<&CursorError>,
+) -> CursorError {
+    if *auth == CursorError::Unauthorized
+        && *dashboard == CursorError::Unauthorized
+        && summary.is_none_or(|error| *error == CursorError::Unauthorized)
+    {
+        return CursorError::Unauthorized;
+    }
+
+    let mut detail = format!(
+        "账户用量：{}；当前周期：{}",
+        auth.message(),
+        dashboard.message()
+    );
+    if let Some(error) = summary {
+        detail.push_str(&format!("；用量摘要：{}", error.message()));
+    }
+    CursorError::Network(format!("Cursor 用量接口不可用（{detail}）"))
 }
 
 fn request_json(
@@ -1164,9 +1211,9 @@ fn request_json(
     url: &str,
     auth: CursorRequestAuth<'_>,
     body: Option<Value>,
-) -> Result<Value, String> {
+) -> Result<Value, CursorError> {
     if !allowed_cursor_url(url) {
-        return Err("拒绝访问非 Cursor 官方域名".into());
+        return Err(CursorError::Protocol("拒绝访问非 Cursor 官方域名".into()));
     }
     let request = if method == "POST" {
         client
@@ -1186,19 +1233,19 @@ fn request_json(
     };
     let response = request
         .send()
-        .map_err(|_| "Cursor 网络请求失败".to_string())?;
+        .map_err(|_| CursorError::Network("Cursor 网络请求失败".into()))?;
     if response.status() == reqwest::StatusCode::UNAUTHORIZED {
-        return Err("Cursor 登录已失效".into());
+        return Err(CursorError::Unauthorized);
     }
     if !response.status().is_success() {
-        return Err(format!(
+        return Err(CursorError::Network(format!(
             "Cursor 接口返回 HTTP {}",
             response.status().as_u16()
-        ));
+        )));
     }
     response
         .json()
-        .map_err(|_| "Cursor 接口返回了无效 JSON".into())
+        .map_err(|_| CursorError::Protocol("Cursor 接口返回了无效 JSON".into()))
 }
 
 fn json_bool_field(value: &Value, fields: &[&str]) -> Option<bool> {
@@ -1646,6 +1693,67 @@ mod desktop_detection_tests {
 }
 
 #[cfg(test)]
+mod usage_refresh_tests {
+    use super::*;
+    use crate::service::merge_snapshot;
+
+    #[test]
+    fn failed_decryption_preserves_sign_in_and_previous_exact_usage() {
+        let unconfirmed = CursorError::Decryption.snapshot(false, None);
+        assert_eq!(unconfirmed.status, ProviderStatus::ProtocolError);
+
+        let signed_in = CursorError::Decryption.snapshot(true, Some("pro".into()));
+        assert_eq!(signed_in.status, ProviderStatus::Available);
+        assert_eq!(signed_in.plan.as_deref(), Some("pro"));
+
+        let mut previous = signed_in.clone();
+        previous.stale = false;
+        previous.message = None;
+        previous.quotas = vec![QuotaWindow::from_used_percent(
+            "Cursor Models",
+            30.0,
+            None,
+            None,
+        )];
+        for failed in [unconfirmed, signed_in] {
+            let merged = merge_snapshot(previous.clone(), failed);
+            assert_eq!(merged.status, ProviderStatus::Available);
+            assert_eq!(merged.quotas, previous.quotas);
+            assert!(merged.stale);
+            assert_eq!(
+                merged.message.as_deref(),
+                Some(CursorError::Decryption.message())
+            );
+        }
+    }
+
+    #[test]
+    fn only_confirmed_auth_failure_reports_an_expired_session() {
+        let unauthorized = CursorError::Unauthorized;
+        let offline = CursorError::Network("Cursor 网络请求失败".into());
+        let partial = usage_request_error(&unauthorized, &offline, Some(&unauthorized));
+        assert_eq!(
+            partial.snapshot(false, None).status,
+            ProviderStatus::NetworkError
+        );
+
+        let expired = usage_request_error(&unauthorized, &unauthorized, Some(&unauthorized));
+        assert_eq!(
+            expired.snapshot(true, Some("pro".into())).status,
+            ProviderStatus::NotLoggedIn
+        );
+        assert_eq!(
+            CursorError::MissingCredential.snapshot(false, None).status,
+            ProviderStatus::NotLoggedIn
+        );
+        assert_eq!(
+            CursorError::MissingCredential.snapshot(true, None).status,
+            ProviderStatus::Available
+        );
+    }
+}
+
+#[cfg(test)]
 mod sqlite_boundary_tests {
     use super::*;
 
@@ -1697,13 +1805,26 @@ mod sqlite_boundary_tests {
                 ("unrelated", "wrong"),
             )
             .unwrap();
+        assert_eq!(
+            read_access_token_from(&path),
+            Err(CursorError::MissingCredential)
+        );
         connection
             .execute(
                 "INSERT INTO ItemTable (key, value) VALUES (?1, ?2)",
-                ("cursorAuth/accessToken", "test-secret"),
+                ("cursorAuth/accessToken", b"test-secret"),
             )
             .unwrap();
-        drop(connection);
         assert_eq!(read_access_token_from(&path).unwrap(), "test-secret");
+        connection
+            .execute(
+                "UPDATE ItemTable SET value = ?1 WHERE key = 'cursorAuth/accessToken'",
+                [b"\xff"],
+            )
+            .unwrap();
+        assert!(matches!(
+            read_access_token_from(&path),
+            Err(CursorError::Protocol(_))
+        ));
     }
 }

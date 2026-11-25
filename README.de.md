@@ -70,7 +70,7 @@ Jede PR auf ein Problem beschränken und Problem, Änderung und Prüfung beschre
 
 Unter macOS speichert Metra das importierte Cursor-Anmeldetoken in einem eigenen Systemschlüsselbund-Eintrag und im Arbeitsspeicher. Bei Tokenänderungen oder fehlgeschlagener Authentifizierung wird es erneut importiert; beim Abmelden von Cursor oder Deaktivieren des Kompatibilitätsmodus wird der Cache gelöscht. Cursors Entschlüsselungsschlüssel wird nicht kopiert; Zugangsdaten erscheinen weder in Einstellungsdateien noch in Protokollen.
 
-Cursor-Nutzungsdaten verwenden bevorzugt die CLI-Anmeldung und bei fehlenden oder abgelehnten Zugangsdaten die Desktop-App.
+Cursor-Nutzungsdaten verwenden bevorzugt die CLI-Anmeldung und bei fehlenden oder abgelehnten Zugangsdaten die Desktop-App. Unter Windows entschlüsselt Metra das Token der Desktop-App mit dem aktuellen Windows-Konto. Schlägt die Entschlüsselung fehl, zeigt Metra den Fehler an und behält die zuletzt erfolgreich abgerufenen Nutzungsdaten.
 
 Lokale macOS-Installation: einmal `npm run setup:local-signing`, danach `npm run build` und `npm run install:local`. Verwenden Sie bei Updates dieselbe Signaturidentität, damit der Schlüsselbundzugriff an Metra gebunden bleibt.
 

@@ -104,6 +104,7 @@
   "provider.message.protocolError": "{provider} 返回了无法识别的数据",
   "provider.message.unsupported": "{provider} 当前不可用",
   "cursor.compatRequired": "开启个人兼容模式后可读取精确用量",
+  "cursor.localTokenDecryptionFailed": "无法解密 Cursor 本地登录令牌，暂时无法刷新精确用量。",
   "claude.noLimitLocalTokens": "Claude Code 未提供套餐额度；Token 为本地会话统计",
   "claude.noUsageStats": "Claude Code 当前登录方式未提供额度或 Token 统计",
   "claude.adminConfigureWithLocal": "API Key 登录；当前显示本机会话 Token。配置 ANTHROPIC_ADMIN_KEY 后可读取官方用量",

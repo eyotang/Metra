@@ -1962,7 +1962,7 @@ dependencies = [
 
 [[package]]
 name = "metra"
-version = "0.5.15"
+version = "0.5.16"
 dependencies = [
  "auto-launch",
  "base64 0.22.1",
@@ -1973,6 +1973,7 @@ dependencies = [
  "objc2-app-kit",
  "png",
  "reqwest 0.12.28",
+ "ring",
  "rusqlite",
  "serde",
  "serde_json",

@@ -1,8 +1,14 @@
-//! Decode Cursor's opt-in encrypted token storage on macOS.
+//! Read and cache Cursor credentials in personal compatibility mode.
+use std::path::Path;
+
 use zeroize::Zeroizing;
 
+use super::cursor::CursorError;
+
+#[cfg(windows)]
+mod windows;
+
 const PREFIX: &str = "cursor-safe-storage:v1:";
-const ERROR: &str = "无法解密 Cursor 本地登录令牌";
 
 #[derive(Default)]
 struct TokenCache {
@@ -15,15 +21,15 @@ impl TokenCache {
     fn decode_with(
         &mut self,
         source: String,
-        read: impl FnOnce(&str) -> Result<String, String>,
-    ) -> Result<String, String> {
+        read: impl FnOnce(&str) -> Result<String, CursorError>,
+    ) -> Result<String, CursorError> {
         let source = Zeroizing::new(source);
         if self.source.as_str() != source.as_str() {
             *self = Self::default();
             self.source = source;
         }
         if self.rejected {
-            return Err("Cursor 登录已失效".into());
+            return Err(CursorError::Unauthorized);
         }
         if let Some(token) = &self.plaintext {
             return Ok(token.to_string());
@@ -48,9 +54,13 @@ type CliProbe = (std::time::Instant, Option<Zeroizing<String>>);
 #[cfg(target_os = "macos")]
 static CLI: std::sync::Mutex<Option<CliProbe>> = std::sync::Mutex::new(None);
 
-pub(super) fn invalidate(rejected: bool) {
+pub(super) fn invalidate(token: &str, rejected: bool) {
     if let Ok(mut cache) = CACHE.lock()
         && let Some(cache) = cache.as_mut()
+        && cache
+            .plaintext
+            .as_deref()
+            .is_some_and(|cached| cached == token)
     {
         cache.invalidate(rejected);
         #[cfg(all(target_os = "macos", not(test)))]
@@ -87,30 +97,32 @@ pub(super) fn clear() {
     }
 }
 
-pub(super) fn decode(token: String) -> Result<String, String> {
-    let mut cache = CACHE.lock().map_err(|_| ERROR.to_string())?;
+pub(super) fn decode(token: String, profile: Option<&Path>) -> Result<String, CursorError> {
+    let mut cache = CACHE.lock().map_err(|_| CursorError::Decryption)?;
     if !ENABLED.load(std::sync::atomic::Ordering::Acquire) {
-        return Err(ERROR.into());
+        return Err(CursorError::Decryption);
     }
     cache
         .get_or_insert_with(TokenCache::default)
         .decode_with(token, |source| {
             #[cfg(target_os = "macos")]
             {
-                persisted_token(source, &mut keychain::Store, decode_uncached)
+                persisted_token(source, &mut keychain::Store, |source| {
+                    decode_uncached(source, profile)
+                })
             }
             #[cfg(not(target_os = "macos"))]
             {
-                decode_uncached(source)
+                decode_uncached(source, profile)
             }
         })
 }
 
 #[cfg(target_os = "macos")]
 trait TokenStore {
-    fn read(&mut self) -> Result<Option<Zeroizing<Vec<u8>>>, String>;
-    fn write(&mut self, data: &[u8]) -> Result<(), String>;
-    fn delete(&mut self) -> Result<(), String>;
+    fn read(&mut self) -> Result<Option<Zeroizing<Vec<u8>>>, CursorError>;
+    fn write(&mut self, data: &[u8]) -> Result<(), CursorError>;
+    fn delete(&mut self) -> Result<(), CursorError>;
 }
 
 #[cfg(target_os = "macos")]
@@ -127,8 +139,8 @@ fn source_hash(source: &str) -> [u8; 32] {
 fn persisted_token(
     source: &str,
     store: &mut impl TokenStore,
-    import: impl FnOnce(&str) -> Result<String, String>,
-) -> Result<String, String> {
+    import: impl FnOnce(&str) -> Result<String, CursorError>,
+) -> Result<String, CursorError> {
     let hash = source_hash(source);
     if let Some(record) = store.read()? {
         if record.starts_with(&hash)
@@ -160,7 +172,7 @@ mod keychain {
     const NOT_FOUND: i32 = -25300;
     pub(super) struct Store;
     impl TokenStore for Store {
-        fn read(&mut self) -> Result<Option<Zeroizing<Vec<u8>>>, String> {
+        fn read(&mut self) -> Result<Option<Zeroizing<Vec<u8>>>, CursorError> {
             let mut length = 0;
             let mut data: *mut c_void = ptr::null_mut();
             let status = unsafe {
@@ -179,7 +191,7 @@ mod keychain {
                 return Ok(None);
             }
             if status != 0 || data.is_null() {
-                return Err(ERROR.into());
+                return Err(CursorError::Decryption);
             }
             let result = unsafe {
                 let bytes = Zeroizing::new(
@@ -190,7 +202,7 @@ mod keychain {
             };
             Ok(Some(result))
         }
-        fn write(&mut self, data: &[u8]) -> Result<(), String> {
+        fn write(&mut self, data: &[u8]) -> Result<(), CursorError> {
             // A missing item is created for the calling signed Metra application.
             let status = unsafe {
                 SecKeychainAddGenericPassword(
@@ -207,10 +219,10 @@ mod keychain {
             if status == 0 {
                 Ok(())
             } else {
-                Err(ERROR.into())
+                Err(CursorError::Decryption)
             }
         }
-        fn delete(&mut self) -> Result<(), String> {
+        fn delete(&mut self) -> Result<(), CursorError> {
             let mut item: *mut c_void = ptr::null_mut();
             let status = unsafe {
                 SecKeychainFindGenericPassword(
@@ -228,7 +240,7 @@ mod keychain {
                 return Ok(());
             }
             if status != 0 || item.is_null() {
-                return Err(ERROR.into());
+                return Err(CursorError::Decryption);
             }
             let status = unsafe {
                 let status = SecKeychainItemDelete(item);
@@ -238,7 +250,7 @@ mod keychain {
             if status == 0 {
                 Ok(())
             } else {
-                Err(ERROR.into())
+                Err(CursorError::Decryption)
             }
         }
     }
@@ -262,17 +274,30 @@ mod keychain {
     }
 }
 
-fn decode_uncached(token: &str) -> Result<String, String> {
-    if !token.starts_with(PREFIX) {
-        return Ok(token.to_owned());
-    }
+fn decode_uncached(token: &str, profile: Option<&Path>) -> Result<String, CursorError> {
+    let Some(encrypted) = token.strip_prefix(PREFIX) else {
+        return if token.starts_with("cursor-safe-storage:") {
+            Err(CursorError::Decryption)
+        } else {
+            Ok(token.to_owned())
+        };
+    };
+    #[cfg(not(windows))]
+    let _ = profile;
     #[cfg(target_os = "macos")]
     {
         let password = keychain_password()?;
-        decrypt(token, &password)
+        decrypt(encrypted, &password)
     }
-    #[cfg(not(target_os = "macos"))]
-    Err(ERROR.into())
+    #[cfg(windows)]
+    {
+        windows::decrypt(encrypted, profile.ok_or(CursorError::Decryption)?)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let _ = encrypted;
+        Err(CursorError::Decryption)
+    }
 }
 
 /// Read CLI credentials independently of the desktop token encryption format.
@@ -353,12 +378,12 @@ pub(super) fn token_expired(token: &str) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-fn keychain_password() -> Result<Zeroizing<Vec<u8>>, String> {
+fn keychain_password() -> Result<Zeroizing<Vec<u8>>, CursorError> {
     keychain_secret(b"Cursor Safe Storage", b"")
 }
 
 #[cfg(target_os = "macos")]
-fn keychain_secret(service: &[u8], account: &[u8]) -> Result<Zeroizing<Vec<u8>>, String> {
+fn keychain_secret(service: &[u8], account: &[u8]) -> Result<Zeroizing<Vec<u8>>, CursorError> {
     use std::ptr;
     let mut length = 0_u32;
     let mut data: *mut std::ffi::c_void = ptr::null_mut();
@@ -381,10 +406,10 @@ fn keychain_secret(service: &[u8], account: &[u8]) -> Result<Zeroizing<Vec<u8>>,
         )
     };
     if status != 0 {
-        return Err(ERROR.into());
+        return Err(CursorError::Decryption);
     }
     if data.is_null() {
-        return Err(ERROR.into());
+        return Err(CursorError::Decryption);
     }
     let password = unsafe {
         let password =
@@ -415,13 +440,14 @@ unsafe extern "C" {
 }
 
 #[cfg(target_os = "macos")]
-fn decrypt(token: &str, password: &[u8]) -> Result<String, String> {
+fn decrypt(encrypted: &str, password: &[u8]) -> Result<String, CursorError> {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
-    let encrypted = token.strip_prefix(PREFIX).ok_or(ERROR)?;
-    let bytes = STANDARD.decode(encrypted).map_err(|_| ERROR)?;
-    let ciphertext = bytes.strip_prefix(b"v10").ok_or(ERROR)?;
+    let bytes = STANDARD
+        .decode(encrypted)
+        .map_err(|_| CursorError::Decryption)?;
+    let ciphertext = bytes.strip_prefix(b"v10").ok_or(CursorError::Decryption)?;
     if ciphertext.is_empty() || ciphertext.len() % 16 != 0 {
-        return Err(ERROR.into());
+        return Err(CursorError::Decryption);
     }
     let mut key = Zeroizing::new([0_u8; 16]);
     let mut plaintext = Zeroizing::new(vec![0_u8; ciphertext.len()]);
@@ -441,7 +467,7 @@ fn decrypt(token: &str, password: &[u8]) -> Result<String, String> {
             key.len(),
         ) != 0
         {
-            return Err(ERROR.into());
+            return Err(CursorError::Decryption);
         }
         if CCCrypt(
             1,
@@ -457,12 +483,13 @@ fn decrypt(token: &str, password: &[u8]) -> Result<String, String> {
             &mut written,
         ) != 0
         {
-            return Err(ERROR.into());
+            return Err(CursorError::Decryption);
         }
     }
-    let decoded = std::str::from_utf8(&plaintext[..written]).map_err(|_| ERROR)?;
+    let decoded =
+        std::str::from_utf8(&plaintext[..written]).map_err(|_| CursorError::Decryption)?;
     if decoded.is_empty() {
-        return Err(ERROR.into());
+        return Err(CursorError::Decryption);
     }
     Ok(decoded.to_owned())
 }
@@ -548,7 +575,7 @@ mod tests {
         cache.invalidate(false);
         assert!(
             cache
-                .decode_with("source-c".into(), |_| Err("denied".into()))
+                .decode_with("source-c".into(), |_| Err(CursorError::Decryption))
                 .is_err()
         );
         assert_eq!(
@@ -568,14 +595,14 @@ mod tests {
             deletes: usize,
         }
         impl TokenStore for Store {
-            fn read(&mut self) -> Result<Option<Zeroizing<Vec<u8>>>, String> {
+            fn read(&mut self) -> Result<Option<Zeroizing<Vec<u8>>>, CursorError> {
                 Ok(self.record.clone())
             }
-            fn write(&mut self, data: &[u8]) -> Result<(), String> {
+            fn write(&mut self, data: &[u8]) -> Result<(), CursorError> {
                 self.record = Some(Zeroizing::new(data.to_vec()));
                 Ok(())
             }
-            fn delete(&mut self) -> Result<(), String> {
+            fn delete(&mut self) -> Result<(), CursorError> {
                 self.record = None;
                 self.deletes += 1;
                 Ok(())
@@ -633,7 +660,9 @@ mod tests {
             "fresh"
         );
         store.record = Some(Zeroizing::new(b"corrupt".to_vec()));
-        assert!(persisted_token("encrypted-b", &mut store, |_| Err("denied".into())).is_err());
+        assert!(
+            persisted_token("encrypted-b", &mut store, |_| Err(CursorError::Decryption)).is_err()
+        );
         assert!(store.record.is_none());
     }
 
@@ -660,8 +689,16 @@ mod tests {
     #[test]
     fn plaintext_tokens_are_unchanged() {
         assert_eq!(
-            decode_uncached("header.payload.signature").unwrap(),
+            decode_uncached("header.payload.signature", None).unwrap(),
             "header.payload.signature"
+        );
+    }
+
+    #[test]
+    fn unknown_envelope_versions_are_not_treated_as_plaintext() {
+        assert_eq!(
+            decode_uncached("cursor-safe-storage:v2:example", None),
+            Err(CursorError::Decryption)
         );
     }
 
@@ -669,15 +706,12 @@ mod tests {
     #[test]
     fn chromium_encrypted_token_is_decrypted() {
         // Fixed synthetic Chromium fixture; contains no real account data.
-        let token = concat!(
-            "cursor-safe-storage:v1:",
-            "djEwaTKn8QSpJ4aIH7pIsFHxMWdeVpGH4Q7X7hMfDsr+cpE="
-        );
+        let token = "djEwaTKn8QSpJ4aIH7pIsFHxMWdeVpGH4Q7X7hMfDsr+cpE=";
         assert_eq!(
             decrypt(token, b"test-password").unwrap(),
             "header.payload.signature"
         );
         assert!(decrypt(token, b"wrong-password").is_err());
-        assert!(decrypt("cursor-safe-storage:v1:invalid", b"test-password").is_err());
+        assert!(decrypt("invalid", b"test-password").is_err());
     }
 }

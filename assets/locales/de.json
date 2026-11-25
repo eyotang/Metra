@@ -104,6 +104,7 @@
   "provider.message.protocolError": "{provider} hat für Metra unlesbare Daten geliefert",
   "provider.message.unsupported": "{provider} ist derzeit nicht verfügbar",
   "cursor.compatRequired": "Persönlichen Kompatibilitätsmodus für genaue Nutzungsdaten aktivieren",
+  "cursor.localTokenDecryptionFailed": "Metra konnte das lokale Cursor-Anmeldetoken nicht entschlüsseln. Die genauen Nutzungsdaten konnten nicht aktualisiert werden.",
   "claude.noLimitLocalTokens": "Claude Code liefert keine Abonnementlimits; Tokens werden aus lokalen Sitzungen gezählt.",
   "claude.noUsageStats": "Diese Claude-Code-Anmeldemethode liefert weder Limits noch Token-Summen.",
   "claude.adminConfigureWithLocal": "Mit API-Schlüssel angemeldet. Lokale Sitzungstokens werden angezeigt; für offizielle Nutzung ANTHROPIC_ADMIN_KEY konfigurieren.",
