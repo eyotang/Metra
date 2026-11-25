@@ -147,6 +147,7 @@ impl Dashboard {
             .child(t.t("menu.language"))
             .child(languages)
             .child(t.t("menu.bubblePercentage"));
+        let mut percentages = div().h_flex().flex_wrap().gap_2();
         for (i, (mode, key)) in [
             (BubblePercentMode::Remaining, "menu.remaining"),
             (BubblePercentMode::Used, "menu.used"),
@@ -154,7 +155,7 @@ impl Dashboard {
         .into_iter()
         .enumerate()
         {
-            view = view.child(
+            percentages = percentages.child(
                 Button::new(("percentage", i))
                     .label(t.t(key))
                     .selected(s.bubble_percent_mode == mode)
@@ -164,6 +165,7 @@ impl Dashboard {
                     ),
             );
         }
+        view = view.child(percentages);
         let mut intervals = div().h_flex().flex_wrap().gap_2();
         for (i, minutes) in [1, 5, 15, 30, 60].into_iter().enumerate() {
             intervals = intervals.child(
@@ -205,6 +207,8 @@ impl Dashboard {
                 let handle = div()
                     .id(("order", i))
                     .track_focus(focus)
+                    .role(Role::Button)
+                    .aria_label(t.format("config.dragProviderOrder", &[("provider", name.into())]))
                     .tab_stop(true)
                     .cursor_move()
                     .child("≡")
@@ -213,11 +217,15 @@ impl Dashboard {
                             cx.stop_active_drag(window);
                             return;
                         }
+                        if this.settings_task.is_some() {
+                            return;
+                        }
                         let shift = match event.keystroke.key.as_str() {
                             "up" => -1,
                             "down" => 1,
                             _ => return,
                         };
+                        cx.stop_propagation();
                         this.move_provider(provider, shift, cx);
                     }))
                     .when(!busy, |handle| {
@@ -261,7 +269,20 @@ impl Dashboard {
             for (j, value) in BUBBLE_COLOR_PALETTE.iter().copied().enumerate() {
                 palette = palette.child(
                     Button::new((SharedString::from(format!("palette-{i}")), j))
-                        .label(value)
+                        .accessibility_label(t.format(
+                            "config.chooseCurrentColor",
+                            &[("provider", name.into()), ("color", value.into())],
+                        ))
+                        .tooltip(value)
+                        .size(px(28.))
+                        .p_1()
+                        .child(
+                            div()
+                                .size(px(16.))
+                                .rounded_full()
+                                .bg(rgb(u32::from_str_radix(value.trim_start_matches('#'), 16)
+                                    .unwrap_or(0x9c83ff))),
+                        )
                         .selected(value == color)
                         .disabled(busy)
                         .on_click(cx.listener(move |this, _, _, cx| {

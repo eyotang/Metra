@@ -306,3 +306,19 @@ consistent with the now-fixed last-window behavior. macOS signing/metadata check
 passed but lipo interpreted the executable path as an architecture because the
 arguments were ordered incorrectly. The verifier now puts the executable first.
 These final corrections await the next platform CI run.
+
+### Native presentation and installer checkpoint
+
+Commit `ce856e6` completed the native lifecycle and legacy-status migration tests
+on Linux, macOS and Windows in run `45560439506`. Linux Debian and macOS signed
+app/DMG packaging succeeded. Windows also completed the retained v0.2.2 installer
+upgrade with the `/S` restart contract and preserved status-bar preferences.
+
+The next presentation change restores custom provider badges and palette colors
+in usage cards, compact accessible icon actions, and the bottom refresh status.
+Palette controls now show actual color swatches with localized accessible names;
+provider keyboard reordering ignores input while saving and consumes arrow keys.
+Both local native smoke scenarios pass after these changes. README screenshots
+were recaptured from the isolated synthetic-data native application and inspected.
+Full mixed-monitor and physical pointer acceptance remains outstanding; no release
+has been published.

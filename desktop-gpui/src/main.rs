@@ -118,48 +118,83 @@ impl Render for Dashboard {
         self.prepare_labels(window, cx);
         let payload = self.service.payload();
         let t = I18n::new(payload.settings.ui_language);
+        let details = self.page == Page::Details;
+        let mut actions = div().h_flex().gap_1();
+        if details {
+            actions = actions.child(
+                Button::new("refresh")
+                    .icon(IconName::RefreshCw)
+                    .accessibility_label(t.t("refresh.nowUsage"))
+                    .tooltip(t.t("refresh.nowUsage"))
+                    .disabled(self.refresh_task.is_some())
+                    .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
+            );
+        } else {
+            actions = actions.child(
+                Button::new("details")
+                    .icon(IconName::ChevronLeft)
+                    .accessibility_label(t.t("native.details"))
+                    .tooltip(t.t("native.details"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        runtime::position_panel(Page::Details, window, cx);
+                        this.page = Page::Details;
+                        cx.notify();
+                    })),
+            );
+        }
+        if self.page != Page::Settings {
+            actions = actions.child(
+                Button::new("settings")
+                    .icon(IconName::Settings)
+                    .accessibility_label(t.t("native.settings"))
+                    .tooltip(t.t("native.settings"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        runtime::position_panel(Page::Settings, window, cx);
+                        this.page = Page::Settings;
+                        cx.notify();
+                    })),
+            );
+        }
+        actions = actions.child(
+            Button::new("close-panel")
+                .icon(IconName::Close)
+                .accessibility_label(t.t("native.close"))
+                .tooltip(t.t("native.close"))
+                .on_click(|_, window, _| window.remove_window()),
+        );
         let mut header = div()
             .id("header")
             .v_flex()
-            .gap_3()
-            .p_4()
+            .gap_2()
+            .p_3()
             .flex_shrink_0()
             .child(
                 div()
                     .h_flex()
                     .justify_between()
-                    .child("Metra")
-                    .child(env!("CARGO_PKG_VERSION")),
-            )
-            .child(
-                Button::new("refresh")
-                    .label(t.t("native.refresh"))
-                    .disabled(self.refresh_task.is_some())
-                    .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
+                    .gap_2()
+                    .child(
+                        div()
+                            .v_flex()
+                            .gap_1()
+                            .child(
+                                div().h_flex().gap_2().child("Metra").child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(0xa6adbc))
+                                        .child(format!("v{}", env!("CARGO_PKG_VERSION"))),
+                                ),
+                            )
+                            .child(div().text_xs().text_color(rgb(0xa6adbc)).child(t.t(
+                                if self.page == Page::Settings {
+                                    "native.settings"
+                                } else {
+                                    "app.usageSubtitle"
+                                },
+                            ))),
+                    )
+                    .child(actions),
             );
-        header = header.child(
-            div()
-                .h_flex()
-                .gap_2()
-                .child(
-                    Button::new("details")
-                        .label(t.t("native.details"))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            runtime::position_panel(Page::Details, window, cx);
-                            this.page = Page::Details;
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    Button::new("settings")
-                        .label(t.t("native.settings"))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            runtime::position_panel(Page::Settings, window, cx);
-                            this.page = Page::Settings;
-                            cx.notify();
-                        })),
-                ),
-        );
         let mut content = div()
             .id("body")
             .v_flex()
@@ -168,17 +203,34 @@ impl Render for Dashboard {
             .flex_1()
             .min_h_0()
             .overflow_y_scroll();
-        header = header.child(
-            Button::new("close-panel")
-                .label(t.t("native.close"))
-                .on_click(|_, window, _| window.remove_window()),
-        );
         if self.page == Page::Details {
             header = header.child(self.update_banner(cx));
         }
         if let Some(error) = &self.error {
             header = header.child(error.clone());
         }
+        let active = self.refresh_task.is_some() || self.settings_task.is_some();
+        let status = div()
+            .h_flex()
+            .gap_2()
+            .px_3()
+            .py_2()
+            .flex_shrink_0()
+            .text_xs()
+            .text_color(rgb(0xa6adbc))
+            .child(div().size(px(6.)).rounded_full().bg(rgb(if active {
+                0xffd15a
+            } else {
+                0x4dd4bf
+            })))
+            .child(if self.refresh_task.is_some() {
+                t.t("native.refreshing")
+            } else {
+                t.format(
+                    "refresh.everyMinutes",
+                    &[("minutes", payload.settings.refresh_minutes.to_string())],
+                )
+            });
         if self.page == Page::Settings {
             return div()
                 .v_flex()
@@ -188,7 +240,8 @@ impl Render for Dashboard {
                 .text_color(rgb(0xe8ecf3))
                 .font_family("Inter")
                 .child(header)
-                .child(content.child(self.preferences(cx)));
+                .child(content.child(self.preferences(cx)))
+                .child(status);
         }
         if self.page == Page::Consent {
             return div()
@@ -199,7 +252,8 @@ impl Render for Dashboard {
                 .text_color(rgb(0xe8ecf3))
                 .font_family("Inter")
                 .child(header)
-                .child(content.child(self.consent(cx)));
+                .child(content.child(self.consent(cx)))
+                .child(status);
         }
         for provider in payload.settings.bubble_provider_order {
             let (_, snapshot) = match provider {
@@ -235,6 +289,7 @@ impl Render for Dashboard {
             .font_family("Inter")
             .child(header)
             .child(content)
+            .child(status)
     }
 }
 fn main() {

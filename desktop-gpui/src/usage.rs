@@ -81,6 +81,14 @@ impl Dashboard {
             Provider::Codex => "Codex",
             Provider::Claude => "Claude Code",
         };
+        let settings = self.service.payload().settings;
+        let (label, color) = match provider {
+            Provider::Cursor => (settings.cursor_bubble_label, settings.cursor_bubble_color),
+            Provider::Codex => (settings.codex_bubble_label, settings.codex_bubble_color),
+            Provider::Claude => (settings.claude_bubble_label, settings.claude_bubble_color),
+        };
+        let accent =
+            rgb(u32::from_str_radix(color.trim_start_matches('#'), 16).unwrap_or(0x9c83ff));
         let running = self.refreshing.contains(&provider);
         let stale = snapshot.stale
             && (!snapshot.quotas.is_empty()
@@ -99,7 +107,26 @@ impl Dashboard {
                 div()
                     .h_flex()
                     .justify_between()
-                    .child(name)
+                    .child(
+                        div()
+                            .h_flex()
+                            .gap_2()
+                            .text_color(accent)
+                            .child(
+                                div()
+                                    .min_w(px(20.))
+                                    .h(px(20.))
+                                    .px_1()
+                                    .rounded_md()
+                                    .bg(accent.opacity(0.12))
+                                    .text_size(px(9.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(label),
+                            )
+                            .child(name),
+                    )
                     .child(t.t(if running {
                         "refresh.refreshing"
                     } else if stale {
@@ -137,7 +164,7 @@ impl Dashboard {
                             div()
                                 .h_full()
                                 .w(relative(remaining as f32 / 100.))
-                                .bg(rgb(0x9c83ff))
+                                .bg(accent)
                                 .rounded_full(),
                         ),
                 )
