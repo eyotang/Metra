@@ -12,6 +12,7 @@ use metra_lib::{
 use std::sync::Arc;
 
 mod preferences;
+mod runtime;
 mod usage;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -164,6 +165,14 @@ impl Render for Dashboard {
 fn main() {
     let config = config_dir().expect("configuration directory");
     std::fs::create_dir_all(&config).expect("create configuration directory");
+    let lock = match runtime::instance(&config) {
+        Ok(Some(lock)) => lock,
+        Ok(None) => return,
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+    };
     let service = Arc::new(RefreshService::new(SettingsStore::new(
         config.join("settings.db"),
     )));
@@ -171,31 +180,9 @@ fn main() {
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx| {
             gpui_kit::init(cx);
-            let bounds = Bounds::centered(None, size(px(420.), px(680.)), cx);
-            gpui_kit::open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    ..Default::default()
-                },
-                cx,
-                |_, cx| {
-                    cx.new(|cx| {
-                        let mut dashboard = Dashboard {
-                            page: Page::Details,
-                            error: None,
-                            settings_task: None,
-                            interval_task: None,
-                            service,
-                            refresh_task: None,
-                            refreshing: Vec::new(),
-                        };
-                        dashboard.refresh(cx);
-                        dashboard.schedule_refresh(cx);
-                        dashboard
-                    })
-                },
-            )
-            .expect("open Metra window");
-            cx.activate(true);
+            if let Err(error) = runtime::start(service, config, lock, cx) {
+                eprintln!("{error}");
+                cx.quit();
+            }
         });
 }

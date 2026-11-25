@@ -99,3 +99,16 @@ Linux native `cargo build --locked --manifest-path desktop-gpui/Cargo.toml`
 passes. An isolated native process remained alive for eight seconds, with no
 panic/error in its launch log, and was then terminated. This verifies startup
 only, not rendered appearance or interaction correctness.
+
+The native runtime now owns the dashboard independently of panel windows, an
+instance lock, a filesystem activation watcher, and a tray event receiver.
+Tray actions open details/settings, refresh, and quit. The icon uses the bundled
+macOS template or color PNG; Linux uses tray-icon's KSNI backend without GTK.
+Tray creation failure leaves the panel accessible. Status-mode cycling and menu
+retranslation after settings changes remain outstanding.
+
+Linux build and three native unit tests pass. A two-process isolated smoke test
+confirmed the second process exits successfully, the first consumes the
+activation request, and the first remains alive. No tray initialization error
+was logged. Tray clicking, closing/reopening panels, and other OS behavior are
+not yet accepted by this test.
