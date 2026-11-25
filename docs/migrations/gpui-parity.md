@@ -51,9 +51,15 @@ checkout. Candidate version: **0.6.0; not published**.
   legacy browser/native regressions alongside GPUI tests. Its Windows failure
   was the corrected Win32 `BOOL` import. It is not final release evidence.
 - The v0.6.0 Linux release package built locally through the default packaging
-  entry point. Public artifacts must come from the final tagged CI run.
+  entry point. Binary identity, package metadata, ownership, permissions,
+  notices and checksum were verified. Its production executable passed the
+  Omarchy/no-display JSON/watch/refresh/EOF contract. Public artifacts must come
+  from the final tagged CI run.
 - README screenshots are from the native v0.6.0 application with isolated,
   synthetic provider data, inspected after capture.
+
+The full workflow also caught an unstamped Omarchy source manifest; its version
+is now 0.6.0 and local source/archive manifest checks pass.
 
 The v0.6.0 candidate `4fac267` additionally exposed a Windows client/outer-origin
 mismatch in composited capture and a macOS activation-policy test precondition.
