@@ -194,3 +194,24 @@ still outstanding. Language labels now precede their controls, interval controls
 wrap, and cards have explicit boundaries. Panels close on focus loss. Update
 notes are collapsed by default and scroll within a bounded area when expanded.
 Linux native lifecycle smoke and three native unit tests pass after these changes.
+
+CI run 45556824806 built experimental macOS DMG and Windows NSIS/portable
+artifacts successfully. Linux initially failed the pre-existing malformed
+Claude-auth response assertion; the assertion hid the actual error message.
+The same full core unit suite passed locally, and rerunning the failed Linux
+job passed, including its installer. The root cause is not established; the
+assertion now includes the synthetic failure message for future diagnosis.
+
+Native numeric/currency/date formatting now uses pinned ICU4X locale data.
+Reference tests generated with the original Intl options cover seven locales,
+84 compact-number cases (including rounding/unit boundaries), 140 currency
+cases (USD/EUR/JPY/KRW/CNY), and seven date/time cases. All pass, along with the
+existing three native tests. French JPY/CNY symbols retain the original spelling.
+Values remain exact decimal integers until formatting; missing values stay dashes.
+The formatter uses local time for captured/reset timestamps, as before.
+
+Saved label normalization is now reflected in the editor only if its current text
+still equals the submitted text. A native lifecycle smoke verifies TEST becomes
+TES after save, then a subsequent NEW draft survives completion of an OLD save.
+The smoke passes on Linux. These changes still require the next platform CI run;
+previous installer artifacts do not include the new locale dependency set.

@@ -21,6 +21,10 @@ impl Dashboard {
             cx.notify();
             return;
         }
+        let label_submission = match &change {
+            Change::Label { provider, label } => Some((*provider, label.clone())),
+            _ => None,
+        };
         let refresh_after = matches!(change, Change::Compat(true));
         let service = self.service.clone();
         let work = cx.background_executor().spawn(async move {
@@ -39,6 +43,15 @@ impl Dashboard {
                 this.settings_task = None;
                 this.error = result.err();
                 if this.error.is_none() {
+                    if let Some((provider, submitted)) = label_submission {
+                        let saved = this.service.payload().settings;
+                        let normalized = match provider {
+                            Provider::Cursor => saved.cursor_bubble_label,
+                            Provider::Codex => saved.codex_bubble_label,
+                            Provider::Claude => saved.claude_bubble_label,
+                        };
+                        this.saved_labels.push((provider, submitted, normalized));
+                    }
                     this.schedule_refresh(cx);
                     if refresh_after {
                         this.refresh(cx);
@@ -341,6 +354,14 @@ impl Render for DraggedProvider {
 }
 impl Dashboard {
     pub(super) fn prepare_labels(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for (provider, submitted, normalized) in self.saved_labels.drain(..) {
+            if let Some((_, input, _, _)) = self.labels.iter().find(|(p, ..)| *p == provider) {
+                // A later keystroke is an unfinished edit, not the saved submission.
+                if input.read(cx).value().as_ref() == submitted {
+                    input.update(cx, |input, cx| input.set_value(normalized, window, cx));
+                }
+            }
+        }
         if !self.labels.is_empty() {
             return;
         }

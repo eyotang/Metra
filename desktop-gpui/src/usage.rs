@@ -1,14 +1,7 @@
 use super::*;
 use metra_lib::model::{Provider, ProviderSnapshot, ProviderStatus};
 
-fn number(value: Option<u64>) -> String {
-    value.map(|n| n.to_string()).unwrap_or_else(|| "—".into())
-}
-fn money(value: Option<u64>, currency: &str) -> String {
-    value
-        .map(|n| format!("{currency} {}.{:02}", n / 100, n % 100))
-        .unwrap_or_else(|| "—".into())
-}
+use super::formatting::{date, money, number};
 fn status_key(status: ProviderStatus) -> &'static str {
     match status {
         ProviderStatus::Available => "status.available",
@@ -33,14 +26,14 @@ fn metrics(snapshot: &ProviderSnapshot, t: I18n) -> Vec<(String, String)> {
         } else {
             "provider.localTodayTokens"
         };
-        values.push((t.t(today), number(tokens.today)));
+        values.push((t.t(today), number(tokens.today, t.locale)));
         values.push((
             t.t(if snapshot.provider == Provider::Codex {
                 "provider.officialLifetimeTokens"
             } else {
                 "provider.localLifetimeTokens"
             }),
-            number(tokens.lifetime),
+            number(tokens.lifetime, t.locale),
         ));
     }
     if let Some(cost) = &snapshot.cost {
@@ -49,8 +42,8 @@ fn metrics(snapshot: &ProviderSnapshot, t: I18n) -> Vec<(String, String)> {
                 t.t("native.included"),
                 format!(
                     "{} / {}",
-                    money(cost.included_used_cents, &cost.currency),
-                    money(cost.included_limit_cents, &cost.currency)
+                    money(cost.included_used_cents, &cost.currency, t.locale),
+                    money(cost.included_limit_cents, &cost.currency, t.locale)
                 ),
             ));
         }
@@ -61,15 +54,15 @@ fn metrics(snapshot: &ProviderSnapshot, t: I18n) -> Vec<(String, String)> {
                 t.t("native.ondemand"),
                 format!(
                     "{} / {}",
-                    money(cost.on_demand_used_cents, &cost.currency),
-                    money(cost.on_demand_limit_cents, &cost.currency)
+                    money(cost.on_demand_used_cents, &cost.currency, t.locale),
+                    money(cost.on_demand_limit_cents, &cost.currency, t.locale)
                 ),
             ));
         }
         if cost.today_used_cents.is_some() {
             values.push((
                 t.t("provider.apiEstimatedCostUtc"),
-                money(cost.today_used_cents, &cost.currency),
+                money(cost.today_used_cents, &cost.currency, t.locale),
             ));
         }
     }
@@ -116,13 +109,10 @@ impl Dashboard {
                     })),
             )
             .child(snapshot.plan.clone().unwrap_or_else(|| t.t("plan.unknown")))
-            .child(
-                snapshot
-                    .captured_at
-                    .with_timezone(&chrono::Local)
-                    .format("%Y-%m-%d %H:%M")
-                    .to_string(),
-            );
+            .child(date(
+                snapshot.captured_at.with_timezone(&chrono::Local),
+                t.locale,
+            ));
         for quota in &snapshot.quotas {
             let remaining = quota.remaining_percent.clamp(0., 100.);
             let mut row = div()
@@ -163,7 +153,7 @@ impl Dashboard {
                         "date",
                         format!(
                             "{} · {}h {}m",
-                            reset.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M"),
+                            date(reset.with_timezone(&chrono::Local), t.locale),
                             minutes / 60,
                             minutes % 60
                         ),
@@ -252,13 +242,13 @@ mod tests {
         let rows = metrics(&data, t);
         assert_eq!(rows.len(), 5);
         assert_eq!(rows[0], (t.t("provider.apiTodayTokensUtc"), "0".into()));
-        assert_eq!(rows[2].1, "USD 0.00 / USD 20.00");
+        assert_eq!(rows[2].1, "$0.00 / $20.00");
         assert_eq!(rows[3].1, t.t("common.disabled"));
-        assert_eq!(rows[4].1, "USD 0.00");
+        assert_eq!(rows[4].1, "$0.00");
     }
     #[::core::prelude::v1::test]
     fn missing_values_are_not_reported_as_zero() {
-        assert_eq!(number(None), "—");
-        assert_eq!(money(None, "USD"), "—");
+        assert_eq!(number(None, "en"), "—");
+        assert_eq!(money(None, "USD", "en"), "—");
     }
 }

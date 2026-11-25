@@ -1016,7 +1016,9 @@ exit 1"#,
             snapshot
                 .message
                 .as_deref()
-                .is_some_and(|value| value.contains("格式异常"))
+                .is_some_and(|value| value.contains("格式异常")),
+            "unexpected auth failure: {:?}",
+            snapshot.message
         );
     }
 

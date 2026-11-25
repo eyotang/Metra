@@ -12,6 +12,7 @@ use metra_lib::{
 use std::sync::Arc;
 
 mod bubble;
+mod formatting;
 mod native_window;
 mod operations;
 #[path = "../../src/platform.rs"]
@@ -29,6 +30,7 @@ enum Page {
 
 struct Dashboard {
     panel_activation: Option<Subscription>,
+    saved_labels: Vec<(metra_lib::model::Provider, String, String)>,
     update_notes_expanded: bool,
     page: Page,
     updater: Arc<metra_lib::updater::Updater>,

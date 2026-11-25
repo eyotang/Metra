@@ -278,6 +278,7 @@ pub(super) fn start(
     let dashboard = cx.new(|cx| {
         let mut view = Dashboard {
             panel_activation: None,
+            saved_labels: Vec::new(),
             update_notes_expanded: false,
             page: Page::Details,
             updater: Arc::new(metra_lib::updater::Updater::default()),
@@ -492,7 +493,7 @@ fn smoke(cx: &mut App) {
         .expect("Native smoke requires isolated METRA_CONFIG_DIR");
     cx.spawn(async move |cx| {
         use metra_lib::{settings::{DisplayMode,UiLanguage},settings_change::Change};
-        for phase in 0..6 {
+        for phase in 0..7 {
             cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
             cx.update(|cx| {
                 let dashboard=cx.global::<Runtime>().dashboard.clone();
@@ -519,6 +520,10 @@ fn smoke(cx: &mut App) {
                         assert!(cx.global::<Runtime>().bubble.is_some());
                         assert!(cx.global::<Runtime>().cycle_task.is_none());
                         assert_eq!(cx.windows().len(),2);
+                        cx.global::<Runtime>().panel.unwrap().update(cx, |_, window, cx| {
+                            let input = dashboard.read(cx).labels.iter().find(|(provider, ..)| *provider == metra_lib::model::Provider::Codex).unwrap().1.clone();
+                            input.update(cx, |input, cx| input.set_value("TEST", window, cx));
+                        }).unwrap();
                         dashboard.update(cx,|view,cx| {
                             view.save(Change::Label {provider:metra_lib::model::Provider::Codex,label:"TEST".into()},cx);
                             view.save(Change::Refresh(15),cx);
@@ -528,6 +533,12 @@ fn smoke(cx: &mut App) {
                         let saved=dashboard.read(cx).service.store.load();
                         assert_eq!(saved.codex_bubble_label,"TES");assert_eq!(saved.refresh_minutes,15);
                         assert!(dashboard.read(cx).pending_settings.is_empty());
+                        let input = dashboard.read(cx).labels.iter().find(|(provider, ..)| *provider == metra_lib::model::Provider::Codex).unwrap().1.clone();
+                        assert_eq!(input.read(cx).value().as_ref(), "TES");
+                        dashboard.update(cx, |view,cx| view.save(Change::Label {provider:metra_lib::model::Provider::Codex,label:"OLD".into()},cx));
+                        cx.global::<Runtime>().panel.unwrap().update(cx, |_,window,cx| {
+                            input.update(cx, |input,cx| input.set_value("NEW",window,cx));
+                        }).unwrap();
                         let bubble=cx.global::<Runtime>().bubble.unwrap();
                         bubble.update(cx,|_,window,cx| {
                             let (x,y)=native_window::position(window).unwrap();
@@ -537,6 +548,11 @@ fn smoke(cx: &mut App) {
                             assert!(x as f64+width<=work.x+work.width+2.);
                             assert!(y as f64+56.*scale<=work.y+work.height+2.);
                         }).unwrap();
+                    },
+                    5=>{
+                        let input = &dashboard.read(cx).labels.iter().find(|(provider, ..)| *provider == metra_lib::model::Provider::Codex).unwrap().1;
+                        assert_eq!(input.read(cx).value().as_ref(), "NEW");
+                        assert_eq!(dashboard.read(cx).service.store.load().codex_bubble_label, "OLD");
                     },
                     _=>{
                         std::fs::write(std::path::Path::new(&config).join("native-smoke.result"),"PASS: panel recreation, display modes, language menu, queued settings persistence").unwrap();
