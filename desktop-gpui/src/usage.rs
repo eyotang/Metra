@@ -98,6 +98,9 @@ impl Dashboard {
             .gap_2()
             .p_3()
             .border_1()
+            .border_color(rgb(0x303849))
+            .bg(rgb(0x171c27))
+            .flex_shrink_0()
             .rounded_lg()
             .child(
                 div()

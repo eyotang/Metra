@@ -33,3 +33,15 @@ jobs:
       - run: cargo test --locked --no-default-features --all-targets
       - run: cargo check --locked --manifest-path desktop-gpui/Cargo.toml --all-targets --features native-smoke
       - run: cargo test --locked --manifest-path desktop-gpui/Cargo.toml
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build experimental native installer
+        run: node scripts/package-gpui.mjs --debug --output native-installer
+      - uses: actions/upload-artifact@v6
+        with:
+          name: gpui-experimental-${{ runner.os }}
+          path: native-installer/*
+          retention-days: 7

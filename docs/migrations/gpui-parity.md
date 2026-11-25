@@ -179,3 +179,18 @@ npm policy and is not needed for native packaging).
 CI run 45555678600 is still running for the earlier 856365b commit. Subsequent
 changes are kept local until it finishes to avoid cancelling first-platform
 build evidence. Remote CI does not yet validate these latest changes.
+
+First three-platform CI run 45555678600 passed on Linux, macOS and Windows at
+856365b (core contracts, native check and unit tests). It does not establish
+installer behavior or native pointer interaction on macOS/Windows. The next
+workflow additionally builds experimental debug installers and retains artifacts.
+
+A feature-gated METRA_GPUI_DEMO mode supplies synthetic provider data for visual
+inspection and requires METRA_CONFIG_DIR. Linux screenshots exposed a tiled
+panel; panels now use popup windows, preserve the 340/360 logical widths, and
+resize on navigation. Shared bundled typography is compact. Settings and usage
+screens were inspected with simulated data; scrolling and input acceptance are
+still outstanding. Language labels now precede their controls, interval controls
+wrap, and cards have explicit boundaries. Panels close on focus loss. Update
+notes are collapsed by default and scroll within a bounded area when expanded.
+Linux native lifecycle smoke and three native unit tests pass after these changes.

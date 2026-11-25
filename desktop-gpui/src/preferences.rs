@@ -57,7 +57,7 @@ impl Dashboard {
         let s = self.service.payload().settings;
         let t = I18n::new(s.ui_language);
         let busy = self.settings_task.is_some();
-        let mut view = div().v_flex().gap_3().child(t.t("menu.language"));
+        let mut view = div().v_flex().gap_3();
         let mut languages = div().h_flex().flex_wrap().gap_2();
         for (i, (language, title)) in [
             (UiLanguage::System, t.t("menu.languageSystem")),
@@ -130,7 +130,10 @@ impl Dashboard {
                     this.save(Change::Autostart(*enabled), cx)
                 })),
         );
-        view = view.child(languages).child(t.t("menu.bubblePercentage"));
+        view = view
+            .child(t.t("menu.language"))
+            .child(languages)
+            .child(t.t("menu.bubblePercentage"));
         for (i, (mode, key)) in [
             (BubblePercentMode::Remaining, "menu.remaining"),
             (BubblePercentMode::Used, "menu.used"),
@@ -148,7 +151,7 @@ impl Dashboard {
                     ),
             );
         }
-        let mut intervals = div().h_flex().gap_2();
+        let mut intervals = div().h_flex().flex_wrap().gap_2();
         for (i, minutes) in [1, 5, 15, 30, 60].into_iter().enumerate() {
             intervals = intervals.child(
                 Button::new(("interval", i))

@@ -28,6 +28,8 @@ enum Page {
 }
 
 struct Dashboard {
+    panel_activation: Option<Subscription>,
+    update_notes_expanded: bool,
     page: Page,
     updater: Arc<metra_lib::updater::Updater>,
     update_task: Option<Task<()>>,
@@ -138,7 +140,8 @@ impl Render for Dashboard {
                 .child(
                     Button::new("details")
                         .label(t.t("native.details"))
-                        .on_click(cx.listener(|this, _, _, cx| {
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            runtime::position_panel(Page::Details, window, cx);
                             this.page = Page::Details;
                             cx.notify();
                         })),
@@ -146,7 +149,8 @@ impl Render for Dashboard {
                 .child(
                     Button::new("settings")
                         .label(t.t("native.settings"))
-                        .on_click(cx.listener(|this, _, _, cx| {
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            runtime::position_panel(Page::Settings, window, cx);
                             this.page = Page::Settings;
                             cx.notify();
                         })),
@@ -175,6 +179,10 @@ impl Render for Dashboard {
             return div()
                 .v_flex()
                 .size_full()
+                .text_sm()
+                .bg(rgb(0x121620))
+                .text_color(rgb(0xe8ecf3))
+                .font_family("Inter")
                 .child(header)
                 .child(content.child(self.preferences(cx)));
         }
@@ -182,6 +190,10 @@ impl Render for Dashboard {
             return div()
                 .v_flex()
                 .size_full()
+                .text_sm()
+                .bg(rgb(0x121620))
+                .text_color(rgb(0xe8ecf3))
+                .font_family("Inter")
                 .child(header)
                 .child(content.child(self.consent(cx)));
         }
@@ -213,6 +225,7 @@ impl Render for Dashboard {
         div()
             .v_flex()
             .size_full()
+            .text_sm()
             .bg(rgb(0x121620))
             .text_color(rgb(0xe8ecf3))
             .font_family("Inter")
@@ -258,6 +271,8 @@ fn main() {
         .run(move |cx| {
             gpui_kit::init(cx);
             component::Theme::change(component::ThemeMode::Dark, None, cx);
+            component::Theme::global_mut(cx).font_size = px(12.);
+            component::Theme::global_mut(cx).font_family = "Inter".into();
             if let Err(error) =
                 cx.text_system()
                     .add_fonts(vec![std::borrow::Cow::Borrowed(include_bytes!(

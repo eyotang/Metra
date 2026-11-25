@@ -102,7 +102,24 @@ impl Dashboard {
                     ],
                 ));
             if let Some(notes) = status.notes {
-                view = view.child(notes);
+                view = view.child(
+                    Button::new("update-notes")
+                        .label(t.t("common.operation"))
+                        .selected(self.update_notes_expanded)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.update_notes_expanded = !this.update_notes_expanded;
+                            cx.notify();
+                        })),
+                );
+                if self.update_notes_expanded {
+                    view = view.child(
+                        div()
+                            .id("update-notes-body")
+                            .max_h(px(96.))
+                            .overflow_y_scroll()
+                            .child(notes),
+                    );
+                }
             }
             view = view.child(
                 Button::new("install-update")

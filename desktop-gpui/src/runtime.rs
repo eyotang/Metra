@@ -80,11 +80,23 @@ pub(super) fn open_panel(page: Page, cx: &mut App) {
     match gpui_kit::open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
+            kind: WindowKind::PopUp,
+            titlebar: None,
+            window_min_size: Some(size(px(280.), px(160.))),
             ..Default::default()
         },
         cx,
         move |window, cx| {
             position_panel(page, window, cx);
+            dashboard.update(cx, |view, cx| {
+                view.panel_activation =
+                    Some(cx.observe_window_activation(window, |_, window, cx| {
+                        if !window.is_window_active() {
+                            window.remove_window();
+                            cx.global_mut::<Runtime>().panel = None;
+                        }
+                    }));
+            });
             dashboard
         },
     ) {
@@ -93,7 +105,7 @@ pub(super) fn open_panel(page: Page, cx: &mut App) {
     }
 }
 
-fn position_panel(page: Page, window: &mut Window, cx: &mut App) {
+pub(super) fn position_panel(page: Page, window: &mut Window, cx: &mut App) {
     let result = (|| {
         let (mut work, mut scale) = native_window::work_area(window, cx)?;
         let anchor = if let Some(bubble) = cx.global::<Runtime>().bubble {
@@ -147,6 +159,70 @@ pub(super) fn start(
     lock: File,
     cx: &mut App,
 ) -> Result<(), String> {
+    #[cfg(feature = "native-smoke")]
+    if std::env::var_os("METRA_GPUI_DEMO").is_some() {
+        assert!(
+            std::env::var_os("METRA_CONFIG_DIR").is_some(),
+            "Demo requires isolated configuration"
+        );
+        use metra_lib::model::{CostUsage, ProviderStatus, QuotaWindow, TokenUsage};
+        let mut snapshot = service.snapshot.lock().unwrap();
+        snapshot.refreshing = false;
+        let captured = chrono::Utc::now();
+        for (data, plan, used) in [(&mut snapshot.cursor, "Pro", 23.)] {
+            data.status = ProviderStatus::Available;
+            data.plan = Some(plan.into());
+            data.captured_at = captured;
+            data.message = None;
+            data.quotas = vec![QuotaWindow::from_used_percent(
+                "Monthly",
+                used,
+                None,
+                Some(captured + chrono::Duration::days(4)),
+            )];
+            data.cost = Some(CostUsage {
+                currency: "USD".into(),
+                today_used_cents: None,
+                included_used_cents: Some(2300),
+                included_limit_cents: Some(10000),
+                on_demand_used_cents: None,
+                on_demand_limit_cents: None,
+                on_demand_enabled: Some(false),
+                period_end: None,
+            });
+        }
+        snapshot.codex.status = ProviderStatus::Available;
+        snapshot.codex.plan = Some("Plus".into());
+        snapshot.codex.message = None;
+        snapshot.codex.quotas = vec![
+            QuotaWindow::from_used_percent(
+                "5 hours",
+                30.,
+                Some(300),
+                Some(captured + chrono::Duration::hours(2)),
+            ),
+            QuotaWindow::from_used_percent(
+                "Weekly",
+                18.,
+                Some(10080),
+                Some(captured + chrono::Duration::days(4)),
+            ),
+        ];
+        snapshot.codex.tokens = Some(TokenUsage {
+            today: Some(12000),
+            lifetime: Some(900000),
+            peak_daily: None,
+        });
+        snapshot.claude.status = ProviderStatus::Available;
+        snapshot.claude.plan = Some("Pro".into());
+        snapshot.claude.message = None;
+        snapshot.claude.quotas = vec![QuotaWindow::from_used_percent(
+            "5 hours",
+            44.,
+            Some(300),
+            None,
+        )];
+    }
     let t = I18n::new(service.payload().settings.ui_language);
     let (sender, receiver) = async_channel::unbounded::<String>();
     let menu = Menu::new();
@@ -201,6 +277,8 @@ pub(super) fn start(
         .ok();
     let dashboard = cx.new(|cx| {
         let mut view = Dashboard {
+            panel_activation: None,
+            update_notes_expanded: false,
             page: Page::Details,
             updater: Arc::new(metra_lib::updater::Updater::default()),
             update_task: None,
@@ -215,9 +293,11 @@ pub(super) fn start(
             refresh_task: None,
             refreshing: Vec::new(),
         };
-        view.refresh(cx);
-        view.schedule_refresh(cx);
-        view.schedule_update(std::time::Duration::from_secs(20), cx);
+        if !(cfg!(feature = "native-smoke") && std::env::var_os("METRA_GPUI_DEMO").is_some()) {
+            view.refresh(cx);
+            view.schedule_refresh(cx);
+            view.schedule_update(std::time::Duration::from_secs(20), cx);
+        }
         view
     });
     let activation_path = config.join("activate");
@@ -289,7 +369,10 @@ pub(super) fn start(
     sync(cx);
     if std::env::args().any(|a| a == "--settings") {
         open_panel(Page::Settings, cx);
-    } else if cfg!(feature = "native-smoke") && std::env::var_os("METRA_GPUI_SMOKE").is_some() {
+    } else if cfg!(feature = "native-smoke")
+        && (std::env::var_os("METRA_GPUI_SMOKE").is_some()
+            || std::env::var_os("METRA_GPUI_DEMO").is_some())
+    {
         open_panel(Page::Details, cx);
     }
     #[cfg(feature = "native-smoke")]
