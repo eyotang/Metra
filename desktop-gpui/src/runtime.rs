@@ -14,6 +14,7 @@ pub(super) struct Runtime {
     pub panel: Option<AnyWindowHandle>,
     bubble: Option<AnyWindowHandle>,
     _state: Subscription,
+    _displays: Subscription,
     tray_locale: String,
     icon: tray_icon::Icon,
     cycle: usize,
@@ -150,6 +151,32 @@ pub(super) fn position_panel(page: Page, window: &mut Window, cx: &mut App) {
     })();
     if let Err(error) = result {
         eprintln!("Unable to position panel: {error}");
+    }
+}
+
+fn recover_windows(cx: &mut App) {
+    if let Some(bubble) = cx.global::<Runtime>().bubble {
+        let _ = bubble.update(cx, |_, window, cx| {
+            let result = (|| {
+                let (work, scale) = native_window::work_area(window, cx)?;
+                let (x, y) = native_window::position(window)?;
+                let bounds = window.bounds();
+                let (x, y) = work.clamp(
+                    x as f64,
+                    y as f64,
+                    f64::from(f32::from(bounds.size.width)) * scale,
+                    f64::from(f32::from(bounds.size.height)) * scale,
+                );
+                native_window::move_to(window, x, y)
+            })();
+            if let Err(error) = result {
+                eprintln!("Unable to recover bubble position: {error}");
+            }
+        });
+    }
+    if let Some(panel) = cx.global::<Runtime>().panel {
+        let page = cx.global::<Runtime>().dashboard.read(cx).page;
+        let _ = panel.update(cx, |_, window, cx| position_panel(page, window, cx));
     }
 }
 
@@ -353,11 +380,13 @@ pub(super) fn start(
         }
     });
     let state = cx.observe(&dashboard, |_, cx| sync(cx));
+    let displays = cx.observe_displays(|_, cx| cx.defer(recover_windows));
     cx.set_global(Runtime {
         dashboard,
         panel: None,
         bubble: None,
         _state: state,
+        _displays: displays,
         tray_locale: String::new(),
         icon,
         cycle: 0,
@@ -508,8 +537,9 @@ fn smoke(cx: &mut App) {
                         dashboard.update(cx,|view,cx|view.save(Change::Display(DisplayMode::StatusBar),cx));
                     },
                     1=>{
-                        assert!(cx.global::<Runtime>().bubble.is_none());
-                        assert_eq!(cx.windows().len(),1);
+                        let tray_available = cx.global::<Runtime>()._tray.is_some();
+                        assert_eq!(cx.global::<Runtime>().bubble.is_none(), tray_available);
+                        assert_eq!(cx.windows().len(),if tray_available {1} else {2});
                         dashboard.update(cx,|view,cx|view.save(Change::Language(UiLanguage::Ja),cx));
                     },
                     2=>{
@@ -550,6 +580,19 @@ fn smoke(cx: &mut App) {
                         }).unwrap();
                     },
                     5=>{
+                        let bubble = cx.global::<Runtime>().bubble.unwrap();
+                        bubble.update(cx, |_,window,cx| {
+                            let (work,_) = native_window::work_area(window,cx).unwrap();
+                            native_window::move_to(window,(work.x+work.width+100.) as i32,(work.y+work.height+100.) as i32).unwrap();
+                        }).unwrap();
+                        recover_windows(cx);
+                        bubble.update(cx, |_,window,cx| {
+                            let (work,scale) = native_window::work_area(window,cx).unwrap();
+                            let (x,y) = native_window::position(window).unwrap();
+                            assert!(x as f64 >= work.x && y as f64 >= work.y);
+                            assert!(x as f64 + 32.*scale <= work.x+work.width+2.);
+                            assert!(y as f64 + 56.*scale <= work.y+work.height+2.);
+                        }).unwrap();
                         let input = &dashboard.read(cx).labels.iter().find(|(provider, ..)| *provider == metra_lib::model::Provider::Codex).unwrap().1;
                         assert_eq!(input.read(cx).value().as_ref(), "NEW");
                         assert_eq!(dashboard.read(cx).service.store.load().codex_bubble_label, "OLD");

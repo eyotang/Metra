@@ -215,3 +215,29 @@ still equals the submitted text. A native lifecycle smoke verifies TEST becomes
 TES after save, then a subsequent NEW draft survives completion of an OLD save.
 The smoke passes on Linux. These changes still require the next platform CI run;
 previous installer artifacts do not include the new locale dependency set.
+
+Windows release builds now select the GUI subsystem; a native build script adds
+Metra icon group 1 and version identity. GPUI's existing manifest remains the
+single source of PerMonitorV2/asInvoker settings. Packaging now inspects the PE
+resource tree and subsystem before accepting a Windows bundle. Actual linked
+resource validation awaits Windows CI. macOS sets accessory activation before
+launch; packaging verifies codesign, bundle identity/version/LSUIElement, CPU
+architectures and DMG integrity. These platform-specific changes await CI.
+
+A portable scripts/smoke-gpui.mjs runner launches the native smoke feature with
+an isolated configuration and a bounded timeout. CI now runs it on all three
+systems (Xvfb/software Vulkan/session D-Bus on Linux) before packaging. The
+updated Linux host build/check and smoke pass. No remote runtime acceptance is
+claimed until those jobs finish. The workflow preserves running evidence instead
+of cancelling it when a new commit is pushed.
+
+Native macOS work-area coordinates now come from the global AppKit visible
+frame, matching the native positioning adapter; GPUI's display-local bounds were
+incorrect for secondary monitors. Display-change events clamp bubble position
+and re-anchor panels without a polling timer. Linux compiles this code; macOS
+compilation and real mixed-DPI/display-removal acceptance remain outstanding.
+GPUI/GPUI Kit Apache and ICU4X Unicode license texts are bundled in third-party
+notices. The optional earlier Windows artifact download was stopped after it remained
+pending; PE inspection will run directly on the newly linked executable in CI.
+No local installed application has been replaced. The Linux native smoke also
+passes a real offscreen move followed by the display-recovery clamp.

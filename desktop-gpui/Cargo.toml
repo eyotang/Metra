@@ -39,3 +39,6 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_Wind
 objc2 = "0.6"
 objc2-app-kit = "0.3"
 objc2-foundation = "0.3"
+
+[target.'cfg(windows)'.build-dependencies]
+tauri-winres = "=0.3.7"

@@ -39,6 +39,7 @@ for(const target of targets){
 }
 const binary=join(stagedProfile,`metra${suffix}`);
 if(universal) run('lipo',['-create',...binaries,'-output',binary]);else copyFileSync(binaries[0],binary);
+if(process.platform==='win32') run(process.execPath,[join(root,'scripts/verify-gpui-windows.mjs'),binary,...(debug?['--debug']:[])]);
 if(process.platform==='linux') {
  mkdirSync(output,{recursive:true});
  const destination=join(output,`Metra-${version}-linux-${process.arch}.deb`);
@@ -51,6 +52,18 @@ const args=[join(root,'node_modules/@tauri-apps/cli/tauri.js'),'bundle','--ci','
 if(debug) args.push('--debug');
 if(universal) args.push('--target',targetName);
 run(process.execPath,args,{...process.env,CARGO_TARGET_DIR:staging});
+if(process.platform==='darwin') {
+ const app=join(stagedProfile,'bundle/macos/Metra.app');
+ run('/usr/bin/codesign',['--verify','--deep','--strict',app]);
+ const info=join(app,'Contents/Info.plist');
+ const property=key=> {
+  const result=spawnSync('/usr/bin/plutil',['-extract',key,'raw','-o','-',info],{encoding:'utf8'});
+  if(result.status!==0) throw Error(`Missing macOS property ${key}`);
+  return result.stdout.trim();
+ };
+ if(property('CFBundleIdentifier')!=='dev.metra.desktop' || property('CFBundleExecutable')!=='metra' || property('CFBundleShortVersionString')!==version || property('LSUIElement')!=='true') throw Error('Native app metadata differs from the installed Metra identity');
+ run('/usr/bin/lipo',['-verify_arch',...(universal?['arm64','x86_64']:[process.arch==='arm64'?'arm64':'x86_64']),join(app,'Contents/MacOS/metra')]);
+}
 const directory=join(stagedProfile,'bundle',bundle);
 const files=readdirSync(directory).filter(name=>name.includes(version) && name.endsWith(bundle==='nsis'?'-setup.exe':`.${bundle}`));
 if(files.length!==1) throw Error(`Expected one ${bundle}, found ${files.length}`);
@@ -59,6 +72,7 @@ const platform={linux:'linux',darwin:'macos',win32:'windows'}[process.platform];
 const arch=universal?'universal':process.arch;
 const destination=join(output,`Metra-${version}-${platform}-${arch}${bundle==='nsis'?'-setup.exe':`.${bundle}`}`);
 copyFileSync(join(directory,files[0]),destination);
+if(process.platform==='darwin') run('/usr/bin/hdiutil',['verify',destination]);
 if(bundle==='nsis') copyFileSync(binary,join(output,`Metra-${version}-windows-${arch}-portable.exe`));
 else writeFileSync(`${destination}.sha256`,`${createHash('sha256').update(readFileSync(destination)).digest('hex')}  ${basename(destination)}\n`);
 console.log(destination);

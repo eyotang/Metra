@@ -3,7 +3,42 @@ use metra_lib::geometry::WorkArea;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 pub(super) fn work_area(window: &Window, cx: &App) -> Result<(WorkArea, f64), String> {
-    let display = window.display(cx).ok_or("No display available")?;
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::MainThreadMarker;
+        use objc2_app_kit::{NSScreen, NSView};
+        let mtm = MainThreadMarker::new().ok_or("Window access requires main thread")?;
+        let handle = HasWindowHandle::window_handle(window)
+            .map_err(|e| e.to_string())?
+            .as_raw();
+        if let RawWindowHandle::AppKit(handle) = handle {
+            // GPUI's macOS visible_bounds is display-local. AppKit provides the
+            // global frame needed to match position()/move_to() on other screens.
+            unsafe {
+                let view = &*(handle.ns_view.as_ptr() as *const NSView);
+                let native = view.window().ok_or("Native window unavailable")?;
+                let screens = NSScreen::screens(mtm);
+                let primary = screens.firstObject().ok_or("No display available")?;
+                let screen = native.screen().unwrap_or_else(|| primary.clone());
+                let visible = screen.visibleFrame();
+                let scale = screen.backingScaleFactor();
+                return Ok((
+                    WorkArea {
+                        x: visible.origin.x * scale,
+                        y: (primary.frame().size.height - visible.origin.y - visible.size.height)
+                            * scale,
+                        width: visible.size.width * scale,
+                        height: visible.size.height * scale,
+                    },
+                    scale,
+                ));
+            }
+        }
+    }
+    let display = window
+        .display(cx)
+        .or_else(|| cx.primary_display())
+        .ok_or("No display available")?;
     let bounds = display.visible_bounds();
     let scale = f64::from(window.scale_factor());
     Ok((

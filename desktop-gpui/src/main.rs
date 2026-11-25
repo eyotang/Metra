@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 //! Independent migration entry point; the released shell remains available during parity work.
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -268,25 +270,26 @@ fn main() {
     let service = Arc::new(RefreshService::new(SettingsStore::new(
         config.join("settings.db"),
     )));
-    gpui_kit::application()
-        .with_assets(gpui_kit::assets::Assets)
-        .run(move |cx| {
-            gpui_kit::init(cx);
-            component::Theme::change(component::ThemeMode::Dark, None, cx);
-            component::Theme::global_mut(cx).font_size = px(12.);
-            component::Theme::global_mut(cx).font_family = "Inter".into();
-            if let Err(error) =
-                cx.text_system()
-                    .add_fonts(vec![std::borrow::Cow::Borrowed(include_bytes!(
-                        "../../assets/fonts/InterVariable.ttf"
-                    ))])
-            {
-                eprintln!("Unable to load bundled font: {error}");
-            }
+    let application = gpui_kit::application().with_assets(gpui_kit::assets::Assets);
+    #[cfg(target_os = "macos")]
+    application.update(|cx| cx.set_activation_policy(ActivationPolicy::Accessory));
+    application.run(move |cx| {
+        gpui_kit::init(cx);
+        component::Theme::change(component::ThemeMode::Dark, None, cx);
+        component::Theme::global_mut(cx).font_size = px(12.);
+        component::Theme::global_mut(cx).font_family = "Inter".into();
+        if let Err(error) =
+            cx.text_system()
+                .add_fonts(vec![std::borrow::Cow::Borrowed(include_bytes!(
+                    "../../assets/fonts/InterVariable.ttf"
+                ))])
+        {
+            eprintln!("Unable to load bundled font: {error}");
+        }
 
-            if let Err(error) = runtime::start(service, config, lock, cx) {
-                eprintln!("{error}");
-                cx.quit();
-            }
-        });
+        if let Err(error) = runtime::start(service, config, lock, cx) {
+            eprintln!("{error}");
+            cx.quit();
+        }
+    });
 }
