@@ -107,6 +107,7 @@ const metric = (name: string, value: string) => html`<div><dt>${name}</dt><dd>${
 function providerCard(p: Provider) {
   const s = state.snapshot[p];
   const loading = isRefreshing(p);
+  const hasStaleUsage = s.stale && (s.quotas.length > 0 || s.tokens != null || s.cost != null);
   const statusKeys: Record<string, string> = { available: 'available', desktop_installed: 'desktopInstalled', not_installed: 'notInstalled', not_logged_in: 'notLoggedIn', unsupported: 'unsupported', network_error: 'networkError', protocol_error: 'protocolError' };
   const metrics: TemplateResult[] = [];
   if (s.tokens) {
@@ -122,8 +123,8 @@ function providerCard(p: Provider) {
   }
   return html`<article class="provider-card" style=${`--accent:${color(p)}`} data-provider=${p} aria-busy=${String(loading)}>
     <header class="line"><h2><span class="provider-mark">${label(p)}</span>${names[p]}</h2>
-      <span class=${`status ${s.stale && !loading ? 'stale' : ''}`}>
-        ${loading ? html`${spinner()}<span>${t('refresh.refreshing')}</span>` : t(s.stale ? 'status.stale' : `status.${statusKeys[s.status] ?? 'unsupported'}`)}
+      <span class=${`status ${hasStaleUsage && !loading ? 'stale' : ''}`}>
+        ${loading ? html`${spinner()}<span>${t('refresh.refreshing')}</span>` : t(hasStaleUsage ? 'status.stale' : `status.${statusKeys[s.status] ?? 'unsupported'}`)}
       </span></header>
     ${loading ? html`<wa-progress-bar class="detecting" indeterminate label=${t('provider.connectingTitle', { provider: names[p] })}></wa-progress-bar>` : nothing}
     <p class="meta">${s.plan ?? t('plan.unknown')}<span>${date(s.capturedAt)}</span></p>

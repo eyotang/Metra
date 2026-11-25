@@ -104,6 +104,7 @@
   "provider.message.protocolError": "{provider} вернул данные, которые Metra не распознала",
   "provider.message.unsupported": "{provider} сейчас недоступен",
   "cursor.compatRequired": "Включите персональный режим совместимости для точных данных",
+  "cursor.localTokenDecryptionFailed": "Metra не удалось расшифровать локальный токен входа Cursor. Точные данные об использовании обновить не удалось.",
   "claude.noLimitLocalTokens": "Claude Code не предоставляет лимиты подписки; токены считаются по локальным сеансам.",
   "claude.noUsageStats": "Этот способ входа в Claude Code не предоставляет лимиты и суммы токенов.",
   "claude.adminConfigureWithLocal": "Вход по ключу API. Показаны токены локальных сеансов; настройте ANTHROPIC_ADMIN_KEY для официальных данных.",

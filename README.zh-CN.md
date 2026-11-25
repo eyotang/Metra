@@ -70,7 +70,7 @@ npm run test:ui
 
 在 macOS 上，Metra 将导入的 Cursor 登录令牌保存到自己的系统钥匙串条目，并缓存在内存中。本地令牌变化或认证失效时重新导入；退出 Cursor 登录或关闭兼容模式时清除缓存。不复制 Cursor 解密密钥，凭据不会写入设置文件或日志。
 
-Cursor 用量优先复用 CLI 登录，凭据不可用或认证失败时回退到桌面应用。
+Cursor 用量优先复用 CLI 登录，凭据不可用或认证失败时回退到桌面应用。在 Windows 上，Metra 使用当前系统账户解密桌面版令牌。解密失败时会显示错误，并保留上次成功读取的用量。
 
 macOS 本地安装：首次运行 `npm run setup:local-signing`，之后运行 `npm run build` 和 `npm run install:local`。更新时复用同一签名身份，使钥匙串授权绑定到 Metra。
 

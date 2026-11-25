@@ -104,6 +104,7 @@
   "provider.message.protocolError": "{provider} a renvoyé des données non reconnues par Metra",
   "provider.message.unsupported": "{provider} est actuellement indisponible",
   "cursor.compatRequired": "Activez le mode de compatibilité personnel pour lire l’utilisation exacte",
+  "cursor.localTokenDecryptionFailed": "Metra n’a pas pu déchiffrer le jeton de connexion local de Cursor. Les données d’utilisation exactes n’ont pas pu être actualisées.",
   "claude.noLimitLocalTokens": "Claude Code ne fournit pas de limites d’abonnement ; les tokens sont comptés depuis les sessions locales.",
   "claude.noUsageStats": "Cette méthode de connexion Claude Code ne fournit ni limites ni total de tokens.",
   "claude.adminConfigureWithLocal": "Connexion par clé API. Tokens des sessions locales affichés ; configurez ANTHROPIC_ADMIN_KEY pour les données officielles.",

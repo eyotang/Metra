@@ -70,7 +70,7 @@ Open a focused PR explaining the problem, the change and how you verified it. In
 
 On macOS, Metra stores the imported Cursor sign-in token in its own system Keychain item and caches it in memory. A changed local token or failed authentication triggers reimport. Signing out of Cursor or disabling compatibility mode clears the cache. The Cursor decryption key is not copied; credentials never enter settings files or logs.
 
-Cursor usage prefers the CLI sign-in and falls back to the desktop app when unavailable or rejected.
+Cursor usage prefers the CLI sign-in and falls back to the desktop app when unavailable or rejected. On Windows, Metra reads encrypted desktop tokens with the current Windows account. If decryption fails, Metra reports the error and keeps the last successful usage reading.
 
 For a local macOS install, run `npm run setup:local-signing` once, then `npm run build` and `npm run install:local`. Reuse the same signing identity across updates so Keychain access remains bound to Metra.
 

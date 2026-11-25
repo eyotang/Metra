@@ -1,5 +1,6 @@
 {
   "开启个人兼容模式后可读取精确用量": "cursor.compatRequired",
+  "无法解密 Cursor 本地登录令牌": "cursor.localTokenDecryptionFailed",
   "Claude Code 未提供套餐额度；Token 为本地会话统计": "claude.noLimitLocalTokens",
   "Claude Code 当前登录方式未提供额度或 Token 统计": "claude.noUsageStats",
   "API Key 登录；当前显示本机会话 Token。配置 ANTHROPIC_ADMIN_KEY 后可读取官方用量": "claude.adminConfigureWithLocal",

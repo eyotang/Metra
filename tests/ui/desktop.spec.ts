@@ -81,6 +81,21 @@ test('details render real payload fields, cached data and escaped provider messa
   await expect(page.getByRole('button', { name: 'Download update', exact: true })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('details.png') });
 });
+test('Cursor keeps the signed-in state when exact usage cannot be read', async ({ page }) => {
+  const message = en['cursor.localTokenDecryptionFailed'];
+  await setup(page, {
+    settings: { ...fixture.settings, cursorCompatEnabled: true },
+    snapshot: {
+      ...fixture.snapshot,
+      cursor: { ...fixture.snapshot.cursor, quotas: [], cost: null, stale: true, message },
+    },
+  });
+  await page.goto('/?view=panel');
+  const card = page.locator('[data-provider="cursor"]');
+  await expect(card.locator('.status')).toHaveText(en['status.available']);
+  await expect(card.getByText(message)).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Sign in to Cursor' })).toHaveCount(0);
+});
 test('compatibility requires the consent screen and explicit enable action', async ({ page }) => {
   await setup(page); await page.goto('/?view=panel'); await settings(page);
   await page.getByRole('switch', { name: 'Cursor compatibility' }).focus();

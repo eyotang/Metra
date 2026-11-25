@@ -222,7 +222,12 @@ pub fn merge_snapshot(
     old: ProviderSnapshot,
     mut failed_or_new: ProviderSnapshot,
 ) -> ProviderSnapshot {
-    if failed_or_new.status == ProviderStatus::Available {
+    // Cursor can confirm the CLI sign-in even when precise usage fails.
+    let keep_cursor_usage = failed_or_new.provider == Provider::Cursor
+        && failed_or_new.stale
+        && old.status == ProviderStatus::Available
+        && (!old.quotas.is_empty() || old.tokens.is_some() || old.cost.is_some());
+    if failed_or_new.status == ProviderStatus::Available && !keep_cursor_usage {
         preserve_nonzero_lifetime_tokens(&old, &mut failed_or_new);
         return failed_or_new;
     }

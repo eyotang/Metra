@@ -104,6 +104,7 @@
   "provider.message.protocolError": "{provider} returned data Metra could not recognize",
   "provider.message.unsupported": "{provider} is currently unavailable",
   "cursor.compatRequired": "Enable personal compatibility mode to read exact usage",
+  "cursor.localTokenDecryptionFailed": "Metra could not decrypt the local Cursor sign-in token. Exact usage could not be refreshed.",
   "claude.noLimitLocalTokens": "Claude Code does not provide subscription limits; tokens are counted from local sessions.",
   "claude.noUsageStats": "This Claude Code sign-in method does not provide limits or token totals.",
   "claude.adminConfigureWithLocal": "Signed in with an API key. Showing tokens from local sessions; configure ANTHROPIC_ADMIN_KEY to read official usage.",

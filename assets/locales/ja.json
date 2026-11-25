@@ -104,6 +104,7 @@
   "provider.message.protocolError": "{provider} から認識できないデータが返されました",
   "provider.message.unsupported": "{provider} は現在利用できません",
   "cursor.compatRequired": "正確な使用量を取得するには個人互換モードを有効にしてください",
+  "cursor.localTokenDecryptionFailed": "Cursor のローカルログイントークンを復号できなかったため、正確な使用量を更新できませんでした。",
   "claude.noLimitLocalTokens": "Claude Code はサブスクリプション上限を提供していません。トークン数はローカルセッションから集計されます。",
   "claude.noUsageStats": "現在の Claude Code のログイン方法では、上限やトークン数を取得できません。",
   "claude.adminConfigureWithLocal": "API キーでログイン中です。ローカルセッションのトークンを表示中です。ANTHROPIC_ADMIN_KEY を設定すると公式使用量を取得できます。",

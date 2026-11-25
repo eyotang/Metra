@@ -70,7 +70,7 @@ Gardez chaque PR ciblée : expliquez le problème, la modification et les vérif
 
 Sur macOS, Metra conserve le token Cursor importé dans sa propre entrée du trousseau système et en mémoire. Il le réimporte si le token local change ou si l’authentification échoue, et efface le cache à la déconnexion de Cursor ou à la désactivation du mode de compatibilité. La clé de déchiffrement de Cursor n’est pas copiée ; les identifiants ne figurent jamais dans les paramètres ni les journaux.
 
-Les données Cursor utilisent en priorité la connexion CLI, avec repli sur l’application de bureau si elle est indisponible ou refusée.
+Les données Cursor utilisent en priorité la connexion CLI, avec repli sur l’application de bureau si elle est indisponible ou refusée. Sous Windows, Metra utilise le compte Windows actif pour déchiffrer le jeton de l’application de bureau. En cas d’échec du déchiffrement, Metra affiche l’erreur et conserve les dernières données d’utilisation récupérées.
 
 Installation locale macOS : exécutez une fois `npm run setup:local-signing`, puis `npm run build` et `npm run install:local`. Réutilisez la même identité de signature lors des mises à jour pour lier l’accès au trousseau à Metra.
 
