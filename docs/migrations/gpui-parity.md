@@ -81,3 +81,10 @@ visible-provider protection). The original checkout's collector unit tests
 passed 57 tests with one ignored before isolation; repeat on this branch before
 release. The independent GPUI entry point passes `cargo check` on Linux with Rust 1.99.1.
 Native linking, visual acceptance and other platforms remain outstanding.
+
+The native settings page now wires language, percentage mode, refresh interval,
+provider visibility/color, and explicit Cursor compatibility consent to shared
+validated settings commands. Saves run off the UI thread. Interval changes reset
+the background refresh timer; no frame timer is used. This passes Linux `cargo
+check`; native build and interaction verification remain pending. Provider label
+editing, ordering, autostart, display mode and snap controls remain outstanding.

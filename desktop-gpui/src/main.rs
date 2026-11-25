@@ -11,12 +11,39 @@ use metra_lib::{
 };
 use std::sync::Arc;
 
+mod preferences;
+
+#[derive(Clone, Copy, PartialEq)]
+enum Page {
+    Details,
+    Settings,
+    Consent,
+}
+
 struct Dashboard {
+    page: Page,
+    error: Option<String>,
+    settings_task: Option<Task<()>>,
+    interval_task: Option<Task<()>>,
     service: Arc<RefreshService>,
     refresh_task: Option<Task<()>>,
     refreshing: Vec<metra_lib::model::Provider>,
 }
 impl Dashboard {
+    fn schedule_refresh(&mut self, cx: &mut Context<Self>) {
+        let delay = std::time::Duration::from_secs(
+            self.service.payload().settings.refresh_minutes.max(1) * 60,
+        );
+        let timer = cx.background_executor().timer(delay);
+        self.interval_task = Some(cx.spawn(async move |this, cx| {
+            timer.await;
+            let _ = this.update(cx, |this, cx| {
+                this.refresh(cx);
+                this.schedule_refresh(cx);
+            });
+        }));
+    }
+
     fn refresh(&mut self, cx: &mut Context<Self>) {
         if self.refresh_task.is_some() {
             return;
@@ -77,6 +104,36 @@ impl Render for Dashboard {
                     .disabled(self.refresh_task.is_some())
                     .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
             );
+        content = content.child(
+            div()
+                .h_flex()
+                .gap_2()
+                .child(
+                    Button::new("details")
+                        .label(t.t("native.details"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.page = Page::Details;
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    Button::new("settings")
+                        .label(t.t("native.settings"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.page = Page::Settings;
+                            cx.notify();
+                        })),
+                ),
+        );
+        if let Some(error) = &self.error {
+            content = content.child(error.clone());
+        }
+        if self.page == Page::Settings {
+            return content.child(self.preferences(cx));
+        }
+        if self.page == Page::Consent {
+            return content.child(self.consent(cx));
+        }
         for provider in payload.settings.bubble_provider_order {
             let (name, snapshot) = match provider {
                 metra_lib::model::Provider::Cursor => ("Cursor", &payload.snapshot.cursor),
@@ -132,11 +189,16 @@ fn main() {
                 |_, cx| {
                     cx.new(|cx| {
                         let mut dashboard = Dashboard {
+                            page: Page::Details,
+                            error: None,
+                            settings_task: None,
+                            interval_task: None,
                             service,
                             refresh_task: None,
                             refreshing: Vec::new(),
                         };
                         dashboard.refresh(cx);
+                        dashboard.schedule_refresh(cx);
                         dashboard
                     })
                 },
