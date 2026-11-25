@@ -160,6 +160,11 @@ impl Render for Dashboard {
             .flex_1()
             .min_h_0()
             .overflow_y_scroll();
+        header = header.child(
+            Button::new("close-panel")
+                .label(t.t("native.close"))
+                .on_click(|_, window, _| window.remove_window()),
+        );
         if self.page == Page::Details {
             header = header.child(self.update_banner(cx));
         }
@@ -205,10 +210,26 @@ impl Render for Dashboard {
                         .on_click(cx.listener(|this, _, _, cx| this.check_update(true, cx))),
                 ),
         );
-        div().v_flex().size_full().child(header).child(content)
+        div()
+            .v_flex()
+            .size_full()
+            .bg(rgb(0x121620))
+            .text_color(rgb(0xe8ecf3))
+            .font_family("Inter")
+            .child(header)
+            .child(content)
     }
 }
 fn main() {
+    let mode = std::env::args().nth(1);
+    if matches!(mode.as_deref(), Some("--usage-json" | "--watch-json")) {
+        if let Err(error) = metra_lib::headless::run(mode.as_deref() == Some("--watch-json")) {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     #[cfg(target_os = "linux")]
     if std::env::var_os("DISPLAY").is_some() {
         // The positioned overlay contract uses X11/XWayland, as the existing shell does.
@@ -236,6 +257,16 @@ fn main() {
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx| {
             gpui_kit::init(cx);
+            component::Theme::change(component::ThemeMode::Dark, None, cx);
+            if let Err(error) =
+                cx.text_system()
+                    .add_fonts(vec![std::borrow::Cow::Borrowed(include_bytes!(
+                        "../../assets/fonts/InterVariable.ttf"
+                    ))])
+            {
+                eprintln!("Unable to load bundled font: {error}");
+            }
+
             if let Err(error) = runtime::start(service, config, lock, cx) {
                 eprintln!("{error}");
                 cx.quit();

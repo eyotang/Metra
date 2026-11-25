@@ -159,3 +159,23 @@ release actions using the existing Updater. Core headless contracts and native
 unit tests pass locally; installer execution and login UI are not accepted by
 these tests. A branch-scoped three-platform CI workflow now checks native builds
 and contracts; its first remote results are pending.
+
+Default native startup now shows the bubble only; `--settings` opens settings.
+The native executable also preserves --usage-json/--watch-json. Close, quit,
+rescan, bubble keyboard opening and tray/bubble details toggling are wired.
+Inter is bundled and the native theme is dark. Linux native lifecycle smoke
+passes after these changes; pointer and keyboard input still need acceptance.
+
+Experimental packaging lives in scripts/package-gpui.mjs. Linux creates a Debian
+archive directly because Tauri's bundler unconditionally adds WebKit/GTK runtime
+dependencies. The debug Debian artifact was inspected for exact GPUI binary,
+root ownership, executable mode, desktop entry, native dependencies and SHA-256.
+macOS/Windows packaging uses existing Tauri metadata/hooks with WebView bootstrap
+skipped and the GPUI executable staged as metra. Those bundles remain unverified.
+The npm lockfile mirror URLs were normalized to registry.npmjs.org with existing
+integrities retained; npm ci passes (esbuild's script remains blocked by local
+npm policy and is not needed for native packaging).
+
+CI run 45555678600 is still running for the earlier 856365b commit. Subsequent
+changes are kept local until it finishes to avoid cancelling first-platform
+build evidence. Remote CI does not yet validate these latest changes.

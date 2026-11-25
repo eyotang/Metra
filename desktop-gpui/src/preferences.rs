@@ -277,7 +277,18 @@ impl Dashboard {
                 )
                 .child(palette);
         }
-        view.into_any_element()
+        view.child(
+            Button::new("rescan")
+                .label(t.t("menu.rescanCli"))
+                .disabled(self.refresh_task.is_some())
+                .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
+        )
+        .child(
+            Button::new("quit")
+                .label(t.t("menu.quit"))
+                .on_click(|_, _, cx| cx.quit()),
+        )
+        .into_any_element()
     }
 
     pub(super) fn consent(&self, cx: &mut Context<Self>) -> AnyElement {

@@ -8,6 +8,7 @@ pub(super) struct Bubble {
     dragging: bool,
     service: Arc<RefreshService>,
     peek: bool,
+    focus: FocusHandle,
     snap: bool,
     pending: Option<Task<()>>,
 }
@@ -29,6 +30,7 @@ impl Bubble {
             dragging: false,
             service: dashboard.read(cx).service.clone(),
             peek: false,
+            focus: cx.focus_handle(),
             snap: data.settings.bubble_snap_enabled,
             pending: None,
         };
@@ -153,6 +155,13 @@ impl Render for Bubble {
         }
         let mut content = div()
             .id("bubble")
+            .track_focus(&self.focus)
+            .tab_stop(true)
+            .on_key_down(|event, _, cx| {
+                if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                    cx.defer(runtime::toggle_panel);
+                }
+            })
             .v_flex()
             .items_center()
             .justify_center()
@@ -187,7 +196,7 @@ impl Render for Bubble {
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
                     if !this.dragging && this.pointer.take().is_some() {
-                        runtime::open_panel(Page::Details, cx);
+                        cx.defer(|cx| runtime::toggle_panel(cx));
                     }
                     this.pointer = None;
                 }),
@@ -215,7 +224,7 @@ impl Render for Bubble {
                 }
             }))
             .on_mouse_down(MouseButton::Right, |_, _, cx| {
-                runtime::open_panel(Page::Settings, cx)
+                cx.defer(|cx| runtime::open_panel(Page::Settings, cx))
             });
         for entry in &self.entries {
             let color =

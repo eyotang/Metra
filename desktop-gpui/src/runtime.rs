@@ -43,6 +43,22 @@ pub(super) fn instance(config: &std::path::Path) -> Result<Option<File>, String>
     }
 }
 
+pub(super) fn toggle_panel(cx: &mut App) {
+    let runtime = cx.global::<Runtime>();
+    if runtime.dashboard.read(cx).page == Page::Details {
+        if let Some(panel) = runtime.panel {
+            if panel
+                .update(cx, |_, window, _| window.remove_window())
+                .is_ok()
+            {
+                cx.global_mut::<Runtime>().panel = None;
+                return;
+            }
+        }
+    }
+    open_panel(Page::Details, cx);
+}
+
 pub(super) fn open_panel(page: Page, cx: &mut App) {
     let dashboard = cx.global::<Runtime>().dashboard.clone();
     dashboard.update(cx, |view, cx| {
@@ -229,7 +245,7 @@ pub(super) fn start(
                     let _ = std::fs::remove_file(&activation_path);
                     open_panel(Page::Details, cx);
                 }
-                "details" => open_panel(Page::Details, cx),
+                "details" => toggle_panel(cx),
                 "settings" => open_panel(Page::Settings, cx),
                 "refresh" => {
                     let view = cx.global::<Runtime>().dashboard.clone();
@@ -271,14 +287,11 @@ pub(super) fn start(
         _activation: activation,
     });
     sync(cx);
-    open_panel(
-        if std::env::args().any(|a| a == "--settings") {
-            Page::Settings
-        } else {
-            Page::Details
-        },
-        cx,
-    );
+    if std::env::args().any(|a| a == "--settings") {
+        open_panel(Page::Settings, cx);
+    } else if cfg!(feature = "native-smoke") && std::env::var_os("METRA_GPUI_SMOKE").is_some() {
+        open_panel(Page::Details, cx);
+    }
     #[cfg(feature = "native-smoke")]
     if std::env::var_os("METRA_GPUI_SMOKE").is_some() {
         smoke(cx);
