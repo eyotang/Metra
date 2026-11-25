@@ -128,6 +128,10 @@ fn check(value: u8, cx: &mut App) {
         let application = NSApplication::sharedApplication(marker);
         if value == 61 {
             assert!(
+                !application.isHidden(),
+                "Idle acceptance must keep the overlay visible"
+            );
+            assert!(
                 !application.isActive(),
                 "Idle update must not activate Metra"
             );
