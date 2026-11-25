@@ -102,10 +102,11 @@ fn monitor_areas(window: &Window, cx: &App) -> Result<Vec<(WorkArea, f64)>, Stri
     #[cfg(target_os = "windows")]
     {
         use windows_sys::Win32::{
-            Foundation::{BOOL, LPARAM, RECT},
+            Foundation::{LPARAM, RECT},
             Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO},
             UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
         };
+        use windows_sys::core::BOOL;
         unsafe extern "system" fn visit(
             monitor: HMONITOR,
             _: HDC,
