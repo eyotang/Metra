@@ -88,3 +88,14 @@ validated settings commands. Saves run off the UI thread. Interval changes reset
 the background refresh timer; no frame timer is used. This passes Linux `cargo
 check`; native build and interaction verification remain pending. Provider label
 editing, ordering, autostart, display mode and snap controls remain outstanding.
+
+Usage cards now include all quota windows, remaining/used values, reset dates,
+local captured timestamps, provider status/stale messages, token metrics and
+included/on-demand/daily costs. Two native unit tests pass for missing-value and
+zero-cost semantics. Locale-aware compact number/currency/date formatting still
+needs parity work. The title/navigation are outside the scrolling body.
+
+Linux native `cargo build --locked --manifest-path desktop-gpui/Cargo.toml`
+passes. An isolated native process remained alive for eight seconds, with no
+panic/error in its launch log, and was then terminated. This verifies startup
+only, not rendered appearance or interaction correctness.

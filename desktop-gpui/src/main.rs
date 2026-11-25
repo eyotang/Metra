@@ -12,6 +12,7 @@ use metra_lib::{
 use std::sync::Arc;
 
 mod preferences;
+mod usage;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Page {
@@ -84,13 +85,12 @@ impl Render for Dashboard {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let payload = self.service.payload();
         let t = I18n::new(payload.settings.ui_language);
-        let mut content = div()
-            .id("usage")
+        let mut header = div()
+            .id("header")
             .v_flex()
             .gap_3()
             .p_4()
-            .size_full()
-            .overflow_y_scroll()
+            .flex_shrink_0()
             .child(
                 div()
                     .h_flex()
@@ -104,7 +104,7 @@ impl Render for Dashboard {
                     .disabled(self.refresh_task.is_some())
                     .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
             );
-        content = content.child(
+        header = header.child(
             div()
                 .h_flex()
                 .gap_2()
@@ -125,48 +125,40 @@ impl Render for Dashboard {
                         })),
                 ),
         );
+        let mut content = div()
+            .id("body")
+            .v_flex()
+            .gap_3()
+            .p_4()
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll();
         if let Some(error) = &self.error {
-            content = content.child(error.clone());
+            header = header.child(error.clone());
         }
         if self.page == Page::Settings {
-            return content.child(self.preferences(cx));
+            return div()
+                .v_flex()
+                .size_full()
+                .child(header)
+                .child(content.child(self.preferences(cx)));
         }
         if self.page == Page::Consent {
-            return content.child(self.consent(cx));
+            return div()
+                .v_flex()
+                .size_full()
+                .child(header)
+                .child(content.child(self.consent(cx)));
         }
         for provider in payload.settings.bubble_provider_order {
-            let (name, snapshot) = match provider {
+            let (_, snapshot) = match provider {
                 metra_lib::model::Provider::Cursor => ("Cursor", &payload.snapshot.cursor),
                 metra_lib::model::Provider::Codex => ("Codex", &payload.snapshot.codex),
                 metra_lib::model::Provider::Claude => ("Claude Code", &payload.snapshot.claude),
             };
-            let mut card = div()
-                .v_flex()
-                .gap_2()
-                .p_3()
-                .border_1()
-                .rounded_lg()
-                .child(name)
-                .when(self.refreshing.contains(&provider), |card| {
-                    card.child(t.t("refresh.refreshing"))
-                })
-                .child(snapshot.plan.clone().unwrap_or_else(|| t.t("plan.unknown")));
-            for quota in &snapshot.quotas {
-                card = card.child(format!(
-                    "{} · {}",
-                    quota.label,
-                    t.format(
-                        "quota.remaining",
-                        &[("value", format!("{:.0}", quota.remaining_percent))]
-                    )
-                ));
-            }
-            if let Some(message) = &snapshot.message {
-                card = card.child(t.message(message));
-            }
-            content = content.child(card);
+            content = content.child(self.usage_card(provider, snapshot, t, cx));
         }
-        content
+        div().v_flex().size_full().child(header).child(content)
     }
 }
 fn main() {

@@ -8,6 +8,7 @@ publish = false
 metra = { path = "..", default-features = false }
 gpui-kit = "=0.11.0"
 async-channel = "2"
+chrono = "0.4"
 
 [profile.dev]
 debug = 0
