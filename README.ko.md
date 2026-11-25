@@ -12,6 +12,8 @@ Cursor, Codex, Claude Code의 한도, 토큰, 비용을 데스크톱 한쪽에�
 - **세 도구를 한곳에서.** 제공되는 한도, 초기화 시간, 사용량을 빠르게 확인하세요.
 - **취향에 맞게.** 서비스 순서, 레이블, 색상, 갱신 주기를 설정하세요. 7개 언어와 자동 감지를 지원합니다.
 
+데스크톱 UI는 GPUI와 GPUI Kit를 사용하며 WebView 런타임이 필요하지 않습니다.
+
 | 사용량 상세 | 표시 설정 |
 | :---: | :---: |
 | <img src="docs/assets/readme/usage-demo.png" alt="사용량 상세" width="320"> | <img src="docs/assets/readme/settings-demo.png" alt="표시 설정" width="320"> |
@@ -25,7 +27,7 @@ Cursor, Codex, Claude Code의 한도, 토큰, 비용을 데스크톱 한쪽에�
 | 시스템 | 파일 | 설치 방법 |
 | --- | --- | --- |
 | macOS | `*-macos-universal.dmg` | DMG를 열고 Metra를 Applications로 드래그하세요. |
-| Windows x64 | `*-windows-x64-setup.exe` | 설치 프로그램을 실행하세요. 포터블 EXE는 WebView2가 필요합니다. |
+| Windows x64 | `*-windows-x64-setup.exe` | 설치 프로그램을 실행하거나 포터블 EXE를 사용하세요. |
 | Linux x64 | `*-linux-x64.deb` | `sudo apt install ./Metra-*-linux-x64.deb`로 설치하세요. |
 
 macOS: Applications로 옮긴 뒤 처음 실행하기 전에 다음 명령으로 격리 속성을 제거하세요.
@@ -47,8 +49,8 @@ Metra를 실행하고 사용하는 도구에 로그인한 다음 버블을 클�
 | 시스템 | 개발 도구 |
 | --- | --- |
 | macOS | Xcode 명령줄 도구 |
-| Windows | Visual Studio C++ 빌드 도구, Windows SDK, WebView2 |
-| Linux | WebKitGTK 4.1, GTK 3, AppIndicator. 플로팅 창은 X11/XWayland 필요 |
+| Windows | Visual Studio C++ 빌드 도구, Windows SDK |
+| Linux | Clang, CMake, pkg-config, Fontconfig, XKB, Wayland, Vulkan; X11/XWayland |
 
 ```sh
 npm ci
@@ -59,12 +61,11 @@ PR 제출 전 확인:
 
 ```sh
 npm run check
-cargo test --locked --all-targets
-npx playwright install chromium webkit
+npm test
 npm run test:ui
 ```
 
-UI는 `frontend/`, 수집 로직은 `src/providers/`, 갱신 로직은 `src/service.rs`에서 시작하세요. `METRA_CONFIG_DIR`로 테스트 설정을 분리할 수 있습니다.
+UI는 `desktop-gpui/src/`, 수집 로직은 `src/providers/`, 갱신 로직은 `src/service.rs`에서 시작하세요. `METRA_CONFIG_DIR`로 테스트 설정을 분리할 수 있습니다.
 
 PR은 한 가지 문제에 집중하고 이유, 변경 내용, 검증 방법을 설명하세요. UI 변경에는 스크린샷을 첨부하고, 관련 번역과 README는 7개 언어를 함께 갱신하세요.
 

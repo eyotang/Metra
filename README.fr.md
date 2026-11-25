@@ -12,6 +12,8 @@ Gardez les limites, tokens et coûts de Cursor, Codex et Claude Code dans un coi
 - **Trois outils, un seul endroit.** Consultez les limites disponibles, les réinitialisations et l’utilisation.
 - **À votre façon.** Personnalisez l’ordre, les libellés, les couleurs et l’actualisation. Sept langues avec détection automatique.
 
+L’interface utilise GPUI et GPUI Kit, sans moteur WebView.
+
 | Détails d’utilisation | Paramètres d’affichage |
 | :---: | :---: |
 | <img src="docs/assets/readme/usage-demo.png" alt="Détails d’utilisation" width="320"> | <img src="docs/assets/readme/settings-demo.png" alt="Paramètres d’affichage" width="320"> |
@@ -25,7 +27,7 @@ Interface actuelle avec données simulées, sans informations de compte réelles
 | Système | Fichier | Installation |
 | --- | --- | --- |
 | macOS | `*-macos-universal.dmg` | Ouvrez le DMG et glissez Metra dans Applications. |
-| Windows x64 | `*-windows-x64-setup.exe` | Lancez l’installateur ; l’EXE portable nécessite WebView2. |
+| Windows x64 | `*-windows-x64-setup.exe` | Lancez l’installateur ou utilisez l’EXE portable. |
 | Linux x64 | `*-linux-x64.deb` | Installez avec `sudo apt install ./Metra-*-linux-x64.deb`. |
 
 Sur macOS, après avoir déplacé l’application dans Applications, exécutez avant le premier lancement pour supprimer l’attribut de quarantaine :
@@ -47,8 +49,8 @@ Installez **Node.js 24+**, **Rust stable** et les outils ci-dessous. Créez un f
 | Système | Outils |
 | --- | --- |
 | macOS | Outils en ligne de commande Xcode |
-| Windows | Outils C++ Visual Studio, Windows SDK, WebView2 |
-| Linux | WebKitGTK 4.1, GTK 3, AppIndicator ; X11/XWayland pour les fenêtres flottantes |
+| Windows | Outils C++ Visual Studio, Windows SDK |
+| Linux | Clang, CMake, pkg-config, Fontconfig, XKB, Wayland, Vulkan; X11/XWayland |
 
 ```sh
 npm ci
@@ -59,12 +61,11 @@ Avant de soumettre une PR :
 
 ```sh
 npm run check
-cargo test --locked --all-targets
-npx playwright install chromium webkit
+npm test
 npm run test:ui
 ```
 
-Commencez dans `frontend/` pour l’interface, `src/providers/` pour les collecteurs et `src/service.rs` pour l’actualisation. `METRA_CONFIG_DIR` isole les paramètres de test.
+Commencez dans `desktop-gpui/src/` pour l’interface, `src/providers/` pour les collecteurs et `src/service.rs` pour l’actualisation. `METRA_CONFIG_DIR` isole les paramètres de test.
 
 Gardez chaque PR ciblée : expliquez le problème, la modification et les vérifications. Ajoutez des captures pour les changements visuels et synchronisez les sept traductions et README concernés.
 

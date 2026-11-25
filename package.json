@@ -7,13 +7,13 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "tauri dev",
-    "check": "tsc --noEmit && cargo check --locked --all-targets",
-    "build": "tauri build",
-    "test": "npm run test:ui && cargo test --locked --all-targets",
+    "dev": "cargo run --locked --manifest-path desktop-gpui/Cargo.toml --",
+    "check": "cargo check --locked --no-default-features --all-targets && cargo check --locked --manifest-path desktop-gpui/Cargo.toml --all-targets",
+    "build": "node scripts/package-gpui.mjs",
+    "test": "cargo test --locked --no-default-features --all-targets && cargo test --locked --manifest-path desktop-gpui/Cargo.toml",
     "build:linux": "node scripts/package-native.mjs",
     "build:macos-universal": "node scripts/package-native.mjs --universal",
-    "build:portable": "tauri build --no-bundle",
+    "build:portable": "cargo build --release --locked --manifest-path desktop-gpui/Cargo.toml",
     "package": "node scripts/package-native.mjs",
     "generate:updater-manifest": "node scripts/generate-latest-json.mjs",
     "verify:omarchy": "node scripts/verify-omarchy.mjs",
@@ -22,10 +22,13 @@
     "package:omarchy": "node scripts/package-omarchy.mjs",
     "frontend:dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
     "frontend:build": "tsc --noEmit && vite build",
-    "test:ui": "playwright test",
+    "test:ui": "cargo build --locked --manifest-path desktop-gpui/Cargo.toml --features native-smoke && node scripts/smoke-gpui.mjs && node scripts/smoke-gpui.mjs --legacy-status",
     "tauri": "tauri",
     "setup:local-signing": "node scripts/setup-local-signing.mjs",
-    "install:local": "node scripts/install-macos-local.mjs"
+    "install:local": "node scripts/install-macos-local.mjs",
+    "test:legacy-ui": "playwright test",
+    "dev:legacy": "tauri dev",
+    "build:legacy": "tauri build"
   },
   "dependencies": {
     "@awesome.me/webawesome": "^3.14.0",

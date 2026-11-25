@@ -12,6 +12,8 @@
 - **三个工具，一处查看。** 快速了解可用额度、重置时间和使用情况。
 - **按你的习惯来。** 自定义服务顺序、标签、颜色和刷新周期；支持七种界面语言与自动识别。
 
+桌面界面使用 GPUI 和 GPUI Kit，无需 WebView 运行时。
+
 | 用量详情 | 显示设置 |
 | :---: | :---: |
 | <img src="docs/assets/readme/usage-demo.png" alt="用量详情" width="320"> | <img src="docs/assets/readme/settings-demo.png" alt="显示设置" width="320"> |
@@ -25,7 +27,7 @@
 | 系统 | 选择文件 | 安装方式 |
 | --- | --- | --- |
 | macOS | `*-macos-universal.dmg` | 打开 DMG，将 Metra 拖入 Applications。 |
-| Windows x64 | `*-windows-x64-setup.exe` | 运行安装包；也可选择便携 EXE（需已安装 WebView2）。 |
+| Windows x64 | `*-windows-x64-setup.exe` | 运行安装包，或使用便携 EXE。 |
 | Linux x64 | `*-linux-x64.deb` | 安装软件包：`sudo apt install ./Metra-*-linux-x64.deb`。 |
 
 macOS：将应用移入 Applications 后，首次启动前执行，移除隔离标记：
@@ -47,8 +49,8 @@ sudo xattr -dr com.apple.quarantine /Applications/Metra.app
 | 系统 | 开发工具 |
 | --- | --- |
 | macOS | Xcode 命令行工具 |
-| Windows | Visual Studio C++ 构建工具、Windows SDK、WebView2 |
-| Linux | WebKitGTK 4.1、GTK 3、AppIndicator；悬浮窗口需要 X11/XWayland |
+| Windows | Visual Studio C++ 构建工具、Windows SDK |
+| Linux | Clang, CMake, pkg-config, Fontconfig, XKB, Wayland, Vulkan; X11/XWayland |
 
 ```sh
 npm ci
@@ -59,12 +61,11 @@ npm run dev
 
 ```sh
 npm run check
-cargo test --locked --all-targets
-npx playwright install chromium webkit
+npm test
 npm run test:ui
 ```
 
-修改界面从 `frontend/` 入手，采集逻辑看 `src/providers/`，刷新逻辑看 `src/service.rs`。使用 `METRA_CONFIG_DIR` 隔离测试配置。
+修改界面从 `desktop-gpui/src/` 入手，采集逻辑看 `src/providers/`，刷新逻辑看 `src/service.rs`。使用 `METRA_CONFIG_DIR` 隔离测试配置。
 
 每个 PR 聚焦一个问题，说明改动原因、效果和验证方式；界面改动附截图。涉及文案或说明时，同步更新七种语言的翻译和 README。
 

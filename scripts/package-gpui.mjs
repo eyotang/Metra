@@ -6,6 +6,7 @@ import { resolve, join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { packageLinux } from './package-gpui-linux.mjs';
 const root=resolve(import.meta.dirname,'..');
+if(process.argv.includes('--binary') || process.argv.includes('--no-build')) throw Error('Native packaging builds and verifies its own executable.');
 const debug=process.argv.includes('--debug');
 const universal=process.argv.includes('--universal');
 const outputIndex=process.argv.indexOf('--output');
@@ -62,7 +63,7 @@ if(process.platform==='darwin') {
   return result.stdout.trim();
  };
  if(property('CFBundleIdentifier')!=='dev.metra.desktop' || property('CFBundleExecutable')!=='metra' || property('CFBundleShortVersionString')!==version || property('LSUIElement')!=='true') throw Error('Native app metadata differs from the installed Metra identity');
- run('/usr/bin/lipo',['-verify_arch',...(universal?['arm64','x86_64']:[process.arch==='arm64'?'arm64':'x86_64']),join(app,'Contents/MacOS/metra')]);
+ run('/usr/bin/lipo',[join(app,'Contents/MacOS/metra'),'-verify_arch',...(universal?['arm64','x86_64']:[process.arch==='arm64'?'arm64':'x86_64'])]);
 }
 const directory=join(stagedProfile,'bundle',bundle);
 const files=readdirSync(directory).filter(name=>name.includes(version) && name.endsWith(bundle==='nsis'?'-setup.exe':`.${bundle}`));

@@ -412,6 +412,7 @@ pub(super) fn start(
     if std::env::args().any(|a| a == "--settings") {
         open_panel(Page::Settings, cx);
     } else if cfg!(feature = "native-smoke")
+        && std::env::var_os("METRA_GPUI_MIGRATION_SMOKE").is_none()
         && (std::env::var_os("METRA_GPUI_SMOKE").is_some()
             || std::env::var_os("METRA_GPUI_DEMO").is_some())
     {
@@ -556,9 +557,13 @@ fn smoke(cx: &mut App) {
                         let tray_available = cx.global::<Runtime>()._tray.is_some();
                         assert_eq!(cx.global::<Runtime>().bubble.is_none(), tray_available);
                         assert_eq!(cx.windows().len(),if tray_available {1} else {2});
+                        cx.global::<Runtime>().panel.unwrap().update(cx, |_,window,_| window.remove_window()).unwrap();
+                        cx.global_mut::<Runtime>().panel = None;
                         dashboard.update(cx,|view,cx|view.save(Change::Language(UiLanguage::Ja),cx));
                     },
                     2=>{
+                        assert!(cx.global::<Runtime>().panel.is_none());
+                        open_panel(Page::Settings,cx);
                         assert_eq!(dashboard.read(cx).service.payload().settings.ui_language, UiLanguage::Ja);
                         if cx.global::<Runtime>()._tray.is_some() {
                             assert!(cx.global::<Runtime>().tray_locale.starts_with("ja:"));

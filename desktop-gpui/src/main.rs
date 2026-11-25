@@ -270,7 +270,9 @@ fn main() {
     let service = Arc::new(RefreshService::new(SettingsStore::new(
         config.join("settings.db"),
     )));
-    let application = gpui_kit::application().with_assets(gpui_kit::assets::Assets);
+    let application = gpui_kit::application()
+        .with_quit_mode(QuitMode::Explicit)
+        .with_assets(gpui_kit::assets::Assets);
     #[cfg(target_os = "macos")]
     let application = application.with_windowing(WindowingRequest::Headless);
     application.run(move |cx| {

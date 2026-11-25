@@ -12,6 +12,8 @@
 - **Три инструмента в одном месте.** Проверяйте доступные лимиты, время сброса и использование.
 - **Настройте под себя.** Меняйте порядок сервисов, подписи, цвета и интервал обновления. Семь языков с автоматическим определением.
 
+Интерфейс использует GPUI и GPUI Kit без среды WebView.
+
 | Данные использования | Настройки отображения |
 | :---: | :---: |
 | <img src="docs/assets/readme/usage-demo.png" alt="Данные использования" width="320"> | <img src="docs/assets/readme/settings-demo.png" alt="Настройки отображения" width="320"> |
@@ -25,7 +27,7 @@
 | Система | Файл | Установка |
 | --- | --- | --- |
 | macOS | `*-macos-universal.dmg` | Откройте DMG и перенесите Metra в Applications. |
-| Windows x64 | `*-windows-x64-setup.exe` | Запустите установщик; переносимый EXE требует WebView2. |
+| Windows x64 | `*-windows-x64-setup.exe` | Запустите установщик или используйте переносимый EXE. |
 | Linux x64 | `*-linux-x64.deb` | Установите: `sudo apt install ./Metra-*-linux-x64.deb`. |
 
 В macOS после переноса в Applications, перед первым запуском выполните команду для удаления атрибута карантина:
@@ -47,8 +49,8 @@ sudo xattr -dr com.apple.quarantine /Applications/Metra.app
 | Система | Инструменты |
 | --- | --- |
 | macOS | Инструменты командной строки Xcode |
-| Windows | Инструменты сборки Visual Studio C++, Windows SDK, WebView2 |
-| Linux | WebKitGTK 4.1, GTK 3, AppIndicator; X11/XWayland для плавающих окон |
+| Windows | Инструменты сборки Visual Studio C++, Windows SDK |
+| Linux | Clang, CMake, pkg-config, Fontconfig, XKB, Wayland, Vulkan; X11/XWayland |
 
 ```sh
 npm ci
@@ -59,12 +61,11 @@ npm run dev
 
 ```sh
 npm run check
-cargo test --locked --all-targets
-npx playwright install chromium webkit
+npm test
 npm run test:ui
 ```
 
-Интерфейс: `frontend/`; сбор данных: `src/providers/`; обновление: `src/service.rs`. `METRA_CONFIG_DIR` позволяет отделить тестовые настройки.
+Интерфейс: `desktop-gpui/src/`; сбор данных: `src/providers/`; обновление: `src/service.rs`. `METRA_CONFIG_DIR` позволяет отделить тестовые настройки.
 
 Один PR — одна задача: опишите проблему, изменение и проверку. Для изменений интерфейса приложите скриншоты; обновите затронутые переводы и README на всех семи языках.
 

@@ -282,3 +282,27 @@ and autostart. This and the full native lifecycle smoke pass locally. CI runs th
 migration test on each system and invokes the retained v0.2.2 /S installer upgrade
 acceptance against the GPUI Windows installer. Defaults and release workflow have
 not yet been switched; this avoids publishing before upgrade acceptance passes.
+
+Normal npm dev/build/package/check/test commands now target GPUI; the stable
+package-native entry delegates to package-gpui. Explicit legacy commands retain
+the reference shell. Seven README editions, Linux/development instructions and
+sanitized native screenshots are synchronized. The local macOS installation
+entry now defaults to the retained native .app while preserving its backup,
+quarantine removal and persistent signing checks. Release CI uses the native
+packager and adds native acceptance while retaining legacy regressions.
+
+Local npm check, npm test, and both npm test:ui native scenarios pass. The new
+npm package debug Debian archive was inspected for the exact staged executable,
+permissions, native dependencies and checksum. No installation or publication
+has been performed. The root Cargo desktop feature remains available for legacy
+regression builds; shipped npm package artifacts use desktop-gpui.
+
+Audit found GPUI's default last-window-close exit on Windows/Linux would terminate
+status-bar-only startup or closing its final panel. The app now selects explicit
+quit mode. Smoke closes the final status-bar panel for one phase and then reopens
+it; migration smoke starts without opening a test panel. Both pass locally.
+CI run 45559674202 passed Linux; Windows migration exited 0 without a result,
+consistent with the now-fixed last-window behavior. macOS signing/metadata checks
+passed but lipo interpreted the executable path as an architecture because the
+arguments were ordered incorrectly. The verifier now puts the executable first.
+These final corrections await the next platform CI run.

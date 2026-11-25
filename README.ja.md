@@ -12,6 +12,8 @@ Cursor、Codex、Claude Code の上限・トークン・費用をデスクトッ
 - **3つのツールを1か所で。** 利用可能な上限、リセット時刻、使用状況を確認。
 - **自分好みに。** 表示順、ラベル、色、更新間隔を調整。7言語と自動検出に対応。
 
+デスクトップ UI は GPUI と GPUI Kit を使用し、WebView ランタイムは不要です。
+
 | 使用量の詳細 | 表示設定 |
 | :---: | :---: |
 | <img src="docs/assets/readme/usage-demo.png" alt="使用量の詳細" width="320"> | <img src="docs/assets/readme/settings-demo.png" alt="表示設定" width="320"> |
@@ -25,7 +27,7 @@ Cursor、Codex、Claude Code の上限・トークン・費用をデスクトッ
 | OS | ファイル | インストール |
 | --- | --- | --- |
 | macOS | `*-macos-universal.dmg` | DMG を開き、Metra を Applications にドラッグ。 |
-| Windows x64 | `*-windows-x64-setup.exe` | インストーラーを実行。ポータブル EXE は WebView2 が必要です。 |
+| Windows x64 | `*-windows-x64-setup.exe` | インストーラーを実行するか、ポータブル EXE を使用してください。 |
 | Linux x64 | `*-linux-x64.deb` | `sudo apt install ./Metra-*-linux-x64.deb` でインストール。 |
 
 macOS：Applications に移動後、初回起動前に以下を実行し、隔離属性を削除します。
@@ -47,8 +49,8 @@ Metra を起動し、利用するツールにログインして、バブルを�
 | OS | 開発ツール |
 | --- | --- |
 | macOS | Xcode コマンドラインツール |
-| Windows | Visual Studio C++ ビルドツール、Windows SDK、WebView2 |
-| Linux | WebKitGTK 4.1、GTK 3、AppIndicator。フローティング表示は X11/XWayland が必要 |
+| Windows | Visual Studio C++ ビルドツール、Windows SDK |
+| Linux | Clang, CMake, pkg-config, Fontconfig, XKB, Wayland, Vulkan; X11/XWayland |
 
 ```sh
 npm ci
@@ -59,12 +61,11 @@ PR の提出前に確認：
 
 ```sh
 npm run check
-cargo test --locked --all-targets
-npx playwright install chromium webkit
+npm test
 npm run test:ui
 ```
 
-UI は `frontend/`、収集処理は `src/providers/`、更新処理は `src/service.rs` から。`METRA_CONFIG_DIR` でテスト設定を分離できます。
+UI は `desktop-gpui/src/`、収集処理は `src/providers/`、更新処理は `src/service.rs` から。`METRA_CONFIG_DIR` でテスト設定を分離できます。
 
 PR は1つの課題に絞り、理由・変更内容・検証方法を記載してください。UI 変更にはスクリーンショットを添付し、関連する翻訳と README は7言語を同期してください。
 

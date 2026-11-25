@@ -12,6 +12,8 @@ Limits, Tokens und Kosten von Cursor, Codex und Claude Code in einer kleinen Des
 - **Drei Tools, ein Ort.** Verfügbare Limits, Rücksetzzeiten und Nutzung schnell prüfen.
 - **Nach Ihren Wünschen.** Reihenfolge, Beschriftungen, Farben und Intervalle anpassen. Sieben Sprachen mit automatischer Erkennung.
 
+Die Desktop-Oberfläche verwendet GPUI und GPUI Kit ohne WebView-Laufzeit.
+
 | Nutzungsdetails | Anzeigeeinstellungen |
 | :---: | :---: |
 | <img src="docs/assets/readme/usage-demo.png" alt="Nutzungsdetails" width="320"> | <img src="docs/assets/readme/settings-demo.png" alt="Anzeigeeinstellungen" width="320"> |
@@ -25,7 +27,7 @@ Aktuelle Oberfläche mit simulierten Daten, ohne echte Kontoinformationen. Verf�
 | System | Datei | Installation |
 | --- | --- | --- |
 | macOS | `*-macos-universal.dmg` | DMG öffnen und Metra nach Applications ziehen. |
-| Windows x64 | `*-windows-x64-setup.exe` | Installer starten; die portable EXE benötigt WebView2. |
+| Windows x64 | `*-windows-x64-setup.exe` | Installer starten oder die portable EXE verwenden. |
 | Linux x64 | `*-linux-x64.deb` | Mit `sudo apt install ./Metra-*-linux-x64.deb` installieren. |
 
 Unter macOS nach dem Verschieben nach Applications vor dem ersten Start ausführen, um das Quarantäneattribut zu entfernen:
@@ -47,8 +49,8 @@ Sprache, Aktualisierungsintervall und Autostart in den Einstellungen ändern. Da
 | System | Werkzeuge |
 | --- | --- |
 | macOS | Xcode-Kommandozeilenwerkzeuge |
-| Windows | Visual Studio C++ Buildtools, Windows SDK, WebView2 |
-| Linux | WebKitGTK 4.1, GTK 3, AppIndicator; X11/XWayland für schwebende Fenster |
+| Windows | Visual Studio C++ Buildtools, Windows SDK |
+| Linux | Clang, CMake, pkg-config, Fontconfig, XKB, Wayland, Vulkan; X11/XWayland |
 
 ```sh
 npm ci
@@ -59,12 +61,11 @@ Vor dem Einreichen einer PR:
 
 ```sh
 npm run check
-cargo test --locked --all-targets
-npx playwright install chromium webkit
+npm test
 npm run test:ui
 ```
 
-UI: `frontend/`; Datenerfassung: `src/providers/`; Aktualisierung: `src/service.rs`. `METRA_CONFIG_DIR` trennt Testeinstellungen von Ihren eigenen.
+UI: `desktop-gpui/src/`; Datenerfassung: `src/providers/`; Aktualisierung: `src/service.rs`. `METRA_CONFIG_DIR` trennt Testeinstellungen von Ihren eigenen.
 
 Jede PR auf ein Problem beschränken und Problem, Änderung und Prüfung beschreiben. Bei UI-Änderungen Screenshots beifügen; betroffene Übersetzungen und README-Dateien in allen sieben Sprachen aktualisieren.
 

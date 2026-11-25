@@ -12,6 +12,8 @@ Keep Cursor, Codex and Claude Code limits, tokens and costs in a small desktop c
 - **One place for three tools.** See available quotas, reset times and usage without switching apps.
 - **Make it yours.** Customize provider order, labels, colors and refresh intervals. Seven interface languages, with automatic detection.
 
+The desktop interface uses GPUI and GPUI Kit, with no WebView runtime.
+
 | Usage details | Display settings |
 | :---: | :---: |
 | <img src="docs/assets/readme/usage-demo.png" alt="Usage details" width="320"> | <img src="docs/assets/readme/settings-demo.png" alt="Display settings" width="320"> |
@@ -25,7 +27,7 @@ Current interface with simulated usage data; no real account information. Availa
 | Platform | Choose | Install |
 | --- | --- | --- |
 | macOS | `*-macos-universal.dmg` | Open the DMG and drag Metra to Applications. |
-| Windows x64 | `*-windows-x64-setup.exe` | Run the installer; or use the portable EXE (requires WebView2). |
+| Windows x64 | `*-windows-x64-setup.exe` | Run the installer, or use the portable EXE. |
 | Linux x64 | `*-linux-x64.deb` | Install the package: `sudo apt install ./Metra-*-linux-x64.deb`. |
 
 On macOS, after moving the app to Applications, run this before the first launch to remove the quarantine attribute:
@@ -47,8 +49,8 @@ Install **Node.js 24+**, **stable Rust** and the platform tools below. Fork this
 | Platform | Tools |
 | --- | --- |
 | macOS | Xcode command line tools |
-| Windows | Visual Studio C++ build tools, Windows SDK, WebView2 |
-| Linux | WebKitGTK 4.1, GTK 3, AppIndicator; X11/XWayland for floating windows |
+| Windows | Visual Studio C++ build tools, Windows SDK |
+| Linux | Clang, CMake, pkg-config, Fontconfig, XKB, Wayland, Vulkan; X11/XWayland |
 
 ```sh
 npm ci
@@ -59,12 +61,11 @@ Before submitting a PR:
 
 ```sh
 npm run check
-cargo test --locked --all-targets
-npx playwright install chromium webkit
+npm test
 npm run test:ui
 ```
 
-Start in `frontend/` for UI, `src/providers/` for collectors, and `src/service.rs` for refresh logic. Use `METRA_CONFIG_DIR` for isolated test settings.
+Start in `desktop-gpui/src/` for UI, `src/providers/` for collectors, and `src/service.rs` for refresh logic. Use `METRA_CONFIG_DIR` for isolated test settings.
 
 Open a focused PR explaining the problem, the change and how you verified it. Include screenshots for UI changes; update all seven translation catalogs and README editions when affected.
 

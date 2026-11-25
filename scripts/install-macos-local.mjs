@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 
 if (process.platform !== 'darwin') throw new Error('Local macOS installation requires macOS');
 const root = resolve(import.meta.dirname, '..');
-const source = resolve(process.argv[2] || join(root, 'target/release/bundle/macos/Metra.app'));
+const source = resolve(process.argv[2] || join(root, 'target/gpui-package/release/bundle/macos/Metra.app'));
 const destination = '/Applications/Metra.app';
 const id = randomUUID();
 const staging = `/Applications/.Metra-install-${id}.app`;
