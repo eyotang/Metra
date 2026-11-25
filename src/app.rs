@@ -124,6 +124,14 @@ fn set_view_visible(window: &WebviewWindow, visible: bool) -> Result<()> {
         window.hide()
     }
     .map_err(|e| e.to_string())?;
+    #[cfg(windows)]
+    if visible && window.label() == "bubble" {
+        // Showing a WebView2 host can leave its child at the creation bounds.
+        // Synchronize the child explicitly, even when the host size is unchanged.
+        let size = window.inner_size().map_err(|e| e.to_string())?;
+        let webview: &tauri::Webview = window.as_ref();
+        webview.set_size(size).map_err(|e| e.to_string())?;
+    }
     window
         .emit_to(window.label(), "metra-visibility", visible)
         .map_err(|e| e.to_string())
@@ -634,6 +642,7 @@ fn create_windows(app: &AppHandle) -> Result<()> {
     )
     .title("Metra")
     .inner_size(56., 56.)
+    .min_inner_size(32., 56.)
     .decorations(false)
     .transparent(true)
     .shadow(false)

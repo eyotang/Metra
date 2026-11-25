@@ -84,6 +84,7 @@ fn exercise(app: &AppHandle) -> Result<serde_json::Value> {
         },
         "Initial bubble client size is incorrect before hover",
     )?;
+    check_startup_viewport(app, &bubble, startup_width)?;
     require(
         app.tray_by_id("metra-status").is_some(),
         "Native tray was not created",
@@ -230,6 +231,44 @@ fn exercise(app: &AppHandle) -> Result<serde_json::Value> {
         "capsule": true, "idleUsage": true, "smoothOutline": cfg!(windows), "transparentEdges": cfg!(windows), "solidSurfaces": cfg!(windows),
         "nativeTemplate": cfg!(target_os = "macos"), "isolated": true }),
     )
+}
+fn check_startup_viewport(app: &AppHandle, bubble: &WebviewWindow, width: f64) -> Result<()> {
+    let (send, receive) = std::sync::mpsc::channel();
+    let listener = app.listen("metra-smoke-startup", move |event| {
+        let _ = send.send(event.payload().to_owned());
+    });
+    let result = (|| {
+        bubble
+            .eval(
+                r#"(() => {
+            const report = () => {
+                const ball = document.querySelector('#bubble');
+                if (!ball) { setTimeout(report, 50); return; }
+                const bounds = ball.getBoundingClientRect();
+                window.__TAURI_INTERNALS__.invoke('plugin:event|emit', {
+                    event: 'metra-smoke-startup',
+                    payload: [innerWidth, innerHeight, bounds.width, bounds.height]
+                });
+            };
+            requestAnimationFrame(report);
+        })()"#,
+            )
+            .map_err(|e| e.to_string())?;
+        let payload = receive
+            .recv_timeout(Duration::from_secs(7))
+            .map_err(|e| format!("Startup WebView did not report geometry: {e}"))?;
+        let sizes: Vec<f64> = serde_json::from_str(&payload).map_err(|e| e.to_string())?;
+        require(
+            sizes.len() == 4
+                && sizes
+                    .iter()
+                    .zip([width, 56., width, 56.])
+                    .all(|(actual, expected)| (actual - expected).abs() <= 1.),
+            &format!("Startup WebView/bubble geometry mismatch: {sizes:?}"),
+        )
+    })();
+    app.unlisten(listener);
+    result
 }
 fn check_idle_usage(app: &AppHandle, bubble: &WebviewWindow) -> Result<()> {
     let (send, receive) = std::sync::mpsc::channel();
