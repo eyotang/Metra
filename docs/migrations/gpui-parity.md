@@ -38,18 +38,16 @@ checkout. Candidate version: **0.6.0; not published**.
   close and legacy status-bar configuration migration passed.
 - Local native idle check: the compact bubble's render callback received 37% ->
   61% usage after 330 seconds, without opening a panel or expanding.
-- Run `45560439506` (`ce856e6`): Linux, macOS and Windows native tests and
-  installers passed; Windows v0.2.2 `/S` upgrade restarted and preserved settings.
-- Run `45562008197` (`8f8c09e`): Linux passed; macOS passed the 330-second inactive
-  paint/template check and packaging. Windows failed in new acceptance code due
-  to a raw-handle method collision, subsequently corrected.
-- Run `45562512563` (`00ed66a`): Linux passed. Windows acceptance-code compilation
-  found a glob-import name collision, subsequently corrected. macOS failed the
-  Finder activation precondition before its idle wait; the test now waits for
-  the actual inactive state, with a bounded seven-second deadline.
-- The first full workflow run on the branch (`45561339569`, `8d4450b`) retains
-  legacy browser/native regressions alongside GPUI tests. Its Windows failure
-  was the corrected Win32 `BOOL` import. It is not final release evidence.
+- Run `45567406576` (`6ab722e`): all three full regression jobs
+  passed, including native lifecycle, legacy rendering/desktop, collector,
+  Omarchy and signing-tool checks, plus macOS native inactive repaint.
+- Windows actual composited pixels passed for bubble, capsule and panel over
+  two backdrop colors; six evidence images were downloaded and representative
+  surfaces visually inspected. The root theme background and Windows native
+  non-client frame were both removed from the transparent overlay surface.
+- Run `45567266857` (`6ab722e`): all three native jobs passed, including
+  installers, the macOS 330-second inactive/visible repaint and tray template
+  assertions, and Windows v0.2.2 silent upgrade with settings preservation.
 - The v0.6.0 Linux release package built locally through the default packaging
   entry point. Binary identity, package metadata, ownership, permissions,
   notices and checksum were verified. Its production executable passed the
@@ -58,36 +56,19 @@ checkout. Candidate version: **0.6.0; not published**.
 - README screenshots are from the native v0.6.0 application with isolated,
   synthetic provider data, inspected after capture.
 
-The full workflow also caught an unstamped Omarchy source manifest; its version
-is now 0.6.0 and local source/archive manifest checks pass.
-
-The v0.6.0 candidate `4fac267` additionally exposed a Windows client/outer-origin
-mismatch in composited capture and a macOS activation-policy test precondition.
-The native Windows adapter now uses client origins consistently with GPUI content
-sizes, including non-client margins during moves. macOS acceptance now requests a
-cooperative focus transfer to Finder, checks actual inactive state, and checks
-that the later repaint does not reactivate Metra. These corrections require a new
-CI run; the failed runs are not treated as passing evidence.
-
-The next pixel run confirmed an additional opaque surface from GPUI Kit's root
-plugin. Overlay roots now explicitly override that theme background with alpha
-while retaining input, focus and tooltip plugins. Consent navigation now resizes
-consistently, and the consent page is retained if enabling compatibility fails.
-Local native lifecycle tests include consent-size transitions and pass.
-
-The macOS GUI runner accepted Finder activation without actually relinquishing
-Metra's active state. The idle harness now explicitly deactivates Metra using
-AppKit (without hiding it), then still asserts genuine inactive/non-hidden state
-and render delivery after the idle period. No production activation behavior is
-changed by this feature-gated test setup.
+Consent navigation resizes consistently; failed compatibility enablement keeps
+the consent page open. Native lifecycle checks cover consent-size transitions.
+The feature-gated macOS harness explicitly deactivates the visible app, asserts
+actual inactive/non-hidden state, and checks render delivery after 330 seconds.
+Production activation behavior is unchanged by that test setup.
 
 ## Remaining release gates
 
-- [ ] Final candidate passes native compilation and lifecycle checks on all platforms.
-- [ ] Windows composited pixel test passes for bubble, capsule and panel: corners
+- [x] Final candidate passes native compilation and lifecycle checks on all platforms.
+- [x] Windows composited pixel test passes for bubble, capsule and panel: corners
       follow two synthetic backdrop colors while center content remains opaque.
-- [ ] Final macOS inactive paint/template test passes, including its activation precondition.
-- [ ] Final full workflow passes collector, native, legacy regression, Omarchy and signing-tool checks.
+- [x] Final macOS inactive paint/template test passes, including its activation precondition.
+- [x] Final full workflow passes collector, native, legacy regression, Omarchy and signing-tool checks.
 - [ ] Tagged release builds universal macOS DMG, Windows installer/portable and
       Linux/Omarchy assets; signatures, metadata, hashes and old-version upgrade pass.
 - [ ] Publish English-first/Chinese-second release notes and compatible updater manifest.
