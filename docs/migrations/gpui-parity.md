@@ -322,3 +322,14 @@ Both local native smoke scenarios pass after these changes. README screenshots
 were recaptured from the isolated synthetic-data native application and inspected.
 Full mixed-monitor and physical pointer acceptance remains outstanding; no release
 has been published.
+
+### Monitor restoration checkpoint
+
+Native monitor enumeration now uses XRandR monitor rectangles (intersected with
+EWMH work area when present), AppKit screen visible frames, and Win32 monitor
+work areas/DPI. Startup selects the saved monitor before clamping, rather than
+clamping to the newly-created window's initial monitor. Shared geometry tests
+cover negative-origin secondary displays, version-2 logical positions and a
+removed display fallback. A single FIFO background writer preserves the order
+of drag/hover position saves. Root/native tests and both local native smoke
+scenarios pass; Windows/macOS compilation of this change is pending CI.

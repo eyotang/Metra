@@ -12,6 +12,7 @@ use tray_icon::{
 pub(super) struct Runtime {
     pub dashboard: Entity<Dashboard>,
     pub panel: Option<AnyWindowHandle>,
+    pub positions: async_channel::Sender<metra_lib::settings::SavedPosition>,
     bubble: Option<AnyWindowHandle>,
     _state: Subscription,
     _displays: Subscription,
@@ -302,6 +303,23 @@ pub(super) fn start(
         .build()
         .map_err(|error| eprintln!("System tray unavailable: {error}"))
         .ok();
+    let (positions, position_updates) =
+        async_channel::unbounded::<metra_lib::settings::SavedPosition>();
+    let position_service = service.clone();
+    cx.background_executor()
+        .spawn(async move {
+            // One FIFO writer prevents an older drag/hover save from overwriting a
+            // later position when background tasks start in a different order.
+            while let Ok(position) = position_updates.recv().await {
+                if let Err(error) = position_service.update_settings(|settings| {
+                    settings.bubble_position = Some(position);
+                    settings.bubble_position_version = 3;
+                }) {
+                    eprintln!("{error}");
+                }
+            }
+        })
+        .detach();
     let dashboard = cx.new(|cx| {
         let mut view = Dashboard {
             panel_activation: None,
@@ -384,6 +402,7 @@ pub(super) fn start(
     cx.set_global(Runtime {
         dashboard,
         panel: None,
+        positions,
         bubble: None,
         _state: state,
         _displays: displays,

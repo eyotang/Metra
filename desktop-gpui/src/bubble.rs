@@ -48,7 +48,7 @@ impl Bubble {
             pending: None,
         };
         let result = (|| {
-            let (work, scale) = native_window::work_area(window, cx)?;
+            let (work, scale) = native_window::initial_work_area(window, cx, &data.settings)?;
             let (x, y) = data
                 .settings
                 .bubble_position
@@ -122,17 +122,9 @@ impl Bubble {
         })();
         match result {
             Ok(position) => {
-                let service = self.service.clone();
-                cx.background_executor()
-                    .spawn(async move {
-                        if let Err(error) = service.update_settings(|s| {
-                            s.bubble_position = Some(position);
-                            s.bubble_position_version = 3;
-                        }) {
-                            eprintln!("{error}");
-                        }
-                    })
-                    .detach();
+                if let Err(error) = cx.global::<runtime::Runtime>().positions.try_send(position) {
+                    eprintln!("{error}");
+                }
             }
             Err(error) => eprintln!("{error}"),
         }

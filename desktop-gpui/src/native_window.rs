@@ -2,55 +2,205 @@ use gpui_kit::{App, Window};
 use metra_lib::geometry::WorkArea;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-pub(super) fn work_area(window: &Window, cx: &App) -> Result<(WorkArea, f64), String> {
+/// Enumerate physical work areas instead of GPUI's X11 screen (which can span
+/// several monitors). Keep the per-monitor scale for legacy logical positions.
+fn monitor_areas(window: &Window, cx: &App) -> Result<Vec<(WorkArea, f64)>, String> {
+    #[cfg(target_os = "linux")]
+    {
+        use x11rb::{
+            connection::Connection,
+            protocol::{
+                randr::ConnectionExt as _,
+                xproto::{AtomEnum, ConnectionExt as _},
+            },
+        };
+        let (connection, screen) = x11rb::connect(None).map_err(|e| e.to_string())?;
+        let root = connection.setup().roots[screen].root;
+        let scale = f64::from(window.scale_factor());
+        let mut areas = Vec::new();
+        if let Ok(cookie) = connection.randr_get_monitors(root, true) {
+            if let Ok(reply) = cookie.reply() {
+                // EWMH reports a desktop work area excluding panels/docks. Some
+                // compositors omit it; physical monitor bounds remain usable.
+                let work = (|| {
+                    let atom = connection
+                        .intern_atom(true, b"_NET_WORKAREA")
+                        .ok()?
+                        .reply()
+                        .ok()?
+                        .atom;
+                    let reply = connection
+                        .get_property(false, root, atom, AtomEnum::CARDINAL, 0, 4)
+                        .ok()?
+                        .reply()
+                        .ok()?;
+                    let values: Vec<_> = reply.value32()?.collect();
+                    (values.len() == 4).then(|| WorkArea {
+                        x: values[0] as i32 as f64,
+                        y: values[1] as i32 as f64,
+                        width: values[2] as f64,
+                        height: values[3] as f64,
+                    })
+                })();
+                for monitor in reply.monitors {
+                    let mut area = WorkArea {
+                        x: monitor.x as f64,
+                        y: monitor.y as f64,
+                        width: monitor.width as f64,
+                        height: monitor.height as f64,
+                    };
+                    if let Some(work) = work {
+                        let x = area.x.max(work.x);
+                        let y = area.y.max(work.y);
+                        let right = (area.x + area.width).min(work.x + work.width);
+                        let bottom = (area.y + area.height).min(work.y + work.height);
+                        if right > x && bottom > y {
+                            area = WorkArea {
+                                x,
+                                y,
+                                width: right - x,
+                                height: bottom - y,
+                            };
+                        }
+                    }
+                    if monitor.primary {
+                        areas.insert(0, (area, scale));
+                    } else {
+                        areas.push((area, scale));
+                    }
+                }
+            }
+        }
+        if !areas.is_empty() {
+            return Ok(areas);
+        }
+    }
     #[cfg(target_os = "macos")]
     {
         use objc2::MainThreadMarker;
-        use objc2_app_kit::{NSScreen, NSView};
+        use objc2_app_kit::NSScreen;
         let mtm = MainThreadMarker::new().ok_or("Window access requires main thread")?;
-        let handle = HasWindowHandle::window_handle(window)
-            .map_err(|e| e.to_string())?
-            .as_raw();
-        if let RawWindowHandle::AppKit(handle) = handle {
-            // GPUI's macOS visible_bounds is display-local. AppKit provides the
-            // global frame needed to match position()/move_to() on other screens.
+        let screens = NSScreen::screens(mtm);
+        let primary = screens.firstObject().ok_or("No display available")?;
+        let top = primary.frame().size.height;
+        let mut areas = Vec::new();
+        for screen in screens.iter() {
+            let visible = screen.visibleFrame();
+            let scale = screen.backingScaleFactor();
+            areas.push((
+                WorkArea {
+                    x: visible.origin.x * scale,
+                    y: (top - visible.origin.y - visible.size.height) * scale,
+                    width: visible.size.width * scale,
+                    height: visible.size.height * scale,
+                },
+                scale,
+            ));
+        }
+        return Ok(areas);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::{
+            Foundation::{BOOL, LPARAM, RECT},
+            Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO},
+            UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
+        };
+        unsafe extern "system" fn visit(
+            monitor: HMONITOR,
+            _: HDC,
+            _: *mut RECT,
+            context: LPARAM,
+        ) -> BOOL {
+            // SAFETY: EnumDisplayMonitors synchronously passes our live vector;
+            // each Win32 output structure has the required size and lifetime.
             unsafe {
-                let view = &*(handle.ns_view.as_ptr() as *const NSView);
-                let native = view.window().ok_or("Native window unavailable")?;
-                let screens = NSScreen::screens(mtm);
-                let primary = screens.firstObject().ok_or("No display available")?;
-                let screen = native.screen().unwrap_or_else(|| primary.clone());
-                let visible = screen.visibleFrame();
-                let scale = screen.backingScaleFactor();
-                return Ok((
-                    WorkArea {
-                        x: visible.origin.x * scale,
-                        y: (primary.frame().size.height - visible.origin.y - visible.size.height)
-                            * scale,
-                        width: visible.size.width * scale,
-                        height: visible.size.height * scale,
-                    },
-                    scale,
-                ));
+                let areas = &mut *(context as *mut Vec<(WorkArea, f64)>);
+                let mut info = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
+                if GetMonitorInfoW(monitor, &mut info) != 0 {
+                    let (mut xdpi, mut ydpi) = (96, 96);
+                    let _ = GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut xdpi, &mut ydpi);
+                    let r = info.rcWork;
+                    let entry = (
+                        WorkArea {
+                            x: r.left as f64,
+                            y: r.top as f64,
+                            width: (r.right - r.left) as f64,
+                            height: (r.bottom - r.top) as f64,
+                        },
+                        xdpi as f64 / 96.,
+                    );
+                    if info.dwFlags & 1 != 0 {
+                        areas.insert(0, entry);
+                    } else {
+                        areas.push(entry);
+                    }
+                }
+                1
             }
         }
+        let mut areas: Vec<(WorkArea, f64)> = Vec::new();
+        // SAFETY: callback and output vector live for this synchronous call.
+        unsafe {
+            EnumDisplayMonitors(
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                Some(visit),
+                &mut areas as *mut _ as isize,
+            );
+        }
+        if !areas.is_empty() {
+            return Ok(areas);
+        }
     }
-    let display = window
-        .display(cx)
-        .or_else(|| cx.primary_display())
-        .ok_or("No display available")?;
-    let bounds = display.visible_bounds();
-    let scale = f64::from(window.scale_factor());
-    Ok((
-        WorkArea {
-            x: f64::from(f32::from(bounds.origin.x)) * scale,
-            y: f64::from(f32::from(bounds.origin.y)) * scale,
-            width: f64::from(f32::from(bounds.size.width)) * scale,
-            height: f64::from(f32::from(bounds.size.height)) * scale,
-        },
-        scale,
-    ))
+    #[allow(unreachable_code)]
+    {
+        let display = window
+            .display(cx)
+            .or_else(|| cx.primary_display())
+            .ok_or("No display available")?;
+        let bounds = display.visible_bounds();
+        let scale = f64::from(window.scale_factor());
+        Ok(vec![(
+            WorkArea {
+                x: f64::from(f32::from(bounds.origin.x)) * scale,
+                y: f64::from(f32::from(bounds.origin.y)) * scale,
+                width: f64::from(f32::from(bounds.size.width)) * scale,
+                height: f64::from(f32::from(bounds.size.height)) * scale,
+            },
+            scale,
+        )])
+    }
 }
+
+pub(super) fn work_area(window: &Window, cx: &App) -> Result<(WorkArea, f64), String> {
+    let areas = monitor_areas(window, cx)?;
+    let position = position(window).ok();
+    areas
+        .iter()
+        .copied()
+        .find(|(area, _)| position.is_some_and(|(x, y)| area.contains(x as f64, y as f64)))
+        .or_else(|| areas.first().copied())
+        .ok_or("No display available".into())
+}
+
+pub(super) fn initial_work_area(
+    window: &Window,
+    cx: &App,
+    settings: &metra_lib::settings::AppSettings,
+) -> Result<(WorkArea, f64), String> {
+    let areas = monitor_areas(window, cx)?;
+    metra_lib::geometry::saved_work_area(
+        &areas,
+        settings.bubble_position,
+        settings.bubble_position_version,
+    )
+    .ok_or("No display available".into())
+}
+
 pub(super) fn position(window: &Window) -> Result<(i32, i32), String> {
     let handle = HasWindowHandle::window_handle(window)
         .map_err(|e| e.to_string())?

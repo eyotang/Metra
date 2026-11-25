@@ -7,6 +7,10 @@ pub struct WorkArea {
     pub height: f64,
 }
 impl WorkArea {
+    pub fn contains(self, x: f64, y: f64) -> bool {
+        x >= self.x && x < self.x + self.width && y >= self.y && y < self.y + self.height
+    }
+
     pub fn clamp(self, x: f64, y: f64, width: f64, height: f64) -> (i32, i32) {
         (
             x.clamp(self.x, self.x + (self.width - width).max(0.))
@@ -81,5 +85,60 @@ mod migration_tests {
         for version in [0, 1, 3] {
             assert_eq!(saved_physical(position, version, 1.5), (-800., 140.));
         }
+    }
+}
+
+/// Primary area must be first; missing/disconnected saved displays fall back to it.
+pub fn saved_work_area(
+    areas: &[(WorkArea, f64)],
+    position: Option<crate::settings::SavedPosition>,
+    version: u8,
+) -> Option<(WorkArea, f64)> {
+    areas
+        .iter()
+        .copied()
+        .find(|(area, scale)| {
+            position.is_some_and(|position| {
+                let (x, y) = saved_physical(position, version, *scale);
+                area.contains(x, y)
+            })
+        })
+        .or_else(|| areas.first().copied())
+}
+
+#[cfg(test)]
+mod monitor_tests {
+    use super::*;
+    use crate::settings::SavedPosition;
+    #[test]
+    fn restores_secondary_physical_and_legacy_logical_positions() {
+        let primary = (
+            WorkArea {
+                x: 0.,
+                y: 0.,
+                width: 1920.,
+                height: 1080.,
+            },
+            1.,
+        );
+        let secondary = (
+            WorkArea {
+                x: -2560.,
+                y: 0.,
+                width: 2560.,
+                height: 1440.,
+            },
+            2.,
+        );
+        let areas = [primary, secondary];
+        for (version, x) in [(3, -2000), (2, -1000)] {
+            let (area, scale) =
+                saved_work_area(&areas, Some(SavedPosition { x, y: 100 }), version).unwrap();
+            assert_eq!((area.x, scale), (-2560., 2.));
+        }
+        let (area, scale) =
+            saved_work_area(&areas[..1], Some(SavedPosition { x: -2000, y: 100 }), 3).unwrap();
+        assert_eq!((area.x, scale), (0., 1.));
+        assert!(saved_work_area(&[], None, 3).is_none());
     }
 }
