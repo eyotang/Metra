@@ -204,7 +204,7 @@ impl Render for Bubble {
         let accessible = t.format(
             "bubble.ariaLabel",
             &[
-                ("usage", usage.clone()),
+                ("usage", usage),
                 (
                     "dragHint",
                     t.t(if snap {
@@ -215,13 +215,20 @@ impl Render for Bubble {
                 ),
             ],
         );
+        let ring = linear_gradient(
+            138.,
+            linear_color_stop(rgb(0x8d72ff), 0.),
+            linear_color_stop(rgb(0x28d1b3), 1.),
+        );
+        let hover_ring = linear_gradient(
+            138.,
+            linear_color_stop(rgb(0xa18aff), 0.),
+            linear_color_stop(rgb(0x47e3c7), 1.),
+        );
         let content = div()
             .id("bubble")
             .role(Role::Button)
             .aria_label(accessible)
-            .tooltip(move |window, cx| {
-                component::tooltip::Tooltip::new(usage.clone()).build(window, cx)
-            })
             .track_focus(&self.focus)
             .tab_stop(true)
             .on_key_down(|event, _, cx| {
@@ -233,22 +240,17 @@ impl Render for Bubble {
             .items_center()
             .justify_center()
             .gap_0()
-            .text_xs()
             .size_full()
             .rounded_full()
             .p(px(3.))
             .cursor_pointer()
-            .bg(linear_gradient(
-                138.,
-                linear_color_stop(rgb(0x8d72ff), 0.),
-                linear_color_stop(rgb(0x28d1b3), 1.),
-            ))
-            .hover(|style| {
-                style.bg(linear_gradient(
-                    138.,
-                    linear_color_stop(rgb(0xa18aff), 0.),
-                    linear_color_stop(rgb(0x47e3c7), 1.),
-                ))
+            .bg(ring)
+            .map(|content| {
+                if cfg!(target_os = "linux") {
+                    content.when(window.is_window_hovered(), |content| content.bg(hover_ring))
+                } else {
+                    content.hover(move |style| style.bg(hover_ring))
+                }
             })
             .text_color(rgb(0xf0f2f7))
             .on_mouse_down(
@@ -295,7 +297,10 @@ impl Render for Bubble {
                 }
             }))
             .on_hover(cx.listener(|this, hovered: &bool, window, cx| {
-                if this.dragging {
+                // X11 may keep the last in-window pointer coordinates after a leave.
+                if this.dragging
+                    || (*hovered && cfg!(target_os = "linux") && !window.is_window_hovered())
+                {
                     return;
                 }
                 this.pending = None;
@@ -325,8 +330,11 @@ impl Render for Bubble {
             .justify_center()
             .rounded_full()
             .bg(rgb(0x121a2b))
+            .font_family("Inter Variable")
+            .font_weight(FontWeight::EXTRA_BOLD)
+            .line_height(relative(1.))
             .gap(px(1.))
-            .px(px(if self.peek { 1. } else { 5. }));
+            .px(px(if self.peek { 0.5 } else { 3.5 }));
         #[cfg(feature = "native-smoke")]
         LAST_RENDERED_USAGE.store(
             self.entries
@@ -339,6 +347,12 @@ impl Render for Bubble {
             let accent =
                 u32::from_str_radix(entry.color.trim_start_matches('#'), 16).unwrap_or(0x9c83ff);
             let value_color = quota_color(entry.value, self.percent_mode, accent);
+            // A fourth glyph only fits in the capsule at a slightly smaller size.
+            let value_size = if self.peek && entry.value == Some(100) {
+                8.5
+            } else {
+                10.
+            };
             rows = rows.child(
                 div()
                     .h_flex()
@@ -358,9 +372,10 @@ impl Render for Bubble {
                                 .min_w(px(12.))
                                 .max_w(px(15.))
                                 .h(px(10.))
+                                .overflow_hidden()
+                                .whitespace_nowrap()
                                 .rounded(px(3.))
-                                .text_size(px(6.5))
-                                .font_weight(FontWeight::BOLD)
+                                .text_size(px(7.5))
                                 .text_color(rgb(accent))
                                 .bg(rgba((accent << 8) | 46))
                                 .child(entry.label.clone()),
@@ -368,8 +383,9 @@ impl Render for Bubble {
                     })
                     .child(
                         div()
-                            .text_size(px(if self.peek { 8. } else { 9. }))
-                            .font_weight(FontWeight::BOLD)
+                            .flex_shrink_0()
+                            .whitespace_nowrap()
+                            .text_size(px(value_size))
                             .text_color(rgb(value_color))
                             .child(
                                 entry

@@ -1,13 +1,17 @@
 //! Composited native pixels, sampled only over a synthetic test backdrop.
 use super::*;
 use std::{path::Path, time::Duration};
-use windows_sys::Win32::Graphics::{
-    Dwm::DwmFlush,
-    Gdi::{
-        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CAPTUREBLT, CreateCompatibleBitmap,
-        CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits, ReleaseDC,
-        SRCCOPY, SelectObject,
+use windows_sys::Win32::{
+    Foundation::POINT,
+    Graphics::{
+        Dwm::DwmFlush,
+        Gdi::{
+            BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CAPTUREBLT, CreateCompatibleBitmap,
+            CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits,
+            ReleaseDC, SRCCOPY, SelectObject,
+        },
     },
+    UI::WindowsAndMessaging::{GetCursorPos, SetCursorPos},
 };
 type Result<T> = std::result::Result<T, String>;
 fn require(value: bool, message: &str) -> Result<()> {
@@ -71,6 +75,13 @@ pub(super) fn start(cx: &mut App) {
                 surface.update(cx, |_,window,_| native_window::move_to(window,(work.x+100.) as i32,(work.y+100.) as i32).unwrap()).unwrap();
                 surface
             });
+            let original_pointer = (name == "bubble").then(|| {
+                // SAFETY: the output POINT is initialized, writable and lives through the call.
+                let mut original_pointer = POINT::default();
+                assert_ne!(unsafe { GetCursorPos(&mut original_pointer) }, 0);
+                set_pointer_position(work.x as i32 + 10, work.y as i32 + 10);
+                original_pointer
+            });
             cx.background_executor().timer(Duration::from_secs(1)).await;
             let green_surface = cx.update(|cx| sample(surface,cx));
             save(&directory.join(format!("{name}-green_surface.png")),&green_surface);
@@ -78,6 +89,14 @@ pub(super) fn start(cx: &mut App) {
             assert!(corner_pixels.iter().all(|pixel| pixel.iter().zip([40u8,160,88]).all(|(a,b)| a.abs_diff(b)<=2)), "{name}: opaque corner pixels {corner_pixels:?}");
             if name != "panel" {
                 cx.update(|cx| assert_clear_below(surface, [40, 160, 88], cx));
+            }
+            if let Some(original_pointer) = original_pointer {
+                cx.update(|cx| move_mouse_in_bubble(surface, cx));
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+                let hovered = cx.update(|cx| sample(surface,cx));
+                set_pointer_position(original_pointer.x, original_pointer.y);
+                save(&directory.join("bubble-hovered.png"), &hovered);
+                assert_same_bubble_content(&green_surface, &hovered);
             }
             assert!(green_surface.2.chunks_exact(4).any(|pixel| pixel[..3].iter().map(|p| *p as u32).sum::<u32>()<150), "Missing painted opaque content");
             cx.update(|cx| view.update(cx, |view,cx| { view.0=0xb43282; cx.notify(); }));
@@ -94,7 +113,7 @@ pub(super) fn start(cx: &mut App) {
         }
         cx.update(|cx| {
             backdrop.update(cx, |_,window,_| window.remove_window()).unwrap();
-            std::fs::write(Path::new(&config).join("native-smoke.result"), "PASS: composited bubble/capsule/panel have transparent corners, opaque content, and no frame below the bubble").unwrap();
+            std::fs::write(Path::new(&config).join("native-smoke.result"), "PASS: composited bubble/capsule/panel have transparent corners, opaque content, no frame below the bubble, and unobstructed hover content").unwrap();
             cx.quit();
         });
     }).detach();
@@ -110,6 +129,52 @@ fn sample(surface: AnyWindowHandle, cx: &mut App) -> (u32, u32, Vec<u8>) {
         })
         .unwrap()
 }
+
+fn set_pointer_position(x: i32, y: i32) {
+    // SAFETY: SetCursorPos takes physical coordinates by value.
+    assert_ne!(unsafe { SetCursorPos(x, y) }, 0);
+}
+
+fn move_mouse_in_bubble(surface: AnyWindowHandle, cx: &mut App) {
+    surface
+        .update(cx, |_, window, _| {
+            let (x, y) = native_window::position(window).unwrap();
+            let scale = window.scale_factor();
+            let size = window.bounds().size;
+            set_pointer_position(
+                x + (f32::from(size.width) * scale / 2.).round() as i32,
+                y + (f32::from(size.height) * scale / 2.).round() as i32,
+            );
+        })
+        .unwrap();
+}
+
+fn assert_same_bubble_content(rest: &(u32, u32, Vec<u8>), hovered: &(u32, u32, Vec<u8>)) {
+    let (width, height, rest_pixels) = rest;
+    assert_eq!((*width, *height), (hovered.0, hovered.1));
+    let hovered_pixels = &hovered.2;
+    let ring_offset = ((height / 32 * width + width / 2) * 4) as usize;
+    assert!(
+        rest_pixels[ring_offset..ring_offset + 3]
+            .iter()
+            .zip(&hovered_pixels[ring_offset..ring_offset + 3])
+            .any(|(before, after)| before.abs_diff(*after) > 2),
+        "The pointer did not trigger the bubble's hover gradient"
+    );
+    for row in height / 4..height * 3 / 4 {
+        // The hover gradient belongs to the outer ring. The usage content is inside it.
+        let columns =
+            (row * width + width / 4) as usize * 4..(row * width + width * 3 / 4) as usize * 4;
+        assert!(
+            rest_pixels[columns.clone()]
+                .iter()
+                .zip(&hovered_pixels[columns])
+                .all(|(before, after)| before.abs_diff(*after) <= 2),
+            "Hover obscured the bubble content on row {row}"
+        );
+    }
+}
+
 fn assert_clear_below(surface: AnyWindowHandle, backdrop: [u8; 3], cx: &mut App) {
     surface
         .update(cx, |_, window, _| {
