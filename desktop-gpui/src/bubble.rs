@@ -5,10 +5,15 @@ use metra_lib::status_bar::{StatusEntry, entries};
 pub(super) static LAST_RENDERED_USAGE: std::sync::atomic::AtomicU8 =
     std::sync::atomic::AtomicU8::new(255);
 
+enum BubblePress {
+    At(Point<Pixels>),
+    Resized,
+}
+
 pub(super) struct Bubble {
     entries: Vec<StatusEntry>,
     _subscription: Subscription,
-    pointer: Option<Point<Pixels>>,
+    pointer: Option<BubblePress>,
     dragging: bool,
     service: Arc<RefreshService>,
     peek: bool,
@@ -108,6 +113,10 @@ impl Bubble {
         window.resize(size(px(if peek { 32. } else { 56. }), px(56.)));
         native_window::move_to(window, x, y)?;
         self.peek = peek;
+        if self.pointer.is_some() {
+            // The press used coordinates relative to the previous window origin.
+            self.pointer = Some(BubblePress::Resized);
+        }
         self.persist(window, cx);
         cx.notify();
         Ok(())
@@ -144,18 +153,25 @@ impl Bubble {
                 }
             }
             let _ = this.update_in(cx, |this, window, cx| {
-                this.dragging = false;
-                this.drag_finished = Some(std::time::Instant::now());
-                this.pointer = None;
-                if this.service.payload().settings.bubble_snap_enabled {
-                    if let Err(error) = this.dock(true, true, window, cx) {
-                        eprintln!("{error}");
-                    }
-                } else {
-                    this.persist(window, cx);
-                }
+                this.complete_drag(window, cx);
             });
         }));
+    }
+
+    fn complete_drag(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.dragging = false;
+        self.drag_finished = Some(std::time::Instant::now());
+        self.pointer = None;
+        if self.service.payload().settings.bubble_snap_enabled {
+            if let Err(error) = self.dock(true, true, window, cx) {
+                eprintln!("{error}");
+            }
+        } else {
+            if let Err(error) = native_window::clamp_to_work_area(window, cx) {
+                eprintln!("{error}");
+            }
+            self.persist(window, cx);
+        }
     }
 }
 impl Render for Bubble {
@@ -239,13 +255,15 @@ impl Render for Bubble {
                 MouseButton::Left,
                 cx.listener(|this, event: &MouseDownEvent, window, cx| {
                     window.focus(&this.focus, cx);
-                    this.pointer = Some(event.position);
+                    this.pointer = Some(BubblePress::At(event.position));
                     this.dragging = false;
                 }),
             )
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 if event.dragging() && !this.dragging {
-                    if let Some(start) = this.pointer {
+                    if let Some(BubblePress::Resized) = this.pointer {
+                        this.pointer = Some(BubblePress::At(event.position));
+                    } else if let Some(BubblePress::At(start)) = this.pointer {
                         let dx = f32::from(event.position.x - start.x);
                         let dy = f32::from(event.position.y - start.y);
                         if dx.hypot(dy) >= 4. {
@@ -262,6 +280,10 @@ impl Render for Bubble {
                 cx.listener(|this, _, _, _| {
                     this.pointer = None;
                 }),
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| this.pointer = None),
             )
             .on_click(cx.listener(|this, _, _, cx| {
                 if !this.dragging

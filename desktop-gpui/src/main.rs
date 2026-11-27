@@ -3,7 +3,7 @@
 //! Independent migration entry point; the released shell remains available during parity work.
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    component::{button::*, *},
+    component::{button::*, spinner::Spinner, *},
     *,
 };
 use metra_lib::{
@@ -54,6 +54,7 @@ fn open_overlay<V: Render>(
 struct Dashboard {
     focus: FocusHandle,
     panel_activation: Option<Subscription>,
+    settings_scroll: ScrollHandle,
     saved_labels: Vec<(metra_lib::model::Provider, String, String)>,
     update_notes_expanded: bool,
     page: Page,
@@ -80,6 +81,7 @@ impl Dashboard {
     fn navigate(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
         runtime::position_panel(page, window, cx);
         self.page = page;
+        window.focus(&self.focus, cx);
         cx.notify();
     }
 
@@ -112,6 +114,11 @@ impl Dashboard {
         }
         self.last_refresh = std::time::Instant::now();
         self.schedule_refresh(cx);
+        self.refreshing = if recheck {
+            vec![metra_lib::model::Provider::Cursor]
+        } else {
+            self.service.payload().settings.bubble_provider_order
+        };
         let service = self.service.clone();
         let (sender, receiver) = async_channel::unbounded();
         let work = cx.background_executor().spawn(async move {
@@ -164,6 +171,7 @@ impl Render for Dashboard {
                     .accessibility_label(t.t("refresh.nowUsage"))
                     .tooltip(t.t("refresh.nowUsage"))
                     .disabled(self.refresh_task.is_some())
+                    .loading(self.refresh_task.is_some())
                     .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
             );
         } else {
@@ -245,17 +253,19 @@ impl Render for Dashboard {
         let active = self.refresh_task.is_some() || self.settings_task.is_some();
         let status = div()
             .h_flex()
+            .items_center()
             .gap_2()
             .px_3()
             .py_2()
             .flex_shrink_0()
             .text_xs()
             .text_color(rgb(0xa6adbc))
-            .child(div().size(px(6.)).rounded_full().bg(rgb(if active {
-                0xffd15a
-            } else {
-                0x4dd4bf
-            })))
+            .when(active, |status| {
+                status.child(Spinner::new().with_size(px(12.)))
+            })
+            .when(!active, |status| {
+                status.child(div().size(px(6.)).rounded_full().bg(rgb(0x4dd4bf)))
+            })
             .child(if self.refresh_task.is_some() {
                 t.t("native.refreshing")
             } else {
@@ -278,7 +288,11 @@ impl Render for Dashboard {
                 .text_color(rgb(0xe8ecf3))
                 .font_family("Inter")
                 .child(header)
-                .child(content.child(self.preferences(cx)))
+                .child(
+                    content
+                        .track_scroll(&self.settings_scroll)
+                        .child(self.preferences(cx)),
+                )
                 .child(status);
         }
         if self.page == Page::Consent {
@@ -319,7 +333,7 @@ impl Render for Dashboard {
                 .child(
                     Button::new("check-update")
                         .label(t.t("native.checkUpdate"))
-                        .disabled(self.update_task.is_some())
+                        .loading(self.update_task.is_some())
                         .on_click(cx.listener(|this, _, _, cx| this.check_update(true, cx))),
                 ),
         );

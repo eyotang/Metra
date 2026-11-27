@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
 };
 use tray_icon::{
-    MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
+    MouseButton as TrayMouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
     menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
 };
 
@@ -116,6 +116,7 @@ pub(super) fn open_panel(page: Page, cx: &mut App) {
                 view.panel_activation =
                     Some(cx.observe_window_activation(window, |_, window, cx| {
                         if !window.is_window_active() {
+                            cx.stop_active_drag(window);
                             window.remove_window();
                             cx.global_mut::<Runtime>().panel = None;
                         }
@@ -146,6 +147,22 @@ pub(super) fn position_panel(page: Page, window: &mut Window, cx: &mut App) {
         } else {
             None
         };
+        let tray_position = if anchor.is_none() {
+            cx.global::<Runtime>()
+                ._tray
+                .as_ref()
+                .and_then(|tray| tray.rect())
+                .map(|rect| rect.position)
+        } else {
+            None
+        };
+        if let Some(position) = tray_position
+            && let Ok((area, factor)) =
+                native_window::work_area_at(window, cx, position.x, position.y)
+        {
+            work = area;
+            scale = factor;
+        }
         let width = if page == Page::Settings { 340. } else { 360. };
         let height: f64 = if page == Page::Consent { 300. } else { 560. };
         let height = height.min(work.height / scale - 16.).max(160.);
@@ -160,14 +177,9 @@ pub(super) fn position_panel(page: Page, window: &mut Window, cx: &mut App) {
                 x = bx as f64 + 64. * scale;
             }
             y = by as f64;
-        } else if let Some(rect) = cx
-            .global::<Runtime>()
-            ._tray
-            .as_ref()
-            .and_then(|tray| tray.rect())
-        {
-            x = rect.position.x - width * scale;
-            y = rect.position.y + 24. * scale;
+        } else if let Some(position) = tray_position {
+            x = position.x - width * scale;
+            y = position.y + 24. * scale;
         }
         let (x, y) = work.clamp(x, y, width * scale, height * scale);
         native_window::move_to(window, x, y)
@@ -180,19 +192,7 @@ pub(super) fn position_panel(page: Page, window: &mut Window, cx: &mut App) {
 fn recover_windows(cx: &mut App) {
     if let Some(bubble) = cx.global::<Runtime>().bubble {
         let _ = bubble.update(cx, |_, window, cx| {
-            let result = (|| {
-                let (work, scale) = native_window::work_area(window, cx)?;
-                let (x, y) = native_window::position(window)?;
-                let bounds = window.bounds();
-                let (x, y) = work.clamp(
-                    x as f64,
-                    y as f64,
-                    f64::from(f32::from(bounds.size.width)) * scale,
-                    f64::from(f32::from(bounds.size.height)) * scale,
-                );
-                native_window::move_to(window, x, y)
-            })();
-            if let Err(error) = result {
+            if let Err(error) = native_window::clamp_to_work_area(window, cx) {
                 eprintln!("Unable to recover bubble position: {error}");
             }
         });
@@ -298,7 +298,7 @@ pub(super) fn start(
         if matches!(
             event,
             TrayIconEvent::Click {
-                button: MouseButton::Left,
+                button: TrayMouseButton::Left,
                 button_state: MouseButtonState::Up,
                 ..
             }
@@ -346,6 +346,7 @@ pub(super) fn start(
         let mut view = Dashboard {
             focus: cx.focus_handle(),
             panel_activation: None,
+            settings_scroll: ScrollHandle::new(),
             saved_labels: Vec::new(),
             update_notes_expanded: false,
             page: Page::Details,
@@ -587,8 +588,8 @@ fn smoke(cx: &mut App) {
     let config = std::env::var_os("METRA_CONFIG_DIR")
         .expect("Native smoke requires isolated METRA_CONFIG_DIR");
     cx.spawn(async move |cx| {
-        use metra_lib::{settings::{DisplayMode,UiLanguage},settings_change::Change};
-        for phase in 0..12 {
+        use metra_lib::{model::Provider::{Claude, Codex, Cursor}, settings::{DisplayMode,UiLanguage},settings_change::Change};
+        for phase in 0..23 {
             cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
             cx.update(|cx| {
                 let dashboard=cx.global::<Runtime>().dashboard.clone();
@@ -692,35 +693,126 @@ fn smoke(cx: &mut App) {
                     9=>{
                         assert!(dashboard.read(cx).page == Page::Settings);
                         let panel = cx.global::<Runtime>().panel.unwrap();
+                        dashboard.read(cx).settings_scroll.scroll_to_bottom();
+                        panel.update(cx, |_, window, _| window.refresh()).unwrap();
+                    },
+                    10=>{
+                        let panel = cx.global::<Runtime>().panel.unwrap();
+                        panel.update(cx, |_, window, cx| {
+                            let target = preferences::smoke::drag(window, cx, Codex, Cursor, false);
+                            assert_eq!(dashboard.read(cx).service.payload().settings.bubble_provider_order, [Cursor, Codex, Claude]);
+                            preferences::smoke::release(window, cx, target);
+                        }).unwrap();
+                    },
+                    11=>{
+                        assert_eq!(dashboard.read(cx).service.store.load().bubble_provider_order, [Codex, Cursor, Claude]);
+                        let panel = cx.global::<Runtime>().panel.unwrap();
+                        panel.update(cx, |_, window, cx| {
+                            let target = preferences::smoke::drag(window, cx, Codex, Claude, true);
+                            smoke_key(window, cx, "escape");
+                            preferences::smoke::release(window, cx, target);
+                            assert!(cx.global::<Runtime>().panel.is_some(), "Escape must cancel the drag first");
+                            assert_eq!(dashboard.read(cx).service.payload().settings.bubble_provider_order, [Codex, Cursor, Claude]);
+                            let target = preferences::smoke::drag(window, cx, Codex, Claude, true);
+                            preferences::smoke::release(window, cx, target);
+                        }).unwrap();
+                    },
+                    12=>{
+                        assert_eq!(dashboard.read(cx).service.store.load().bubble_provider_order, [Cursor, Claude, Codex]);
+                        let panel = cx.global::<Runtime>().panel.unwrap();
+                        panel.update(cx, |_, window, cx| smoke_key(window, cx, "up")).unwrap();
+                    },
+                    13=>{
+                        assert_eq!(dashboard.read(cx).service.store.load().bubble_provider_order, [Cursor, Codex, Claude]);
+                        let panel = cx.global::<Runtime>().panel.unwrap();
+                        panel.update(cx, |_, window, cx| {
+                            smoke_click_at(window, cx, preferences::smoke::color_trigger(), MouseButton::Left);
+                        }).unwrap();
+                    },
+                    14=>{
+                        let panel = cx.global::<Runtime>().panel.unwrap();
+                        panel.update(cx, |_, window, cx| {
+                            let _ = preferences::smoke::color_swatch();
+                            smoke_key(window, cx, "escape");
+                            assert!(cx.global::<Runtime>().panel.is_some(), "Escape must dismiss the palette first");
+                            let _ = preferences::smoke::color_trigger();
+                        }).unwrap();
+                    },
+                    15=>{
+                        assert!(!preferences::smoke::is_palette_visible(), "Escape must dismiss the palette");
+                        let panel = cx.global::<Runtime>().panel.unwrap();
+                        panel.update(cx, |_, window, cx| {
+                            smoke_click_at(window, cx, preferences::smoke::color_trigger(), MouseButton::Left);
+                        }).unwrap();
+                    },
+                    16=>{
+                        let panel = cx.global::<Runtime>().panel.unwrap();
+                        panel.update(cx, |_, window, cx| {
+                            smoke_click_at(window, cx, preferences::smoke::color_swatch(), MouseButton::Left);
+                        }).unwrap();
+                    },
+                    17=>{
+                        assert_eq!(dashboard.read(cx).service.store.load().codex_bubble_color, metra_lib::settings::BUBBLE_COLOR_PALETTE[0]);
+                        let panel = cx.global::<Runtime>().panel.unwrap();
                         panel.update(cx, |_,window,cx| {
                             dashboard.update(cx, |view,cx| view.navigate(Page::Consent,window,cx));
                         }).unwrap();
                     },
-                    10=>{
+                    18=>{
                         assert!(dashboard.read(cx).page == Page::Consent);
                         let panel = cx.global::<Runtime>().panel.unwrap();
                         panel.update(cx, |_,window,cx| {
                             let (work,scale) = native_window::work_area(window,cx).unwrap();
                             let expected = 300f64.min(work.height/scale-16.).max(160.);
                             assert!((f32::from(window.bounds().size.height) as f64-expected).abs()<=1., "Consent must resize the panel");
-                            dashboard.update(cx, |view,cx| view.navigate(Page::Details,window,cx));
+                            dashboard.update(cx, |view,cx| {
+                                view.refreshing = vec![Cursor, Claude];
+                                view.navigate(Page::Details,window,cx);
+                            });
                         }).unwrap();
                     },
+                    19=>{
+                        assert_eq!(usage::RENDERED_REFRESHING.get(), [true, false, true]);
+                        dashboard.update(cx, |view, cx| {
+                            view.refreshing.retain(|provider| *provider == Cursor);
+                            cx.notify();
+                        });
+                    },
+                    20=>{
+                        assert_eq!(usage::RENDERED_REFRESHING.get(), [true, false, false]);
+                        dashboard.update(cx, |view, cx| {
+                            view.refreshing.clear();
+                            cx.notify();
+                        });
+                    },
+                    21=>assert_eq!(usage::RENDERED_REFRESHING.get(), [false; 3]),
                     _=>{
                         assert!(dashboard.read(cx).page == Page::Details);
                         assert!(cx.global::<Runtime>().panel.is_some());
                         let panel = cx.global::<Runtime>().panel.unwrap();
                         panel.update(cx, |_,window,cx| {
-                            window.dispatch_event(PlatformInput::KeyDown(KeyDownEvent { keystroke:Keystroke::parse("escape").unwrap(),is_held:false,prefer_character_input:false }),cx);
+                            smoke_key(window, cx, "escape");
                         }).unwrap();
                         assert!(cx.global::<Runtime>().panel.is_none(), "Escape must close the panel");
-                        std::fs::write(std::path::Path::new(&config).join("native-smoke.result"),"PASS: panel recreation, display modes, locale, settings persistence, label drafts, offscreen recovery, bubble clicks, consent navigation, Escape close").unwrap();
+                        std::fs::write(std::path::Path::new(&config).join("native-smoke.result"),"PASS: panel lifecycle, display modes, locale, settings and label drafts, offscreen recovery, bubble clicks, provider drop and keyboard ordering, palette, consent navigation, independent refresh state").unwrap();
                         cx.quit();
                     },
                 }
             });
         }
     }).detach();
+}
+
+#[cfg(feature = "native-smoke")]
+fn smoke_key(window: &mut Window, cx: &mut App, key: &'static str) {
+    window.dispatch_event(
+        PlatformInput::KeyDown(KeyDownEvent {
+            keystroke: Keystroke::parse(key).unwrap(),
+            is_held: false,
+            prefer_character_input: false,
+        }),
+        cx,
+    );
 }
 
 #[cfg(feature = "native-smoke")]
@@ -733,35 +825,40 @@ fn smoke_click(button: gpui_kit::MouseButton, cx: &mut App) {
                 window.bounds().size.width / 2.,
                 window.bounds().size.height / 2.,
             );
-            window.dispatch_event(
-                PlatformInput::MouseMove(MouseMoveEvent {
-                    position,
-                    modifiers: Default::default(),
-                    pressed_button: None,
-                }),
-                cx,
-            );
-            window.dispatch_event(
-                PlatformInput::MouseDown(MouseDownEvent {
-                    button,
-                    position,
-                    modifiers: Default::default(),
-                    click_count: 1,
-                    first_mouse: false,
-                }),
-                cx,
-            );
-            window.dispatch_event(
-                PlatformInput::MouseUp(MouseUpEvent {
-                    button,
-                    position,
-                    modifiers: Default::default(),
-                    click_count: 1,
-                }),
-                cx,
-            );
+            smoke_click_at(window, cx, position, button);
         })
         .unwrap();
+}
+
+#[cfg(feature = "native-smoke")]
+fn smoke_click_at(window: &mut Window, cx: &mut App, position: Point<Pixels>, button: MouseButton) {
+    window.dispatch_event(
+        PlatformInput::MouseMove(MouseMoveEvent {
+            position,
+            modifiers: Default::default(),
+            pressed_button: None,
+        }),
+        cx,
+    );
+    window.dispatch_event(
+        PlatformInput::MouseDown(MouseDownEvent {
+            button,
+            position,
+            modifiers: Default::default(),
+            click_count: 1,
+            first_mouse: false,
+        }),
+        cx,
+    );
+    window.dispatch_event(
+        PlatformInput::MouseUp(MouseUpEvent {
+            button,
+            position,
+            modifiers: Default::default(),
+            click_count: 1,
+        }),
+        cx,
+    );
 }
 
 #[cfg(feature = "native-smoke")]

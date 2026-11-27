@@ -148,7 +148,7 @@ function updateBanner() {
   const update = state.update;
   return html`${update.version ? html`<aside class="update"><strong>${t('update.availableTitle', { version: update.version })}</strong>
     <p>${t('update.versionPath', { current: state.version, next: update.version })}</p>
-    ${update.notes ? html`<wa-details appearance="plain" summary=${t('common.operation')}><p>${update.notes}</p></wa-details>` : nothing}
+    ${update.notes ? html`<wa-details appearance="plain" summary=${t('update.releaseNotes')}><p>${update.notes}</p></wa-details>` : nothing}
     ${button('install', t(update.downloading ? 'update.starting' : state.canInstall ? 'native.installUpdate' : 'native.openRelease'), { disabled: update.downloading })}
     ${update.error ? html`<p class="stale">${update.error}</p>` : nothing}</aside>` : nothing}
 `;

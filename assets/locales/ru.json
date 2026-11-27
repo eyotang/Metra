@@ -41,6 +41,7 @@
   "refresh.everyMinutesActive": "Каждые {minutes} мин · Обновление…",
   "update.availableTitle": "Доступна Metra {version}",
   "update.versionPath": "Сейчас: {current} · Обновление до {next}",
+  "update.releaseNotes": "Примечания к выпуску",
   "update.unknownVersion": "новая версия",
   "update.install": "Установить обновление",
   "update.installAriaLabel": "Установить Metra {version}",

@@ -95,6 +95,49 @@ pointer interaction remains a hardware coverage limit. macOS local installation
 has not been performed on this Linux machine. If delivered separately, it must
 use `npm run install:local` and pass that script's signature/xattr checks.
 
+## Parity follow-up after v0.6.0
+
+- Provider drag targets use the upper and lower halves of the entire card. A
+  moving badge and insertion line preview the drop. Escape cancels without
+  saving, and the moved provider keeps keyboard focus. The original preset
+  palette opens from each provider's current color.
+- Each provider shows a spinner and an indeterminate progress bar until its own
+  result arrives. A login recheck marks Cursor only. Settings and navigation
+  remain available during usage collection. Percentages round half-up and reset
+  countdowns round up at the same boundaries as the old panel.
+- Free bubble placement is clamped to the selected display's work area before
+  it is saved. Hover expansion rebases a held press when the window origin
+  moves. Tray panels use the tray icon's display when its bounds are available.
+- The expanded native smoke runs with synthetic usage. It exercises both drop
+  positions, Escape cancellation, keyboard sorting, palette dismissal and
+  persistence, and independent refresh state. The signed Windows in-app upgrade
+  and real mixed-DPI multi-display interactions remain platform acceptance items.
+
+## v0.6.1 candidate acceptance
+
+Use the published `v0.5.18` and `v0.6.0` artifacts as compatibility fixtures. The
+v0.5.18 reference UI and commands live in `frontend/main.ts`, `src/app.rs` and
+`src/tray.rs`. The v0.6.0 counterparts are in `desktop-gpui/src/`. Shared tests
+exercise the Cursor authorization gate and stale usage, Codex CLI protocol,
+Claude CLI and API fallback, all seven languages, SQLite settings and geometry.
+Real accounts and startup at OS login require platform acceptance with a test
+profile. The fixtures do not use personal provider accounts.
+
+| Surface | Candidate verification |
+| --- | --- |
+| Linux UI and Debian | Run the native lifecycle and repaint checks in Xvfb. Extract the published Debian packages and run both published executables against isolated settings, then read the same SQLite settings with the packaged candidate. |
+| Omarchy and JSON | Run the published Omarchy collectors and the candidate with an empty profile and no display. Verify the JSON snapshot, watch, refresh and EOF protocol, plus the source widget model. |
+| Windows | Install the published v0.2.2, v0.5.18 and v0.6.0 packages on a clean runner. Verify process startup, silent upgrade, restart and persisted settings. Exercise the old `/S`, `/S /R /UPDATE` and new `/S /NS` installer invocations. Also run the candidate portable executable against settings migrated by both recent published builds. |
+| macOS | Mount the published universal DMGs read-only. Check their digests, bundle identity, architecture and code signature. Run the bundled executables and the candidate against isolated settings. Native CI separately exercises the candidate panel, tray and inactive redraw. |
+| Updates | Check the live stable GitHub release and verify retained Windows signatures. The tagged job signs and verifies the new installer with the existing Minisign key. An application-to-application upgrade to the newly signed public artifact requires that artifact to exist. |
+
+The patch release is `v0.6.1`. Feature-branch pushes and manual CI dispatches
+verify the candidate. A push of the matching `v0.6.1` tag starts the release
+workflow. After verification it builds the macOS universal DMG, the Windows x64
+installer and portable executable, the Linux x64 Debian package and the Omarchy
+x64 archive. CI verifies macOS signing and emits the installer signature,
+checksums and legacy `latest.json` before making the GitHub release public.
+
 ## Reproduction
 
 ```sh

@@ -10,12 +10,9 @@ fn main() -> Result<()> {
     );
     let encoded = Zeroizing::new(
         env::var("METRA_SIGNING_PRIVATE_KEY")
-            .or_else(|_| env::var("TAURI_SIGNING_PRIVATE_KEY"))
-            .context("Release signing key is not configured")?,
+            .context("METRA_SIGNING_PRIVATE_KEY is required to sign the Windows installer")?,
     );
-    let password = env::var("METRA_SIGNING_PRIVATE_KEY_PASSWORD")
-        .or_else(|_| env::var("TAURI_SIGNING_PRIVATE_KEY_PASSWORD"))
-        .unwrap_or_default();
+    let password = env::var("METRA_SIGNING_PRIVATE_KEY_PASSWORD").unwrap_or_default();
     let signature = sign_encoded(&encoded, password, fs::File::open(&artifact)?)?;
     fs::write(format!("{}.sig", artifact.display()), signature)?;
     Ok(())

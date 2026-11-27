@@ -41,6 +41,7 @@
   "refresh.everyMinutesActive": "每 {minutes} 分钟刷新 · 正在刷新…",
   "update.availableTitle": "Metra {version} 可用",
   "update.versionPath": "当前 {current} · 可更新至 {next}",
+  "update.releaseNotes": "发布说明",
   "update.unknownVersion": "新版本",
   "update.install": "安装更新",
   "update.installAriaLabel": "安装 Metra {version}",

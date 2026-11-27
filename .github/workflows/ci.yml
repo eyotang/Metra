@@ -73,13 +73,15 @@ jobs:
       - name: Native bubble repaint (Linux)
         if: runner.os == 'Linux'
         run: dbus-run-session -- xvfb-run -a node scripts/smoke-gpui.mjs --idle
-      - name: Windows installer and legacy upgrade acceptance before release
+      - name: Windows installer and published-version upgrade acceptance before release
         if: runner.os == 'Windows' && github.event_name == 'pull_request'
         shell: pwsh
         run: |
           node scripts/package-native.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./scripts/test-windows-upgrade.ps1
+          foreach ($baseline in @('0.2.2', '0.5.18', '0.6.0')) {
+            ./scripts/test-windows-upgrade.ps1 -BaselineVersion $baseline
+          }
       - name: Build native desktop acceptance application
         if: runner.os != 'Linux'
         run: cargo build --locked --features desktop-smoke,custom-protocol
@@ -163,16 +165,20 @@ jobs:
       - name: Windows installer and portable application
         if: runner.os == 'Windows'
         run: node scripts/package-native.mjs
-      - name: Upgrade from retained v0.2.2 using legacy silent updater arguments
+      - name: Verify silent installation, restart and settings from published versions
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/test-windows-upgrade.ps1
-      - name: Sign Windows updater with the existing release key
+        run: |
+          foreach ($baseline in @('0.2.2', '0.5.18', '0.6.0')) {
+            ./scripts/test-windows-upgrade.ps1 -BaselineVersion $baseline
+          }
+      - name: Sign and verify the Windows release installer
         if: runner.os == 'Windows'
         shell: pwsh
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Reuse the stored Minisign key so already-installed clients still trust releases.
+          METRA_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          METRA_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
           cargo run --locked --manifest-path tools/release-sign/Cargo.toml -- "release-assets/Metra-$version-windows-x64-setup.exe"
@@ -202,11 +208,12 @@ jobs:
           pattern: metra-release-*
           merge-multiple: true
           path: release-assets
-      - name: Generate the compatible updater manifest
+      - name: Validate release assets and generate the upgrade feed for existing clients
+        run: node scripts/generate-latest-json.mjs --assets-dir release-assets --output release-assets/latest.json --repository "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --pub-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          node scripts/generate-latest-json.mjs --assets-dir release-assets --output release-assets/latest.json --repository "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --pub-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             test "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)" = true
           else

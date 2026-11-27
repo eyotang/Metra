@@ -186,6 +186,29 @@ pub(super) fn work_area(window: &Window, cx: &App) -> Result<(WorkArea, f64), St
         .ok_or("No display available".into())
 }
 
+pub(super) fn work_area_at(
+    window: &Window,
+    cx: &App,
+    x: f64,
+    y: f64,
+) -> Result<(WorkArea, f64), String> {
+    metra_lib::geometry::nearby_work_area(&monitor_areas(window, cx)?, x, y)
+        .ok_or_else(|| "No display available".into())
+}
+
+pub(super) fn clamp_to_work_area(window: &Window, cx: &App) -> Result<(), String> {
+    let (work, scale) = work_area(window, cx)?;
+    let (x, y) = position(window)?;
+    let bounds = window.bounds();
+    let (x, y) = work.clamp(
+        x as f64,
+        y as f64,
+        f64::from(f32::from(bounds.size.width)) * scale,
+        f64::from(f32::from(bounds.size.height)) * scale,
+    );
+    move_to(window, x, y)
+}
+
 pub(super) fn initial_work_area(
     window: &Window,
     cx: &App,

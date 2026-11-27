@@ -66,13 +66,63 @@ jobs:
         run: dbus-run-session -- xvfb-run -a node scripts/smoke-gpui.mjs --idle
       - name: Build experimental native installer
         run: node scripts/package-gpui.mjs --debug --output native-installer
-      - name: Verify legacy Windows silent upgrade
+      - name: Verify published Windows installations and silent upgrades
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path release-assets -Force | Out-Null
           Copy-Item native-installer/* release-assets/
-          ./scripts/test-windows-upgrade.ps1
+          foreach ($baseline in @('0.2.2', '0.5.18', '0.6.0')) {
+            ./scripts/test-windows-upgrade.ps1 -BaselineVersion $baseline
+          }
+      - name: Verify retained macOS disk images and SQLite compatibility
+        if: runner.os == 'macOS'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          fixtures=$(mktemp -d)
+          mount="$fixtures/volume"
+          trap 'hdiutil detach "$mount" >/dev/null 2>&1 || true; rm -rf "$fixtures"' EXIT
+          mkdir -p "$mount"
+          candidate="target/gpui-package/debug/bundle/macos/Metra.app/Contents/MacOS/metra"
+          for version in 0.5.18 0.6.0; do
+            name="Metra-$version-macos-universal.dmg"
+            gh release download "v$version" --pattern "$name" --pattern "$name.sha256" --dir "$fixtures"
+            (cd "$fixtures" && shasum -a 256 -c "$name.sha256")
+            hdiutil verify "$fixtures/$name"
+            hdiutil attach -readonly -nobrowse -mountpoint "$mount" "$fixtures/$name"
+            app="$mount/Metra.app"
+            test "$(plutil -extract CFBundleIdentifier raw -o - "$app/Contents/Info.plist")" = dev.metra.desktop
+            test "$(plutil -extract CFBundleShortVersionString raw -o - "$app/Contents/Info.plist")" = "$version"
+            codesign --verify --deep --strict "$app"
+            lipo "$app/Contents/MacOS/metra" -verify_arch arm64 x86_64
+            node scripts/test-packaged-settings.mjs "$app/Contents/MacOS/metra" "$candidate"
+            hdiutil detach "$mount"
+          done
+      - name: Verify published Debian and Omarchy packages and the candidate
+        if: runner.os == 'Linux'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          fixtures=$(mktemp -d)
+          trap 'rm -rf "$fixtures"' EXIT
+          dpkg-deb -x native-installer/*-linux-x64.deb "$fixtures/candidate"
+          candidate="$fixtures/candidate/usr/bin/metra"
+          cargo build --locked --no-default-features
+          METRA_COLLECTOR_BINARY=target/debug/metra node scripts/package-omarchy.mjs
+          tar -xf release-assets/*-omarchy-x64.tar.gz -C "$fixtures"
+          node scripts/verify-omarchy.mjs "$fixtures"/Metra-*-omarchy-x64/metra.usage/metra
+          for version in 0.5.18 0.6.0; do
+            staged="$fixtures/$version"
+            mkdir -p "$staged"
+            gh release download "v$version" --pattern '*-linux-x64.deb*' --pattern '*-omarchy-x64.tar.gz*' --dir "$staged"
+            (cd "$staged" && sha256sum -c ./*.sha256)
+            dpkg-deb -x "$staged"/*-linux-x64.deb "$staged/deb"
+            tar -xf "$staged"/*-omarchy-x64.tar.gz -C "$staged"
+            node scripts/test-packaged-settings.mjs "$staged/deb/usr/bin/metra" "$candidate"
+            node scripts/test-packaged-settings.mjs "$staged"/Metra-*-omarchy-x64/metra.usage/metra "$fixtures"/Metra-*-omarchy-x64/metra.usage/metra
+            node scripts/verify-omarchy.mjs "$staged"/Metra-*-omarchy-x64/metra.usage/metra
+          done
       - uses: actions/upload-artifact@v6
         with:
           name: gpui-experimental-${{ runner.os }}

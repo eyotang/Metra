@@ -41,6 +41,7 @@
   "refresh.everyMinutesActive": "Alle {minutes} Min. · Wird aktualisiert…",
   "update.availableTitle": "Metra {version} ist verfügbar",
   "update.versionPath": "Aktuell {current} · Aktualisieren auf {next}",
+  "update.releaseNotes": "Versionshinweise",
   "update.unknownVersion": "neue Version",
   "update.install": "Update installieren",
   "update.installAriaLabel": "Metra {version} installieren",

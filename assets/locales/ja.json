@@ -41,6 +41,7 @@
   "refresh.everyMinutesActive": "{minutes}分ごとに更新 · 更新中…",
   "update.availableTitle": "Metra {version} を利用できます",
   "update.versionPath": "現在 {current} · {next} に更新",
+  "update.releaseNotes": "リリースノート",
   "update.unknownVersion": "新しいバージョン",
   "update.install": "アップデートをインストール",
   "update.installAriaLabel": "Metra {version} をインストール",

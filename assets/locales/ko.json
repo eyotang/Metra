@@ -41,6 +41,7 @@
   "refresh.everyMinutesActive": "{minutes}분마다 새로고침 · 새로고침 중…",
   "update.availableTitle": "Metra {version} 업데이트 사용 가능",
   "update.versionPath": "현재 {current} · {next}(으)로 업데이트",
+  "update.releaseNotes": "릴리스 노트",
   "update.unknownVersion": "새 버전",
   "update.install": "업데이트 설치",
   "update.installAriaLabel": "Metra {version} 설치",

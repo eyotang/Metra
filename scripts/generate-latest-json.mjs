@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Validate release assets and write the upgrade feed used by published v0.6.0 and older clients.
 
 import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";

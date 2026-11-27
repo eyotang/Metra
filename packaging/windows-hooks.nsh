@@ -1,5 +1,5 @@
-; v0.4.1 and earlier invoked updates with /S only. Keep their automatic restart
-; when migrating to Tauri; /R clients are restarted once by Tauri's own handler.
+; Metra and older /S-only clients use this restart hook. The bundler handles
+; restart for published clients that also pass /R.
 !macro NSIS_HOOK_POSTINSTALL
   ${If} ${Silent}
     ClearErrors

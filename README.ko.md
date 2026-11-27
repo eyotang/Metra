@@ -40,6 +40,8 @@ Metra를 실행하고 사용하는 도구에 로그인한 다음 버블을 클�
 
 설정에서 언어, 갱신 주기, 자동 시작을 변경하세요. 패널을 닫아도 백그라운드에서 실행됩니다. 종료는 설정이나 트레이 메뉴를 사용하세요.
 
+사용량 패널에서 **업데이트 확인**을 선택하세요. Windows x64 설치 버전은 Metra에서 서명을 검증한 업데이트를 설치할 수 있습니다. Windows 휴대용 버전, macOS, Linux에서는 GitHub 릴리스 페이지를 열어 수동으로 설치합니다.
+
 [Linux 설정](docs/linux.md) · [Omarchy 위젯](integrations/omarchy/README.md)
 
 ## 개발 및 기여 가이드

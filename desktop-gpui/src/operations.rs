@@ -104,7 +104,7 @@ impl Dashboard {
             if let Some(notes) = status.notes {
                 view = view.child(
                     Button::new("update-notes")
-                        .label(t.t("common.operation"))
+                        .label(t.t("update.releaseNotes"))
                         .selected(self.update_notes_expanded)
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.update_notes_expanded = !this.update_notes_expanded;

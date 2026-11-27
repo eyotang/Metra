@@ -1,7 +1,14 @@
 use super::*;
+use gpui_kit::component::progress::Progress;
 use metra_lib::model::{Provider, ProviderSnapshot, ProviderStatus};
 
 use super::formatting::{date, money, number};
+
+#[cfg(feature = "native-smoke")]
+thread_local! {
+    pub(super) static RENDERED_REFRESHING: std::cell::Cell<[bool; 3]> = const { std::cell::Cell::new([false; 3]) };
+}
+
 fn status_key(status: ProviderStatus) -> &'static str {
     match status {
         ProviderStatus::Available => "status.available",
@@ -90,11 +97,18 @@ impl Dashboard {
         let accent =
             rgb(u32::from_str_radix(color.trim_start_matches('#'), 16).unwrap_or(0x9c83ff));
         let running = self.refreshing.contains(&provider);
+        #[cfg(feature = "native-smoke")]
+        RENDERED_REFRESHING.with(|rendered| {
+            let mut providers = rendered.get();
+            providers[provider as usize] = running;
+            rendered.set(providers);
+        });
         let stale = snapshot.stale
             && (!snapshot.quotas.is_empty()
                 || snapshot.tokens.is_some()
                 || snapshot.cost.is_some());
         let mut card = div()
+            .id(name)
             .v_flex()
             .gap_2()
             .p_3()
@@ -127,20 +141,40 @@ impl Dashboard {
                             )
                             .child(name),
                     )
-                    .child(t.t(if running {
-                        "refresh.refreshing"
-                    } else if stale {
-                        "status.stale"
-                    } else {
-                        status_key(snapshot.status)
-                    })),
+                    .child(
+                        div()
+                            .h_flex()
+                            .gap_1()
+                            .items_center()
+                            .when(running, |status| {
+                                status.child(Spinner::new().with_size(px(12.)))
+                            })
+                            .child(t.t(if running {
+                                "refresh.refreshing"
+                            } else if stale {
+                                "status.stale"
+                            } else {
+                                status_key(snapshot.status)
+                            })),
+                    ),
             )
+            .when(running, |card| {
+                card.child(
+                    Progress::new("connecting")
+                        .accessibility_label(
+                            t.format("provider.connectingTitle", &[("provider", name.into())]),
+                        )
+                        .color(accent)
+                        .with_size(px(4.))
+                        .loading(true),
+                )
+            })
             .child(snapshot.plan.clone().unwrap_or_else(|| t.t("plan.unknown")))
             .child(date(
                 snapshot.captured_at.with_timezone(&chrono::Local),
                 t.locale,
             ));
-        for quota in &snapshot.quotas {
+        for (index, quota) in snapshot.quotas.iter().enumerate() {
             let remaining = quota.remaining_percent.clamp(0., 100.);
             let mut row = div()
                 .v_flex()
@@ -150,30 +184,25 @@ impl Dashboard {
                         .h_flex()
                         .justify_between()
                         .child(quota.label.clone())
-                        .child(
-                            t.format("quota.remaining", &[("value", format!("{remaining:.0}"))]),
-                        ),
+                        .child(t.format(
+                            "quota.remaining",
+                            &[("value", remaining.round().to_string())],
+                        )),
                 )
                 .child(
-                    div()
-                        .h(px(5.))
-                        .w_full()
-                        .bg(rgb(0x333a48))
-                        .rounded_full()
-                        .child(
-                            div()
-                                .h_full()
-                                .w(relative(remaining as f32 / 100.))
-                                .bg(accent)
-                                .rounded_full(),
-                        ),
+                    Progress::new(("quota", index))
+                        .accessibility_label(quota.label.clone())
+                        .color(accent)
+                        .with_size(px(5.))
+                        .value(remaining as f32),
                 )
                 .child(t.format(
                     "quota.used",
-                    &[("value", format!("{:.0}", quota.used_percent))],
+                    &[("value", quota.used_percent.round().to_string())],
                 ));
             if let Some(reset) = quota.resets_at {
-                let minutes = ((reset - chrono::Utc::now()).num_seconds().max(0) + 59) / 60;
+                let minutes =
+                    ((reset - chrono::Utc::now()).num_milliseconds().max(0) + 59_999) / 60_000;
                 row = row.child(t.format(
                     "quota.resetsAt",
                     &[(

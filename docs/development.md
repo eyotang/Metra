@@ -71,7 +71,9 @@ installer still requires the persistent signing identity described above.
 `npm run build:portable` builds the release executable in
 `desktop-gpui/target/release/`; `npm run package` creates named release assets.
 
-The updater retains the existing GitHub `latest.json` and Minisign public key. Windows installed copies verify the signature before launching an explicitly requested installer update. Portable copies, macOS and Linux open the detected release for manual download. The separate `tools/release-sign` tool accepts the existing `TAURI_SIGNING_PRIVATE_KEY` secret names. Secrets are never included in the interface payload.
+Metra checks the GitHub Releases API for a newer stable version and shows its release notes. The Windows x64 installer and its `.sig` are downloaded from that tagged release when the user requests an update. Metra verifies the installer with the embedded Minisign public key, then launches the NSIS installer with `/S /NS` for a silent installation without creating new shortcuts. Windows portable, macOS and Linux open the release page for manual installation.
+
+The standalone `tools/release-sign` reads `METRA_SIGNING_PRIVATE_KEY` and the optional `METRA_SIGNING_PRIVATE_KEY_PASSWORD`. Release CI maps its existing stored Minisign credential to those inputs so installed versions can keep trusting the same key. The release job still publishes `latest.json` for already-installed v0.6.0 and older clients.
 
 Controls use GPUI Kit, with embedded fonts and locale data. Provider refreshes,
 settings saves, sign-in and update operations run off the UI thread. The runtime

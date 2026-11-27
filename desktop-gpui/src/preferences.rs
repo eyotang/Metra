@@ -2,12 +2,14 @@ use super::*;
 use gpui_kit::component::{
     checkbox::Checkbox,
     input::{Input, InputEvent, InputState},
+    popover::Popover,
 };
 use metra_lib::{
     model::Provider,
     settings::{BUBBLE_COLOR_PALETTE, BubblePercentMode, UiLanguage},
     settings_change::Change,
 };
+use std::{cell::Cell, rc::Rc};
 
 impl Dashboard {
     pub(super) fn save(&mut self, change: Change, cx: &mut Context<Self>) {
@@ -70,7 +72,8 @@ impl Dashboard {
                             this.page = Page::Details;
                             if let Some(panel) = cx.global::<runtime::Runtime>().panel {
                                 let _ = panel.update(cx, |_, window, cx| {
-                                    runtime::position_panel(Page::Details, window, cx)
+                                    runtime::position_panel(Page::Details, window, cx);
+                                    window.focus(&this.focus, cx);
                                 });
                             }
                         }
@@ -116,8 +119,8 @@ impl Dashboard {
                         })),
                 );
         }
-        view =
-            view.child(
+        view = view
+            .child(
                 Checkbox::new("snap")
                     .label(t.t("menu.autoSnap"))
                     .checked(s.bubble_snap_enabled)
@@ -125,7 +128,8 @@ impl Dashboard {
                     .on_change(cx.listener(|this, enabled: &bool, _, cx| {
                         this.save(Change::Snap(*enabled), cx)
                     })),
-            );
+            )
+            .child(setting_hint(t.t("menu.autoSnapHint")));
         let mode = s.display_mode;
         let modes = div()
             .h_flex()
@@ -213,126 +217,160 @@ impl Dashboard {
                             this.save(Change::Compat(false), cx);
                         }
                     })),
-            );
-        for (i, provider) in s.bubble_provider_order.iter().copied().enumerate() {
+            )
+            .child(setting_hint(t.t("menu.cursorCompatHint")))
+            .child(t.t("config.title"))
+            .child(setting_hint(t.t("config.reorderHint")));
+        for provider in s.bubble_provider_order.iter().copied() {
             let (name, color) = match provider {
                 Provider::Cursor => ("Cursor", &s.cursor_bubble_color),
                 Provider::Codex => ("Codex", &s.codex_bubble_color),
                 Provider::Claude => ("Claude Code", &s.claude_bubble_color),
             };
-            if let Some((_, input, _, focus)) =
-                self.labels.iter().find(|(p, _, _, _)| *p == provider)
-            {
-                let handle = div()
-                    .id(("order", i))
-                    .track_focus(focus)
-                    .role(Role::Button)
-                    .aria_label(t.format("config.dragProviderOrder", &[("provider", name.into())]))
-                    .tab_stop(true)
-                    .cursor_move()
-                    .child("≡")
-                    .on_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
-                        if event.keystroke.key == "escape" && cx.has_active_drag() {
-                            cx.stop_active_drag(window);
-                            cx.stop_propagation();
-                            return;
-                        }
-                        if this.settings_task.is_some() {
-                            return;
-                        }
-                        let shift = match event.keystroke.key.as_str() {
-                            "up" => -1,
-                            "down" => 1,
-                            _ => return,
-                        };
-                        cx.stop_propagation();
-                        this.move_provider(provider, shift, cx);
-                    }))
-                    .when(!busy, |handle| {
-                        handle.on_drag(DraggedProvider(provider), |value, _, _, cx| {
-                            cx.new(|_| *value)
-                        })
-                    });
-                view = view
+            let Some((_, input, _, focus)) = self.labels.iter().find(|(p, ..)| *p == provider)
+            else {
+                continue;
+            };
+            let drag_focus = focus.clone();
+            let handle = div()
+                .id("order-handle")
+                .track_focus(focus)
+                .role(Role::Button)
+                .aria_label(t.format("config.dragProviderOrder", &[("provider", name.into())]))
+                .tab_stop(!busy)
+                .size(px(24.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_move()
+                .child("≡")
+                .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _, cx| {
+                    if this.settings_task.is_some() || cx.has_active_drag() {
+                        return;
+                    }
+                    let shift = match event.keystroke.key.as_str() {
+                        "up" => -1,
+                        "down" => 1,
+                        _ => return,
+                    };
+                    cx.stop_propagation();
+                    this.move_provider(provider, shift, cx);
+                }))
+                .when(!busy, |handle| {
+                    handle.on_drag(DraggedProvider(provider), move |value, _, window, cx| {
+                        window.focus(&drag_focus, cx);
+                        cx.new(|_| *value)
+                    })
+                });
+            let color_picker = Self::provider_color(provider, name, color, busy, t, cx);
+            let row =
+                div()
+                    .id(name)
+                    .relative()
+                    .v_flex()
+                    .gap_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(0x303849))
+                    .p_2()
                     .child(
                         div()
-                            .id(("provider-order", i))
                             .h_flex()
+                            .items_center()
                             .gap_2()
                             .child(handle)
-                            .child(name)
-                            .on_drop(cx.listener(move |this, value: &DraggedProvider, _, cx| {
-                                let mut order =
-                                    this.service.payload().settings.bubble_provider_order;
-                                let Some(from) = order.iter().position(|p| *p == value.0) else {
-                                    return;
-                                };
-                                let Some(to) = order.iter().position(|p| *p == provider) else {
-                                    return;
-                                };
-                                if from != to {
-                                    let moved = order.remove(from);
-                                    order.insert(to, moved);
-                                    this.save(Change::Order(order), cx);
-                                }
-                            })),
+                            .child(div().flex_1().child(name))
+                            .child(
+                                Checkbox::new("visible")
+                                    .label(t.format(
+                                        "config.providerVisible",
+                                        &[("provider", name.into())],
+                                    ))
+                                    .checked(s.bubble_visible_providers.contains(&provider))
+                                    .disabled(busy)
+                                    .on_change(cx.listener(move |this, visible: &bool, _, cx| {
+                                        this.save(
+                                            Change::Visible {
+                                                provider,
+                                                visible: *visible,
+                                            },
+                                            cx,
+                                        )
+                                    })),
+                            ),
                     )
                     .child(
-                        Input::new(input)
-                            .aria_label(
-                                t.format("config.bubbleLabel", &[("provider", name.into())]),
+                        div()
+                            .h_flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div().min_w_0().flex_1().child(
+                                    Input::new(input)
+                                        .aria_label(t.format(
+                                            "config.bubbleLabel",
+                                            &[("provider", name.into())],
+                                        ))
+                                        .disabled(busy),
+                                ),
                             )
-                            .disabled(busy),
+                            .child(color_picker)
+                            .map(|fields| {
+                                #[cfg(feature = "native-smoke")]
+                                return fields.on_children_prepainted(move |bounds, _, _| {
+                                    if provider == Provider::Codex {
+                                        smoke::record_color_trigger(bounds[1].center());
+                                    }
+                                });
+                                #[cfg(not(feature = "native-smoke"))]
+                                fields
+                            }),
                     );
-            }
-            let mut palette = div().h_flex().flex_wrap().gap_1();
-            for (j, value) in BUBBLE_COLOR_PALETTE.iter().copied().enumerate() {
-                palette = palette.child(
-                    Button::new((SharedString::from(format!("palette-{i}")), j))
-                        .accessibility_label(t.format(
-                            "config.chooseCurrentColor",
-                            &[("provider", name.into()), ("color", value.into())],
-                        ))
-                        .tooltip(value)
-                        .size(px(28.))
-                        .p_1()
-                        .child(
-                            div()
-                                .size(px(16.))
-                                .rounded_full()
-                                .bg(rgb(u32::from_str_radix(value.trim_start_matches('#'), 16)
-                                    .unwrap_or(0x9c83ff))),
-                        )
-                        .selected(value == color)
-                        .disabled(busy)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.save(
-                                Change::Color {
-                                    provider,
-                                    color: value.into(),
-                                },
-                                cx,
-                            )
-                        })),
-                );
-            }
-            view = view
-                .child(
-                    Checkbox::new(("visible", i))
-                        .label(t.format("config.providerVisible", &[("provider", name.into())]))
-                        .checked(s.bubble_visible_providers.contains(&provider))
-                        .disabled(busy)
-                        .on_change(cx.listener(move |this, visible: &bool, _, cx| {
-                            this.save(
-                                Change::Visible {
-                                    provider,
-                                    visible: *visible,
-                                },
-                                cx,
-                            )
-                        })),
+            let row_bounds = Rc::new(Cell::new(None));
+            let measured_bounds = row_bounds.clone();
+            let row = row.child(
+                canvas(
+                    move |bounds, _, _| {
+                        measured_bounds.set(Some(bounds));
+                        #[cfg(feature = "native-smoke")]
+                        smoke::record_row(provider, bounds);
+                    },
+                    |bounds, (), window, cx| {
+                        let pointer = window.mouse_position();
+                        if cx.has_active_drag() && bounds.contains(&pointer) {
+                            let y = if pointer.y < bounds.center().y {
+                                bounds.top()
+                            } else {
+                                bounds.bottom() - px(2.)
+                            };
+                            window.paint_quad(fill(
+                                Bounds::new(
+                                    point(bounds.left(), y),
+                                    size(bounds.size.width, px(2.)),
+                                ),
+                                rgb(0x9c83ff),
+                            ));
+                        }
+                    },
                 )
-                .child(palette);
+                .absolute()
+                .inset_0(),
+            );
+            view = view.child(row.on_drop(cx.listener(
+                move |this, value: &DraggedProvider, window, cx| {
+                    if this.settings_task.is_none()
+                        && let Some(bounds) = row_bounds.get()
+                        && let Some(order) = provider_drop_order(
+                            this.service.payload().settings.bubble_provider_order,
+                            value.0,
+                            provider,
+                            window.mouse_position().y >= bounds.center().y,
+                        )
+                    {
+                        this.save(Change::Order(order), cx);
+                    }
+                },
+            )));
         }
         view.child(
             Button::new("rescan")
@@ -345,7 +383,96 @@ impl Dashboard {
                 .label(t.t("menu.quit"))
                 .on_click(|_, _, cx| cx.quit()),
         )
+        .on_drag_move(
+            cx.listener(|this, event: &DragMoveEvent<DraggedProvider>, window, _| {
+                let scroll = &this.settings_scroll;
+                let bounds = scroll.bounds();
+                let pointer = event.event.position;
+                if !bounds.contains(&pointer) {
+                    return;
+                }
+                let step = if pointer.y < bounds.top() + px(24.) {
+                    px(12.)
+                } else if pointer.y > bounds.bottom() - px(24.) {
+                    px(-12.)
+                } else {
+                    return;
+                };
+                let old = scroll.offset();
+                let y = (old.y + step).clamp(-scroll.max_offset().y, px(0.));
+                if old.y != y {
+                    scroll.set_offset(point(old.x, y));
+                    window.refresh();
+                }
+            }),
+        )
         .into_any_element()
+    }
+
+    fn provider_color(
+        provider: Provider,
+        name: &'static str,
+        color: &str,
+        busy: bool,
+        t: I18n,
+        cx: &mut Context<Self>,
+    ) -> Popover {
+        let dashboard = cx.entity().downgrade();
+        let color = color.to_owned();
+        Popover::new("color-picker")
+            .anchor(Anchor::BottomRight)
+            .w(px(240.))
+            .trigger(
+                Button::new("color")
+                    .label(color.clone())
+                    .accessibility_label(
+                        t.format("config.chooseColor", &[("provider", name.into())]),
+                    )
+                    .disabled(busy),
+            )
+            .content(move |_, _, cx| {
+                let mut palette = div().h_flex().flex_wrap().gap_1();
+                for (index, value) in BUBBLE_COLOR_PALETTE.iter().copied().enumerate() {
+                    let dashboard = dashboard.clone();
+                    palette =
+                        palette.child(
+                            Button::new(("swatch", index))
+                                .accessibility_label(t.format(
+                                    "config.chooseCurrentColor",
+                                    &[("provider", name.into()), ("color", value.into())],
+                                ))
+                                .tooltip(value)
+                                .size(px(24.))
+                                .p_1()
+                                .child(
+                                    div().size(px(14.)).rounded_full().bg(rgb(
+                                        u32::from_str_radix(value.trim_start_matches('#'), 16)
+                                            .unwrap_or(0x9c83ff),
+                                    )),
+                                )
+                                .selected(value == color)
+                                .on_click(cx.listener(move |popover, _, window, cx| {
+                                    popover.dismiss(window, cx);
+                                    let _ = dashboard.update(cx, |this, cx| {
+                                        this.save(
+                                            Change::Color {
+                                                provider,
+                                                color: value.into(),
+                                            },
+                                            cx,
+                                        )
+                                    });
+                                })),
+                        );
+                }
+                #[cfg(feature = "native-smoke")]
+                let palette = palette.on_children_prepainted(move |bounds, _, _| {
+                    if provider == Provider::Codex {
+                        smoke::record_swatch(bounds[0].center());
+                    }
+                });
+                palette
+            })
     }
 
     pub(super) fn consent(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -372,6 +499,144 @@ impl Dashboard {
                     })),
             )
             .into_any_element()
+    }
+}
+
+fn setting_hint(text: String) -> impl IntoElement {
+    div().text_xs().text_color(rgb(0xa6adbc)).child(text)
+}
+
+fn provider_drop_order(
+    mut order: Vec<Provider>,
+    source: Provider,
+    target: Provider,
+    after: bool,
+) -> Option<Vec<Provider>> {
+    if source == target {
+        return None;
+    }
+    let from = order.iter().position(|provider| *provider == source)?;
+    order.remove(from);
+    let to = order.iter().position(|provider| *provider == target)? + usize::from(after);
+    if from == to {
+        return None;
+    }
+    order.insert(to, source);
+    Some(order)
+}
+
+#[cfg(feature = "native-smoke")]
+pub(super) mod smoke {
+    use super::*;
+
+    thread_local! {
+        static ROWS: Cell<[Option<Bounds<Pixels>>; 3]> = const { Cell::new([None; 3]) };
+        static COLOR_TRIGGER: Cell<Option<Point<Pixels>>> = const { Cell::new(None) };
+        static COLOR_SWATCH: Cell<Option<Point<Pixels>>> = const { Cell::new(None) };
+    }
+
+    pub(super) fn record_color_trigger(point: Point<Pixels>) {
+        COLOR_TRIGGER.set(Some(point));
+    }
+
+    pub(super) fn record_swatch(point: Point<Pixels>) {
+        COLOR_SWATCH.set(Some(point));
+    }
+
+    pub(crate) fn color_trigger() -> Point<Pixels> {
+        COLOR_SWATCH.set(None);
+        COLOR_TRIGGER
+            .get()
+            .expect("Codex color trigger was laid out")
+    }
+
+    pub(crate) fn color_swatch() -> Point<Pixels> {
+        COLOR_SWATCH
+            .get()
+            .expect("Codex color popover did not open")
+    }
+
+    pub(crate) fn is_palette_visible() -> bool {
+        COLOR_SWATCH.get().is_some()
+    }
+
+    pub(super) fn record_row(provider: Provider, bounds: Bounds<Pixels>) {
+        ROWS.with(|rows| {
+            let mut values = rows.get();
+            values[provider as usize] = Some(bounds);
+            rows.set(values);
+        });
+    }
+
+    pub(crate) fn drag(
+        window: &mut Window,
+        cx: &mut App,
+        source: Provider,
+        target: Provider,
+        after: bool,
+    ) -> Point<Pixels> {
+        let rows = ROWS.with(Cell::get);
+        let source_bounds = rows[source as usize].expect("Drag source was laid out");
+        let target_bounds = rows[target as usize].expect("Drop target was laid out");
+        // Start on the centered grip and drop well inside the chosen half.
+        let start = source_bounds.origin + point(px(20.), px(20.));
+        let end = point(
+            target_bounds.center().x,
+            if after {
+                target_bounds.bottom() - px(8.)
+            } else {
+                target_bounds.top() + px(8.)
+            },
+        );
+        for position in [start, end] {
+            assert!(
+                position.y > px(65.) && position.y < window.bounds().size.height - px(25.),
+                "Provider row is outside the panel: {position:?}"
+            );
+        }
+        let move_pointer = |position, pressed_button, window: &mut Window, cx: &mut App| {
+            window.dispatch_event(
+                PlatformInput::MouseMove(MouseMoveEvent {
+                    position,
+                    modifiers: Default::default(),
+                    pressed_button,
+                }),
+                cx,
+            );
+        };
+        move_pointer(start, None, window, cx);
+        window.dispatch_event(
+            PlatformInput::MouseDown(MouseDownEvent {
+                position: start,
+                button: MouseButton::Left,
+                modifiers: Default::default(),
+                click_count: 1,
+                first_mouse: false,
+            }),
+            cx,
+        );
+        move_pointer(
+            start + point(px(6.), px(0.)),
+            Some(MouseButton::Left),
+            window,
+            cx,
+        );
+        assert!(cx.has_active_drag(), "Provider grip did not start a drag");
+        move_pointer(end, Some(MouseButton::Left), window, cx);
+        end
+    }
+
+    pub(crate) fn release(window: &mut Window, cx: &mut App, position: Point<Pixels>) {
+        window.dispatch_event(
+            PlatformInput::MouseUp(MouseUpEvent {
+                position,
+                button: MouseButton::Left,
+                modifiers: Default::default(),
+                click_count: 1,
+            }),
+            cx,
+        );
+        assert!(!cx.has_active_drag(), "Provider drag was not released");
     }
 }
 
