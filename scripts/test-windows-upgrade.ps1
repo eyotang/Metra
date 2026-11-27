@@ -102,6 +102,11 @@ except (sqlite3.Error, OSError):
   if (Test-Path $appLog) { Get-Content $appLog | Select-String -Pattern 'app.start|desktop.start_failed' }
   Stop-Installed
   $uninstaller = Join-Path (Split-Path $installed) 'uninstall.exe'
-  if (Test-Path $uninstaller) { Run-Installer $uninstaller }
+  if (Test-Path $uninstaller) {
+    Run-Installer $uninstaller
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((Test-Path (Split-Path $installed)) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 250 }
+    if (Test-Path (Split-Path $installed)) { throw 'Fixture installation was not removed' }
+  }
   Remove-Item -LiteralPath $env:METRA_CONFIG_DIR -Recurse -Force
 }

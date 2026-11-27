@@ -104,6 +104,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          sudo apt-get install -y libgtk-3-0t64 libwebkit2gtk-4.1-0 libayatana-appindicator3-1
           fixtures=$(mktemp -d)
           trap 'rm -rf "$fixtures"' EXIT
           dpkg-deb -x native-installer/*-linux-x64.deb "$fixtures/candidate"

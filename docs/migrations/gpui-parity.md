@@ -131,6 +131,13 @@ profile. The fixtures do not use personal provider accounts.
 | macOS | Mount the published universal DMGs read-only. Check their digests, bundle identity, architecture and code signature. Run the bundled executables and the candidate against isolated settings. Native CI separately exercises the candidate panel, tray and inactive redraw. |
 | Updates | Check the live stable GitHub release and verify retained Windows signatures. The tagged job signs and verifies the new installer with the existing Minisign key. An application-to-application upgrade to the newly signed public artifact requires that artifact to exist. |
 
+Local Linux evidence includes graphical startup from the actual Debian packages
+for all three versions, the two published SQLite migrations into the candidate,
+and the candidate's lifecycle, inactive repaint and headless protocol checks.
+The standalone Omarchy QML smoke ran against the local Quickshell host with
+fixtures. The published artifacts match their GitHub digests and both retained
+Windows installers pass the candidate's Minisign verifier.
+
 The patch release is `v0.6.1`. Feature-branch pushes and manual CI dispatches
 verify the candidate. A push of the matching `v0.6.1` tag starts the release
 workflow. After verification it builds the macOS universal DMG, the Windows x64
