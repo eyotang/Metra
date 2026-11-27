@@ -145,6 +145,23 @@ installer and portable executable, the Linux x64 Debian package and the Omarchy
 x64 archive. CI verifies macOS signing and emits the installer signature,
 checksums and legacy `latest.json` before making the GitHub release public.
 
+## v0.6.2 settings and bubble visual corrections
+
+The v0.6.1 tag points to the earlier candidate. Its tagged workflow was
+cancelled before publishing. Compare the v0.6.2 settings with the v0.5.18
+window at its original size. The language, display mode, percentage mode and
+refresh interval use single-select dropdowns in the original order. The
+switches sit on the right, and the provider controls show a compact label input
+and a button with the current color. The popover uses the 55 original square
+swatches in five rows of eleven. The bubble has a transparent window surface
+with the native AppKit shadow disabled, as in v0.5.18.
+
+The native smoke opens the language dropdown with the mouse and keyboard and
+checks Escape dismissal and persisted selection. It also exercises color
+popover dismissal and selection. The Windows composition check samples the
+backdrop below the bubble and capsule in addition to their transparent corners.
+The macOS native smoke checks AppKit's shadow property on the platform window.
+
 ## Reproduction
 
 ```sh

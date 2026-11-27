@@ -163,10 +163,12 @@ impl Render for Dashboard {
         let payload = self.service.payload();
         let t = I18n::new(payload.settings.ui_language);
         let details = self.page == Page::Details;
-        let mut actions = div().h_flex().gap_1();
+        let mut actions = div().h_flex().items_center().gap(px(2.));
         if details {
             actions = actions.child(
                 Button::new("refresh")
+                    .ghost()
+                    .size(px(30.))
                     .icon(IconName::RefreshCw)
                     .accessibility_label(t.t("refresh.nowUsage"))
                     .tooltip(t.t("refresh.nowUsage"))
@@ -177,6 +179,8 @@ impl Render for Dashboard {
         } else {
             actions = actions.child(
                 Button::new("details")
+                    .ghost()
+                    .size(px(30.))
                     .icon(IconName::ChevronLeft)
                     .accessibility_label(t.t("native.details"))
                     .tooltip(t.t("native.details"))
@@ -188,6 +192,8 @@ impl Render for Dashboard {
         if self.page != Page::Settings {
             actions = actions.child(
                 Button::new("settings")
+                    .ghost()
+                    .size(px(30.))
                     .icon(IconName::Settings)
                     .accessibility_label(t.t("native.settings"))
                     .tooltip(t.t("native.settings"))
@@ -198,49 +204,78 @@ impl Render for Dashboard {
         }
         actions = actions.child(
             Button::new("close-panel")
+                .ghost()
+                .size(px(30.))
                 .icon(IconName::Close)
                 .accessibility_label(t.t("native.close"))
                 .tooltip(t.t("native.close"))
                 .on_click(|_, window, _| window.remove_window()),
         );
-        let mut header = div()
-            .id("header")
-            .v_flex()
-            .gap_2()
-            .p_3()
-            .flex_shrink_0()
-            .child(
-                div()
-                    .h_flex()
-                    .justify_between()
-                    .gap_2()
-                    .child(
-                        div()
-                            .v_flex()
-                            .gap_1()
-                            .child(
-                                div().h_flex().gap_2().child("Metra").child(
+        static APP_ICON: std::sync::LazyLock<Arc<Image>> = std::sync::LazyLock::new(|| {
+            Arc::new(Image::from_bytes(
+                ImageFormat::Png,
+                include_bytes!("../../assets/icons/64x64.png").to_vec(),
+            ))
+        });
+        let mut header = div().id("header").v_flex().flex_shrink_0().child(
+            div()
+                .h_flex()
+                .h(px(72.))
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .px(px(17.))
+                .border_b_1()
+                .border_color(rgba(0xffffff09))
+                .child(
+                    div()
+                        .h_flex()
+                        .items_center()
+                        .gap(px(9.))
+                        .child(
+                            img(APP_ICON.clone())
+                                .size(px(30.))
+                                .flex_none()
+                                .rounded(px(8.)),
+                        )
+                        .child(
+                            div()
+                                .v_flex()
+                                .gap(px(3.))
+                                .child(
                                     div()
-                                        .text_xs()
-                                        .text_color(rgb(0xa6adbc))
-                                        .child(format!("v{}", env!("CARGO_PKG_VERSION"))),
-                                ),
-                            )
-                            .child(div().text_xs().text_color(rgb(0xa6adbc)).child(t.t(
-                                if self.page == Page::Settings {
-                                    "native.settings"
-                                } else {
-                                    "app.usageSubtitle"
-                                },
-                            ))),
-                    )
-                    .child(actions),
-            );
+                                        .h_flex()
+                                        .items_baseline()
+                                        .gap(px(7.))
+                                        .child(
+                                            div()
+                                                .text_size(px(17.))
+                                                .font_weight(FontWeight::BOLD)
+                                                .child("Metra"),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_size(px(9.))
+                                                .text_color(rgb(0xa0adc2))
+                                                .child(format!("v{}", env!("CARGO_PKG_VERSION"))),
+                                        ),
+                                )
+                                .child(div().text_size(px(10.)).text_color(rgb(0xa0adc2)).child(
+                                    t.t(if self.page == Page::Settings {
+                                        "native.settings"
+                                    } else {
+                                        "app.usageSubtitle"
+                                    }),
+                                )),
+                        ),
+                )
+                .child(actions),
+        );
         let mut content = div()
             .id("body")
             .v_flex()
             .gap_3()
-            .p_4()
+            .p(px(14.))
             .flex_1()
             .min_h_0()
             .overflow_y_scroll();
@@ -254,17 +289,19 @@ impl Render for Dashboard {
         let status = div()
             .h_flex()
             .items_center()
-            .gap_2()
-            .px_3()
-            .py_2()
+            .gap(px(6.))
+            .px(px(17.))
+            .h(px(30.))
             .flex_shrink_0()
-            .text_xs()
-            .text_color(rgb(0xa6adbc))
+            .border_t_1()
+            .border_color(rgba(0xffffff09))
+            .text_size(px(10.))
+            .text_color(rgb(0xa0adc2))
             .when(active, |status| {
                 status.child(Spinner::new().with_size(px(12.)))
             })
             .when(!active, |status| {
-                status.child(div().size(px(6.)).rounded_full().bg(rgb(0x4dd4bf)))
+                status.child(div().size(px(5.)).rounded_full().bg(rgb(0x64ccb0)))
             })
             .child(if self.refresh_task.is_some() {
                 t.t("native.refreshing")
@@ -282,16 +319,18 @@ impl Render for Dashboard {
                 .track_focus(&self.focus)
                 .on_key_down(runtime::panel_key_down)
                 .rounded(px(22.))
+                .border_1()
+                .border_color(rgba(0xffffff20))
                 .overflow_hidden()
-                .text_sm()
-                .bg(rgb(0x121620))
-                .text_color(rgb(0xe8ecf3))
+                .text_size(px(12.))
+                .bg(rgb(0x171c27))
+                .text_color(rgb(0xedf0f8))
                 .font_family("Inter")
                 .child(header)
                 .child(
                     content
                         .track_scroll(&self.settings_scroll)
-                        .child(self.preferences(cx)),
+                        .child(self.preferences(window, cx)),
                 )
                 .child(status);
         }
@@ -400,8 +439,18 @@ fn main() {
     application.run(move |cx| {
         gpui_kit::init(cx);
         component::Theme::change(component::ThemeMode::Dark, None, cx);
-        component::Theme::global_mut(cx).font_size = px(12.);
-        component::Theme::global_mut(cx).font_family = "Inter".into();
+        let theme = component::Theme::global_mut(cx);
+        theme.font_size = px(12.);
+        theme.font_family = "Inter".into();
+        theme.colors.popover = rgb(0x263147).into();
+        theme.colors.popover_foreground = rgb(0xedf0f8).into();
+        theme.colors.primary = rgb(0xb6a0ff).into();
+        theme.colors.primary_foreground = rgb(0x201832).into();
+        theme.colors.accent = theme.colors.primary;
+        theme.colors.accent_foreground = theme.colors.primary_foreground;
+        theme.colors.ring = rgb(0xc4b4ff).into();
+        theme.tokens.primary = theme.colors.primary.into();
+        theme.tokens.accent = theme.colors.accent.into();
         if let Err(error) =
             cx.text_system()
                 .add_fonts(vec![std::borrow::Cow::Borrowed(include_bytes!(

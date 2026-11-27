@@ -589,7 +589,7 @@ fn smoke(cx: &mut App) {
         .expect("Native smoke requires isolated METRA_CONFIG_DIR");
     cx.spawn(async move |cx| {
         use metra_lib::{model::Provider::{Claude, Codex, Cursor}, settings::{DisplayMode,UiLanguage},settings_change::Change};
-        for phase in 0..23 {
+        for phase in 0..27 {
             cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
             cx.update(|cx| {
                 let dashboard=cx.global::<Runtime>().dashboard.clone();
@@ -786,7 +786,7 @@ fn smoke(cx: &mut App) {
                         });
                     },
                     21=>assert_eq!(usage::RENDERED_REFRESHING.get(), [false; 3]),
-                    _=>{
+                    22=>{
                         assert!(dashboard.read(cx).page == Page::Details);
                         assert!(cx.global::<Runtime>().panel.is_some());
                         let panel = cx.global::<Runtime>().panel.unwrap();
@@ -794,12 +794,42 @@ fn smoke(cx: &mut App) {
                             smoke_key(window, cx, "escape");
                         }).unwrap();
                         assert!(cx.global::<Runtime>().panel.is_none(), "Escape must close the panel");
-                        std::fs::write(std::path::Path::new(&config).join("native-smoke.result"),"PASS: panel lifecycle, display modes, locale, settings and label drafts, offscreen recovery, bubble clicks, provider drop and keyboard ordering, palette, consent navigation, independent refresh state").unwrap();
-                        cx.quit();
+                        dashboard.read(cx).settings_scroll.set_offset(point(px(0.), px(0.)));
+                        open_panel(Page::Settings, cx);
+                    },
+                    23 => {
+                        let panel = cx.global::<Runtime>().panel.unwrap();
+                        panel.update(cx, |_, window, cx| {
+                            smoke_click_at(window, cx, preferences::smoke::language_trigger(), MouseButton::Left);
+                        }).unwrap();
+                    },
+                    24 => {
+                        let panel = cx.global::<Runtime>().panel.unwrap();
+                        panel.update(cx, |_, window, cx| smoke_key(window, cx, "escape")).unwrap();
+                        assert!(cx.global::<Runtime>().panel.is_some(), "Escape must close the language dropdown before the settings panel");
+                        assert_eq!(dashboard.read(cx).service.store.load().ui_language, UiLanguage::Ja);
+                    },
+                    25 => {
+                        let panel = cx.global::<Runtime>().panel.unwrap();
+                        panel.update(cx, |_, window, cx| smoke_key(window, cx, "down")).unwrap();
+                    },
+                    _ => {
+                        let panel = cx.global::<Runtime>().panel.unwrap();
+                        panel.update(cx, |_, window, cx| {
+                            smoke_key(window, cx, "up");
+                            smoke_key(window, cx, "enter");
+                        }).unwrap();
                     },
                 }
             });
         }
+        cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
+        cx.update(|cx| {
+            let dashboard = &cx.global::<Runtime>().dashboard;
+            assert_eq!(dashboard.read(cx).service.store.load().ui_language, UiLanguage::En, "Language dropdown must save the keyboard selection");
+            std::fs::write(std::path::Path::new(&config).join("native-smoke.result"),"PASS: panel lifecycle, display modes, accessible language dropdown, settings and label drafts, offscreen recovery, bubble clicks, provider drop and keyboard ordering, palette, consent navigation, independent refresh state").unwrap();
+            cx.quit();
+        });
     }).detach();
 }
 

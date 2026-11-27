@@ -1,8 +1,11 @@
 use super::*;
+use gpui_kit::base::Switch;
 use gpui_kit::component::{
     checkbox::Checkbox,
     input::{Input, InputEvent, InputState},
     popover::Popover,
+    searchable_list::{SearchableListItem, SearchableVec},
+    select::{Select, SelectEvent, SelectState},
 };
 use metra_lib::{
     model::Provider,
@@ -89,144 +92,120 @@ impl Dashboard {
         cx.notify();
     }
 
-    pub(super) fn preferences(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn preferences(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let s = self.service.payload().settings;
         let t = I18n::new(s.ui_language);
         let busy = self.settings_task.is_some();
-        let mut view = div().v_flex().gap_3();
-        let mut languages = div().h_flex().flex_wrap().gap_2();
-        for (i, (language, title)) in [
-            (UiLanguage::System, t.t("menu.languageSystem")),
-            (UiLanguage::En, "English".into()),
-            (UiLanguage::ZhCn, "简体中文".into()),
-            (UiLanguage::Ja, "日本語".into()),
-            (UiLanguage::Ko, "한국어".into()),
-            (UiLanguage::Fr, "Français".into()),
-            (UiLanguage::De, "Deutsch".into()),
-            (UiLanguage::Ru, "Русский".into()),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            languages =
-                languages.child(
-                    Button::new(("language", i))
-                        .label(title)
-                        .selected(s.ui_language == language)
-                        .disabled(busy)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.save(Change::Language(language), cx)
-                        })),
-                );
-        }
-        view = view
-            .child(
-                Checkbox::new("snap")
-                    .label(t.t("menu.autoSnap"))
-                    .checked(s.bubble_snap_enabled)
-                    .disabled(busy)
-                    .on_change(cx.listener(|this, enabled: &bool, _, cx| {
-                        this.save(Change::Snap(*enabled), cx)
-                    })),
-            )
-            .child(setting_hint(t.t("menu.autoSnapHint")));
-        let mode = s.display_mode;
-        let modes = div()
-            .h_flex()
-            .gap_2()
-            .child(
-                Button::new("display-bubble")
-                    .label(t.t("menu.displayBubble"))
-                    .selected(mode == metra_lib::settings::DisplayMode::Bubble)
-                    .disabled(busy)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.save(
-                            Change::Display(metra_lib::settings::DisplayMode::Bubble),
-                            cx,
-                        )
-                    })),
-            )
-            .child(
-                Button::new("display-tray")
-                    .label(t.t("menu.displayStatusBar"))
-                    .selected(mode == metra_lib::settings::DisplayMode::StatusBar)
-                    .disabled(busy)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.save(
-                            Change::Display(metra_lib::settings::DisplayMode::StatusBar),
-                            cx,
-                        )
-                    })),
-            );
-        view = view.child(t.t("menu.displayMode")).child(modes).child(
-            Checkbox::new("autostart")
-                .label(t.t("menu.autostart"))
-                .checked(s.autostart)
-                .disabled(busy)
-                .on_change(cx.listener(|this, enabled: &bool, _, cx| {
+        use metra_lib::settings::DisplayMode;
+        let mut view = div()
+            .v_flex()
+            .child(preference_select(
+                "language",
+                t.t("menu.language"),
+                s.ui_language,
+                [
+                    (UiLanguage::System, t.t("menu.languageSystem")),
+                    (UiLanguage::ZhCn, "简体中文".into()),
+                    (UiLanguage::En, "English".into()),
+                    (UiLanguage::Ja, "日本語".into()),
+                    (UiLanguage::Ko, "한국어".into()),
+                    (UiLanguage::Fr, "Français".into()),
+                    (UiLanguage::De, "Deutsch".into()),
+                    (UiLanguage::Ru, "Русский".into()),
+                ],
+                Change::Language,
+                busy,
+                window,
+                cx,
+            ))
+            .child(preference_select(
+                "display",
+                t.t("menu.displayMode"),
+                s.display_mode,
+                [
+                    (DisplayMode::Bubble, t.t("menu.displayBubble")),
+                    (DisplayMode::StatusBar, t.t("menu.displayStatusBar")),
+                ],
+                Change::Display,
+                busy,
+                window,
+                cx,
+            ))
+            .child(preference_select(
+                "percentage",
+                t.t("menu.bubblePercentage"),
+                s.bubble_percent_mode,
+                [
+                    (BubblePercentMode::Remaining, t.t("menu.remaining")),
+                    (BubblePercentMode::Used, t.t("menu.used")),
+                ],
+                Change::Percent,
+                busy,
+                window,
+                cx,
+            ))
+            .child(preference_select(
+                "interval",
+                t.t("menu.refreshInterval"),
+                s.refresh_minutes,
+                [1, 5, 15, 30, 60].map(|minutes| (minutes, format!("{minutes} min"))),
+                Change::Refresh,
+                busy,
+                window,
+                cx,
+            ))
+            .child(setting_switch(
+                "snap",
+                t.t("menu.autoSnap"),
+                Some(t.t("menu.autoSnapHint")),
+                s.bubble_snap_enabled,
+                busy,
+                cx.listener(|this, enabled: &bool, _, cx| this.save(Change::Snap(*enabled), cx)),
+            ))
+            .child(setting_switch(
+                "autostart",
+                t.t("menu.autostart"),
+                None,
+                s.autostart,
+                busy,
+                cx.listener(|this, enabled: &bool, _, cx| {
                     this.save(Change::Autostart(*enabled), cx)
-                })),
-        );
-        view = view
-            .child(t.t("menu.language"))
-            .child(languages)
-            .child(t.t("menu.bubblePercentage"));
-        let mut percentages = div().h_flex().flex_wrap().gap_2();
-        for (i, (mode, key)) in [
-            (BubblePercentMode::Remaining, "menu.remaining"),
-            (BubblePercentMode::Used, "menu.used"),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            percentages = percentages.child(
-                Button::new(("percentage", i))
-                    .label(t.t(key))
-                    .selected(s.bubble_percent_mode == mode)
-                    .disabled(busy)
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.save(Change::Percent(mode), cx)),
-                    ),
-            );
-        }
-        view = view.child(percentages);
-        let mut intervals = div().h_flex().flex_wrap().gap_2();
-        for (i, minutes) in [1, 5, 15, 30, 60].into_iter().enumerate() {
-            intervals = intervals.child(
-                Button::new(("interval", i))
-                    .label(format!("{minutes} min"))
-                    .selected(s.refresh_minutes == minutes)
-                    .disabled(busy)
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.save(Change::Refresh(minutes), cx)),
-                    ),
-            );
-        }
-        view = view
-            .child(t.t("menu.refreshInterval"))
-            .child(intervals)
+                }),
+            ))
+            .child(setting_switch(
+                "compatibility",
+                t.t("menu.cursorCompat"),
+                Some(t.t("menu.cursorCompatHint")),
+                s.cursor_compat_enabled,
+                busy,
+                cx.listener(|this, enabled: &bool, window, cx| {
+                    if *enabled {
+                        this.navigate(Page::Consent, window, cx);
+                    } else {
+                        this.save(Change::Compat(false), cx);
+                    }
+                }),
+            ))
             .child(
-                Checkbox::new("compatibility")
-                    .label(t.t("menu.cursorCompat"))
-                    .checked(s.cursor_compat_enabled)
-                    .disabled(busy)
-                    .on_change(cx.listener(|this, enabled: &bool, window, cx| {
-                        if *enabled {
-                            this.navigate(Page::Consent, window, cx);
-                        } else {
-                            this.save(Change::Compat(false), cx);
-                        }
-                    })),
-            )
-            .child(setting_hint(t.t("menu.cursorCompatHint")))
-            .child(t.t("config.title"))
-            .child(setting_hint(t.t("config.reorderHint")));
+                div()
+                    .v_flex()
+                    .pt(px(19.))
+                    .gap(px(4.))
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(t.t("config.title")),
+                    )
+                    .child(setting_hint(t.t("config.reorderHint"))),
+            );
         for provider in s.bubble_provider_order.iter().copied() {
             let (name, color) = match provider {
                 Provider::Cursor => ("Cursor", &s.cursor_bubble_color),
                 Provider::Codex => ("Codex", &s.codex_bubble_color),
                 Provider::Claude => ("Claude Code", &s.claude_bubble_color),
             };
+            let accent = provider_accent(color);
             let Some((_, input, _, focus)) = self.labels.iter().find(|(p, ..)| *p == provider)
             else {
                 continue;
@@ -243,7 +222,10 @@ impl Dashboard {
                 .items_center()
                 .justify_center()
                 .cursor_move()
-                .child("≡")
+                .text_color(rgb(0xa0adc2))
+                .hover(|style| style.text_color(accent).bg(rgba(0xb8a6ff15)))
+                .rounded_md()
+                .child("⠿")
                 .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _, cx| {
                     if this.settings_task.is_some() || cx.has_active_drag() {
                         return;
@@ -268,21 +250,31 @@ impl Dashboard {
                     .id(name)
                     .relative()
                     .v_flex()
-                    .gap_2()
-                    .rounded_md()
+                    .mt(px(7.))
+                    .gap(px(6.))
+                    .rounded(px(10.))
                     .border_1()
-                    .border_color(rgb(0x303849))
-                    .p_2()
+                    .border_color(rgba(0xffffff10))
+                    .bg(rgba(0xffffff03))
+                    .py(px(8.))
+                    .px(px(10.))
                     .child(
                         div()
                             .h_flex()
                             .items_center()
-                            .gap_2()
+                            .gap(px(5.))
                             .child(handle)
-                            .child(div().flex_1().child(name))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(11.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(accent)
+                                    .child(name),
+                            )
                             .child(
                                 Checkbox::new("visible")
-                                    .label(t.format(
+                                    .accessibility_label(t.format(
                                         "config.providerVisible",
                                         &[("provider", name.into())],
                                     ))
@@ -303,10 +295,18 @@ impl Dashboard {
                         div()
                             .h_flex()
                             .items_center()
-                            .gap_2()
+                            .gap(px(7.))
                             .child(
-                                div().min_w_0().flex_1().child(
+                                div().w(px(49.)).flex_none().child(
                                     Input::new(input)
+                                        .small()
+                                        .min_h(px(30.))
+                                        .rounded(px(7.))
+                                        .px(px(5.))
+                                        .text_align(TextAlign::Center)
+                                        .text_color(accent)
+                                        .bg(rgb(0x1c2538))
+                                        .border_color(rgb(0x545868))
                                         .aria_label(t.format(
                                             "config.bubbleLabel",
                                             &[("provider", name.into())],
@@ -314,7 +314,7 @@ impl Dashboard {
                                         .disabled(busy),
                                 ),
                             )
-                            .child(color_picker)
+                            .child(div().min_w_0().flex_1().child(color_picker))
                             .map(|fields| {
                                 #[cfg(feature = "native-smoke")]
                                 return fields.on_children_prepainted(move |bounds, _, _| {
@@ -373,15 +373,32 @@ impl Dashboard {
             )));
         }
         view.child(
-            Button::new("rescan")
-                .label(t.t("menu.rescanCli"))
-                .disabled(self.refresh_task.is_some())
-                .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
-        )
-        .child(
-            Button::new("quit")
-                .label(t.t("menu.quit"))
-                .on_click(|_, _, cx| cx.quit()),
+            div()
+                .h_flex()
+                .flex_wrap()
+                .mt_3()
+                .gap(px(6.))
+                .child(
+                    Button::new("rescan")
+                        .small()
+                        .outline()
+                        .h(px(30.))
+                        .border_color(rgb(0x545868))
+                        .text_color(rgb(0xa0adc2))
+                        .label(t.t("menu.rescanCli"))
+                        .loading(self.refresh_task.is_some())
+                        .disabled(self.refresh_task.is_some())
+                        .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
+                )
+                .child(
+                    Button::new("quit")
+                        .small()
+                        .danger()
+                        .outline()
+                        .h(px(30.))
+                        .label(t.t("menu.quit"))
+                        .on_click(|_, _, cx| cx.quit()),
+                ),
         )
         .on_drag_move(
             cx.listener(|this, event: &DragMoveEvent<DraggedProvider>, window, _| {
@@ -419,38 +436,65 @@ impl Dashboard {
     ) -> Popover {
         let dashboard = cx.entity().downgrade();
         let color = color.to_owned();
+        let accent = provider_accent(&color);
+        let mut trigger = StyleRefinement::default();
+        trigger.size.width = Some(relative(1.).into());
         Popover::new("color-picker")
             .anchor(Anchor::BottomRight)
+            .arrow(false)
+            .trigger_style(trigger)
             .w(px(240.))
+            .p(px(10.))
+            .bg(rgb(0x263147))
+            .border_color(rgba(0xffffff1a))
+            .rounded(px(7.))
             .trigger(
                 Button::new("color")
-                    .label(color.clone())
+                    .small()
+                    .outline()
+                    .w_full()
+                    .h(px(30.))
+                    .bg(rgb(0x1c2538))
+                    .border_color(rgb(0x545868))
+                    .child(
+                        div()
+                            .w_full()
+                            .h_flex()
+                            .gap(px(6.))
+                            .items_center()
+                            .child(div().size(px(12.)).rounded(px(4.)).bg(accent))
+                            .child(div().text_color(rgb(0xa0adc2)).child(color.clone())),
+                    )
                     .accessibility_label(
                         t.format("config.chooseColor", &[("provider", name.into())]),
                     )
                     .disabled(busy),
             )
             .content(move |_, _, cx| {
-                let mut palette = div().h_flex().flex_wrap().gap_1();
-                for (index, value) in BUBBLE_COLOR_PALETTE.iter().copied().enumerate() {
-                    let dashboard = dashboard.clone();
-                    palette =
-                        palette.child(
-                            Button::new(("swatch", index))
+                let mut palette = div().v_flex().gap(px(4.));
+                for (row_index, colors) in BUBBLE_COLOR_PALETTE.chunks(11).enumerate() {
+                    let mut row = div().h_flex().gap(px(4.));
+                    for (column, &value) in colors.iter().enumerate() {
+                        let dashboard = dashboard.clone();
+                        let selected = value == color;
+                        row = row.child(
+                            Button::new(("swatch", row_index * 11 + column))
                                 .accessibility_label(t.format(
                                     "config.chooseCurrentColor",
                                     &[("provider", name.into()), ("color", value.into())],
                                 ))
                                 .tooltip(value)
-                                .size(px(24.))
-                                .p_1()
-                                .child(
-                                    div().size(px(14.)).rounded_full().bg(rgb(
-                                        u32::from_str_radix(value.trim_start_matches('#'), 16)
-                                            .unwrap_or(0x9c83ff),
-                                    )),
-                                )
-                                .selected(value == color)
+                                .size(px(16.))
+                                .min_w(px(16.))
+                                .p_0()
+                                .rounded(px(3.))
+                                .bg(provider_accent(value))
+                                .border_1()
+                                .border_color(rgba(0xffffff30))
+                                .selected(selected)
+                                .when(selected, |swatch| {
+                                    swatch.border_2().border_color(rgb(0xffffff))
+                                })
                                 .on_click(cx.listener(move |popover, _, window, cx| {
                                     popover.dismiss(window, cx);
                                     let _ = dashboard.update(cx, |this, cx| {
@@ -464,13 +508,15 @@ impl Dashboard {
                                     });
                                 })),
                         );
-                }
-                #[cfg(feature = "native-smoke")]
-                let palette = palette.on_children_prepainted(move |bounds, _, _| {
-                    if provider == Provider::Codex {
-                        smoke::record_swatch(bounds[0].center());
                     }
-                });
+                    #[cfg(feature = "native-smoke")]
+                    let row = row.on_children_prepainted(move |bounds, _, _| {
+                        if provider == Provider::Codex && row_index == 0 {
+                            smoke::record_swatch(bounds[0].center());
+                        }
+                    });
+                    palette = palette.child(row);
+                }
                 palette
             })
     }
@@ -502,8 +548,187 @@ impl Dashboard {
     }
 }
 
-fn setting_hint(text: String) -> impl IntoElement {
-    div().text_xs().text_color(rgb(0xa6adbc)).child(text)
+#[derive(Clone, PartialEq)]
+struct PreferenceOption<T> {
+    value: T,
+    title: SharedString,
+}
+
+impl<T: Copy + PartialEq> SearchableListItem for PreferenceOption<T> {
+    type Value = T;
+
+    fn title(&self) -> SharedString {
+        self.title.clone()
+    }
+
+    fn value(&self) -> &T {
+        &self.value
+    }
+}
+
+struct PreferenceSelect<T: Copy + PartialEq + 'static> {
+    control: Entity<SelectState<SearchableVec<PreferenceOption<T>>>>,
+    options: Vec<PreferenceOption<T>>,
+    saved: Rc<Cell<T>>,
+    _subscription: Subscription,
+}
+
+fn preference_select<T: Copy + PartialEq + 'static, const N: usize>(
+    id: &'static str,
+    title: String,
+    current: T,
+    options: [(T, String); N],
+    change: fn(T) -> Change,
+    busy: bool,
+    window: &mut Window,
+    cx: &mut Context<Dashboard>,
+) -> Div {
+    let options = options
+        .into_iter()
+        .map(|(value, title)| PreferenceOption {
+            value,
+            title: title.into(),
+        })
+        .collect::<Vec<_>>();
+    let dashboard = cx.entity().downgrade();
+    let state = window.use_keyed_state(format!("preference-select-{id}"), cx, |window, cx| {
+        let selected = options
+            .iter()
+            .position(|option| option.value == current)
+            .map(|index| IndexPath::new(0).row(index));
+        let control = cx
+            .new(|cx| SelectState::new(SearchableVec::new(options.clone()), selected, window, cx));
+        let saved = Rc::new(Cell::new(current));
+        let current = saved.clone();
+        let subscription = window.subscribe(&control, cx, move |_, event, _, cx| {
+            if let SelectEvent::Confirm(Some(value)) = event
+                && *value != current.get()
+            {
+                let _ = dashboard.update(cx, |this, cx| this.save(change(*value), cx));
+            }
+        });
+        PreferenceSelect {
+            control,
+            options: options.clone(),
+            saved,
+            _subscription: subscription,
+        }
+    });
+    state.read(cx).saved.set(current);
+    let control = state.read(cx).control.clone();
+    if state.read(cx).options != options {
+        control.update(cx, |view, cx| {
+            view.set_items(SearchableVec::new(options.clone()), window, cx)
+        });
+        state.update(cx, |state, _| state.options = options);
+    }
+    if !busy && control.read(cx).selected_value() != Some(&current) {
+        control.update(cx, |view, cx| view.set_selected_value(&current, window, cx));
+    }
+    let menu = Select::new(&control)
+        .id(id)
+        .accessibility_label(title.clone())
+        .small()
+        .h(px(30.))
+        .rounded(px(7.))
+        .bg(rgb(0x1c2538))
+        .border_color(rgb(0x545868))
+        .disabled(busy);
+    let row = setting_row(title, div().w(px(145.)).h(px(30.)).child(menu));
+    #[cfg(feature = "native-smoke")]
+    let row = row.on_children_prepainted(move |bounds, _, _| {
+        if id == "language" {
+            smoke::record_language_trigger(bounds[1].center());
+        }
+    });
+    row
+}
+
+fn setting_row(title: String, control: impl IntoElement) -> Div {
+    div()
+        .h_flex()
+        .min_h(px(49.))
+        .items_center()
+        .justify_between()
+        .gap_3()
+        .py(px(10.))
+        .border_b_1()
+        .border_color(rgba(0xffffff09))
+        .child(setting_label(title, None))
+        .child(div().flex_none().child(control))
+}
+
+fn setting_switch(
+    id: &'static str,
+    title: String,
+    hint: Option<String>,
+    checked: bool,
+    busy: bool,
+    change: impl Fn(&bool, &mut Window, &mut App) + 'static,
+) -> Switch {
+    Switch::new(id)
+        .accessibility_label(title.clone())
+        .checked(checked)
+        .disabled(busy)
+        .on_change(move |enabled, _, window, cx| change(&enabled, window, cx))
+        .h_flex()
+        .min_h(px(49.))
+        .items_center()
+        .justify_between()
+        .gap_3()
+        .py(px(10.))
+        .border_b_1()
+        .border_color(rgba(0xffffff09))
+        .focus_visible(|style| style.border_color(rgb(0xc4b4ff)))
+        .when(busy, |row| row.opacity(0.5))
+        .child(setting_label(title, hint))
+        .child(
+            div()
+                .h_flex()
+                .items_center()
+                .flex_none()
+                .w(px(24.))
+                .h(px(14.))
+                .p(px(2.))
+                .rounded_full()
+                .border_1()
+                .when(checked, |track| {
+                    track
+                        .justify_end()
+                        .bg(rgb(0xb6a0ff))
+                        .border_color(rgb(0xc4b4ff))
+                })
+                .when(!checked, |track| {
+                    track.bg(rgb(0x1c2538)).border_color(rgb(0x545868))
+                })
+                .child(div().size(px(8.)).rounded_full().bg(rgb(if checked {
+                    0x201832
+                } else {
+                    0x545868
+                }))),
+        )
+}
+
+fn setting_label(title: String, hint: Option<String>) -> Div {
+    div()
+        .v_flex()
+        .min_w_0()
+        .gap(px(4.))
+        .text_size(px(11.))
+        .child(title)
+        .when_some(hint, |label, hint| label.child(setting_hint(hint)))
+}
+
+fn setting_hint(text: String) -> Div {
+    div()
+        .text_size(px(9.))
+        .line_height(px(14.))
+        .text_color(rgb(0xa0adc2))
+        .child(text)
+}
+
+fn provider_accent(color: &str) -> Rgba {
+    rgb(u32::from_str_radix(color.trim_start_matches('#'), 16).unwrap_or(0x9c83ff))
 }
 
 fn provider_drop_order(
@@ -531,8 +756,19 @@ pub(super) mod smoke {
 
     thread_local! {
         static ROWS: Cell<[Option<Bounds<Pixels>>; 3]> = const { Cell::new([None; 3]) };
+        static LANGUAGE_TRIGGER: Cell<Option<Point<Pixels>>> = const { Cell::new(None) };
         static COLOR_TRIGGER: Cell<Option<Point<Pixels>>> = const { Cell::new(None) };
         static COLOR_SWATCH: Cell<Option<Point<Pixels>>> = const { Cell::new(None) };
+    }
+
+    pub(super) fn record_language_trigger(point: Point<Pixels>) {
+        LANGUAGE_TRIGGER.set(Some(point));
+    }
+
+    pub(crate) fn language_trigger() -> Point<Pixels> {
+        LANGUAGE_TRIGGER
+            .get()
+            .expect("Language dropdown trigger was laid out")
     }
 
     pub(super) fn record_color_trigger(point: Point<Pixels>) {

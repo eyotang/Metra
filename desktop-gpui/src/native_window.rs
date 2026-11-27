@@ -355,8 +355,8 @@ pub(super) fn move_to(window: &Window, x: i32, y: i32) -> Result<(), String> {
     Err("Positioned overlays require a supported native window (X11/XWayland on Linux)".into())
 }
 
-/// Transparent overlays draw their own outlines; Windows must not paint a
-/// non-client frame over the alpha surface. Preserve GPUI's client metrics.
+/// Transparent overlays draw their own outlines. Remove the system chrome that
+/// would be visible through the window's transparent margins.
 pub(super) fn configure_overlay(window: &Window) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
@@ -383,7 +383,27 @@ pub(super) fn configure_overlay(window: &Window) -> Result<(), String> {
             return Err(format!("Could not disable overlay frame: {result:#x}"));
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::{NSColor, NSView};
+        let RawWindowHandle::AppKit(handle) = HasWindowHandle::window_handle(window)
+            .map_err(|e| e.to_string())?
+            .as_raw()
+        else {
+            return Err("Expected an AppKit overlay".into());
+        };
+        // SAFETY: GPUI supplies a live NSView on the AppKit main thread.
+        let view = unsafe { &*handle.ns_view.as_ptr().cast::<NSView>() };
+        let native = view.window().ok_or("Native overlay is unavailable")?;
+        native.setHasShadow(false);
+        native.setBackgroundColor(Some(&NSColor::clearColor()));
+        #[cfg(feature = "native-smoke")]
+        assert!(
+            !native.hasShadow(),
+            "Transparent overlay must not have a system shadow"
+        );
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let _ = window;
     Ok(())
 }

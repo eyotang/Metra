@@ -76,19 +76,25 @@ pub(super) fn start(cx: &mut App) {
             save(&directory.join(format!("{name}-green_surface.png")),&green_surface);
             let corner_pixels = corners(&green_surface);
             assert!(corner_pixels.iter().all(|pixel| pixel.iter().zip([40u8,160,88]).all(|(a,b)| a.abs_diff(b)<=2)), "{name}: opaque corner pixels {corner_pixels:?}");
+            if name != "panel" {
+                cx.update(|cx| assert_clear_below(surface, [40, 160, 88], cx));
+            }
             assert!(green_surface.2.chunks_exact(4).any(|pixel| pixel[..3].iter().map(|p| *p as u32).sum::<u32>()<150), "Missing painted opaque content");
             cx.update(|cx| view.update(cx, |view,cx| { view.0=0xb43282; cx.notify(); }));
             cx.background_executor().timer(Duration::from_secs(1)).await;
             let purple_surface = cx.update(|cx| sample(surface,cx));
             save(&directory.join(format!("{name}-purple_surface.png")),&purple_surface);
             assert!(corners(&purple_surface).iter().all(|pixel| pixel.iter().zip([180u8,50,130]).all(|(a,b)| a.abs_diff(b)<=2)), "{name}: backdrop did not update through corners");
+            if name != "panel" {
+                cx.update(|cx| assert_clear_below(surface, [180, 50, 130], cx));
+            }
             let center = ((green_surface.1/2*green_surface.0+green_surface.0/2)*4) as usize;
             assert!(green_surface.2[center..center+3].iter().zip(&purple_surface.2[center..center+3]).all(|(a,b)| a.abs_diff(*b)<=1), "{name}: center is translucent");
             cx.update(|cx| view.update(cx, |view,cx| { view.0=0x28a058; cx.notify(); }));
         }
         cx.update(|cx| {
             backdrop.update(cx, |_,window,_| window.remove_window()).unwrap();
-            std::fs::write(Path::new(&config).join("native-smoke.result"), "PASS: composited bubble/capsule/panel corners are transparent and content is opaque").unwrap();
+            std::fs::write(Path::new(&config).join("native-smoke.result"), "PASS: composited bubble/capsule/panel have transparent corners, opaque content, and no frame below the bubble").unwrap();
             cx.quit();
         });
     }).detach();
@@ -103,6 +109,24 @@ fn sample(surface: AnyWindowHandle, cx: &mut App) -> (u32, u32, Vec<u8>) {
             (width, height, capture(x, y, width, height).unwrap())
         })
         .unwrap()
+}
+fn assert_clear_below(surface: AnyWindowHandle, backdrop: [u8; 3], cx: &mut App) {
+    surface
+        .update(cx, |_, window, _| {
+            let (x, y) = native_window::position(window).unwrap();
+            let scale = window.scale_factor();
+            let width = (f32::from(window.bounds().size.width) * scale).round() as u32;
+            let height = (f32::from(window.bounds().size.height) * scale).round() as i32;
+            let pixels = capture(x, y + height, width, 12).unwrap();
+            assert!(
+                pixels.chunks_exact(4).all(|pixel| pixel
+                    .iter()
+                    .zip(backdrop)
+                    .all(|(channel, bg)| channel.abs_diff(bg) <= 2)),
+                "Found a frame or shadow below the bubble"
+            );
+        })
+        .unwrap();
 }
 fn corners(surface: &(u32, u32, Vec<u8>)) -> Vec<Vec<u8>> {
     let (width, height, pixels) = surface;
