@@ -23,7 +23,9 @@ jobs:
       - name: Linux platform dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
+          sources=/etc/apt/sources.list.d/ubuntu.sources
+          test -s "$sources" || sources=/etc/apt/sources.list
+          sudo apt-get -o Dir::Etc::sourcelist="$sources" -o Dir::Etc::sourceparts=- update
           sudo apt-get install -y clang cmake pkg-config libfontconfig1-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libssl-dev libasound2-dev libvulkan-dev mesa-vulkan-drivers xvfb dbus-x11
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
@@ -83,18 +85,20 @@ jobs:
           fixtures=$(mktemp -d)
           mount="$fixtures/volume"
           trap 'hdiutil detach "$mount" >/dev/null 2>&1 || true; rm -rf "$fixtures"' EXIT
-          mkdir -p "$mount"
           candidate="target/gpui-package/debug/bundle/macos/Metra.app/Contents/MacOS/metra"
           for version in 0.5.18 0.6.0; do
             name="Metra-$version-macos-universal.dmg"
             gh release download "v$version" --pattern "$name" --pattern "$name.sha256" --dir "$fixtures"
             (cd "$fixtures" && shasum -a 256 -c "$name.sha256")
             hdiutil verify "$fixtures/$name"
+            mkdir -p "$mount"
             hdiutil attach -readonly -nobrowse -mountpoint "$mount" "$fixtures/$name"
             app="$mount/Metra.app"
             test "$(plutil -extract CFBundleIdentifier raw -o - "$app/Contents/Info.plist")" = dev.metra.desktop
             test "$(plutil -extract CFBundleShortVersionString raw -o - "$app/Contents/Info.plist")" = "$version"
-            codesign --verify --deep --strict "$app"
+            if [ "$version" = 0.6.0 ]; then
+              codesign --verify --deep --strict "$app"
+            fi
             lipo "$app/Contents/MacOS/metra" -verify_arch arm64 x86_64
             node scripts/test-packaged-settings.mjs "$app/Contents/MacOS/metra" "$candidate"
             hdiutil detach "$mount"
@@ -105,10 +109,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           sudo apt-get install -y libgtk-3-0t64 libwebkit2gtk-4.1-0 libayatana-appindicator3-1
+          sudo apt-get install -y "$PWD"/native-installer/*-linux-x64.deb
+          test "$(dpkg-query -W -f='${Version}' metra)" = "$(node -p 'require("./package.json").version')"
+          grep -Fx 'Exec=metra' /usr/share/applications/metra.desktop
           fixtures=$(mktemp -d)
           trap 'rm -rf "$fixtures"' EXIT
-          dpkg-deb -x native-installer/*-linux-x64.deb "$fixtures/candidate"
-          candidate="$fixtures/candidate/usr/bin/metra"
+          candidate=/usr/bin/metra
           cargo build --locked --no-default-features
           METRA_COLLECTOR_BINARY=target/debug/metra node scripts/package-omarchy.mjs
           tar -xf release-assets/*-omarchy-x64.tar.gz -C "$fixtures"

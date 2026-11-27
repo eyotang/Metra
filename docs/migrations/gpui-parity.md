@@ -125,10 +125,10 @@ profile. The fixtures do not use personal provider accounts.
 
 | Surface | Candidate verification |
 | --- | --- |
-| Linux UI and Debian | Run the native lifecycle and repaint checks in Xvfb. Extract the published Debian packages and run both published executables against isolated settings, then read the same SQLite settings with the packaged candidate. |
+| Linux UI and Debian | Run the native lifecycle and repaint checks in Xvfb. Install the candidate with apt on the runner and check its desktop entry. Extract the published Debian packages and run both published executables against isolated settings, then read the same SQLite settings with the installed candidate. |
 | Omarchy and JSON | Run the published Omarchy collectors and the candidate with an empty profile and no display. Verify the JSON snapshot, watch, refresh and EOF protocol, plus the source widget model. |
 | Windows | Install the published v0.2.2, v0.5.18 and v0.6.0 packages on a clean runner. Verify process startup, silent upgrade, restart and persisted settings. Exercise the old `/S`, `/S /R /UPDATE` and new `/S /NS` installer invocations. Also run the candidate portable executable against settings migrated by both recent published builds. |
-| macOS | Mount the published universal DMGs read-only. Check their digests, bundle identity, architecture and code signature. Run the bundled executables and the candidate against isolated settings. Native CI separately exercises the candidate panel, tray and inactive redraw. |
+| macOS | Mount the published universal DMGs read-only. Check their digests, bundle identity and architectures. The published v0.5.18 app bundle is unsigned, and v0.6.0 and the candidate require strict signature verification. Run the bundled executables and the candidate against isolated settings. Native CI separately exercises the candidate panel, tray and inactive redraw. |
 | Updates | Check the live stable GitHub release and verify retained Windows signatures. The tagged job signs and verifies the new installer with the existing Minisign key. An application-to-application upgrade to the newly signed public artifact requires that artifact to exist. |
 
 Local Linux evidence includes graphical startup from the actual Debian packages
