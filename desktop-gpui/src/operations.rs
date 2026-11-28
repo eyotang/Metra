@@ -1,8 +1,18 @@
 use super::*;
+use metra_lib::updater::UpdateStatus;
 use std::time::Duration;
 
 const UPDATE_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 const UPDATE_RETRY: Duration = Duration::from_secs(5 * 60);
+const UP_TO_DATE_DURATION: Duration = Duration::from_secs(6);
+
+pub(super) enum UpdateFeedback {
+    Error(String),
+    UpToDate {
+        panel: AnyWindowHandle,
+        _dismiss: Task<()>,
+    },
+}
 
 impl Dashboard {
     fn schedule_update(&mut self, delay: Duration, cx: &mut Context<Self>) {
@@ -12,12 +22,12 @@ impl Dashboard {
                 if this.update_task.is_some() {
                     this.schedule_update(UPDATE_RETRY, cx);
                 } else {
-                    this.check_update(false, cx);
+                    this.check_update(None, cx);
                 }
             });
         }));
     }
-    pub(super) fn check_update(&mut self, manual: bool, cx: &mut Context<Self>) {
+    pub(super) fn check_update(&mut self, panel: Option<AnyWindowHandle>, cx: &mut Context<Self>) {
         if self.update_task.is_some() {
             return;
         }
@@ -29,27 +39,39 @@ impl Dashboard {
         });
         self.update_task = Some(cx.spawn(async move |this, cx| {
             let status = work.await;
-            let _ = this.update(cx, |this, cx| {
-                this.update_task = None;
-                this.schedule_update(
-                    if status.error.is_some() {
-                        UPDATE_RETRY
-                    } else {
-                        UPDATE_INTERVAL
-                    },
-                    cx,
-                );
-                if manual {
-                    this.update_feedback = status.error.or_else(|| {
-                        status.version.is_none().then(|| {
-                            I18n::new(this.service.payload().settings.ui_language)
-                                .t("native.upToDate")
-                        })
-                    });
-                }
-                cx.notify();
-            });
+            let _ = this.update(cx, |this, cx| this.finish_update_check(panel, status, cx));
         }));
+        cx.notify();
+    }
+    pub(super) fn finish_update_check(
+        &mut self,
+        panel: Option<AnyWindowHandle>,
+        status: UpdateStatus,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_task = None;
+        self.schedule_update(
+            if status.error.is_some() {
+                UPDATE_RETRY
+            } else {
+                UPDATE_INTERVAL
+            },
+            cx,
+        );
+        self.update_feedback = match (panel, status.error, status.version) {
+            (Some(_), Some(error), _) => Some(UpdateFeedback::Error(error)),
+            (Some(panel), None, None) => Some(UpdateFeedback::UpToDate {
+                panel,
+                _dismiss: cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(UP_TO_DATE_DURATION).await;
+                    let _ = this.update(cx, |this, cx| {
+                        this.update_feedback = None;
+                        cx.notify();
+                    });
+                }),
+            }),
+            _ => None,
+        };
         cx.notify();
     }
     fn install_update(&mut self, cx: &mut Context<Self>) {

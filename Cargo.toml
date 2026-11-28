@@ -1,6 +1,6 @@
 [package]
 name = "metra"
-version = "0.6.5"
+version = "0.6.6"
 description = "Cursor, Codex and Claude Code usage monitor with a native GPUI desktop"
 authors = ["eyotang"]
 edition = "2024"

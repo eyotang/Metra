@@ -24,6 +24,7 @@ mod runtime;
 mod typography;
 mod usage;
 
+use operations::UpdateFeedback;
 use typography::UI_FONT_FAMILY;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -65,7 +66,7 @@ struct Dashboard {
     updater: Arc<metra_lib::updater::Updater>,
     update_task: Option<Task<()>>,
     update_timer: Option<Task<()>>,
-    update_feedback: Option<String>,
+    update_feedback: Option<UpdateFeedback>,
     login_task: Option<Task<()>>,
     labels: Vec<(
         metra_lib::model::Provider,
@@ -284,10 +285,10 @@ impl Render for Dashboard {
             .flex_1()
             .min_h_0()
             .overflow_y_scroll();
-        if self.page != Page::Consent {
-            if let Some(feedback) = &self.update_feedback {
-                header = header.child(feedback.clone());
-            }
+        if self.page != Page::Consent
+            && let Some(UpdateFeedback::Error(error)) = &self.update_feedback
+        {
+            header = header.child(error.clone());
         }
         let update_banner = (self.page != Page::Consent)
             .then(|| self.update_banner(cx))
@@ -295,9 +296,15 @@ impl Render for Dashboard {
         if let Some(error) = &self.error {
             header = header.child(error.clone());
         }
+        let show_up_to_date = self.page != Page::Consent
+            && matches!(
+                &self.update_feedback,
+                Some(UpdateFeedback::UpToDate { panel, .. }) if *panel == window.window_handle()
+            );
         let active = self.refresh_task.is_some() || self.settings_task.is_some();
         let status = div()
             .h_flex()
+            .relative()
             .items_center()
             .gap(px(6.))
             .px(px(17.))
@@ -319,6 +326,26 @@ impl Render for Dashboard {
                 t.format(
                     "refresh.everyMinutes",
                     &[("minutes", payload.settings.refresh_minutes.to_string())],
+                )
+            })
+            .when(show_up_to_date, |status| {
+                status.child(
+                    div()
+                        .id("up-to-date-notice")
+                        .role(Role::Status)
+                        .absolute()
+                        .bottom(px(36.))
+                        .left(px(14.))
+                        .right(px(14.))
+                        .rounded(px(8.))
+                        .border_1()
+                        .border_color(rgb(0x545868))
+                        .bg(rgb(0x263147))
+                        .px(px(12.))
+                        .py(px(8.))
+                        .text_size(px(12.))
+                        .text_color(rgb(0xedf0f8))
+                        .child(t.t("native.upToDate")),
                 )
             });
         if self.page == Page::Settings {
@@ -386,7 +413,9 @@ impl Render for Dashboard {
                         .font_weight(typography::CONTROL_WEIGHT)
                         .label(t.t("native.checkUpdate"))
                         .loading(self.update_task.is_some())
-                        .on_click(cx.listener(|this, _, _, cx| this.check_update(true, cx))),
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.check_update(Some(window.window_handle()), cx)
+                        })),
                 ),
         );
         div()

@@ -42,7 +42,7 @@ Lancez Metra, connectez-vous aux outils utilisés, puis cliquez sur la bulle. Po
 
 Réglez la langue, l’actualisation et le lancement au démarrage dans les paramètres. Fermer un panneau laisse Metra actif ; quittez via les paramètres ou le menu de la zone de notification.
 
-Metra recherche les mises à jour au démarrage, puis une fois par jour tant qu’il est actif. Un point sur la bulle flottante et une entrée dans le menu de la zone de notification signalent une nouvelle version. Vous pouvez aussi sélectionner **Rechercher des mises à jour** dans le panneau d’utilisation. La version installée de Windows x64 peut appliquer les mises à jour signées dans Metra. La version portable de Windows, macOS et Linux ouvrent la page de publication GitHub pour une installation manuelle.
+Metra recherche les mises à jour au démarrage, puis une fois par jour tant qu’il est actif. Un point sur la bulle flottante et une entrée dans le menu de la zone de notification signalent une nouvelle version. Vous pouvez aussi sélectionner **Rechercher des mises à jour** dans le panneau d’utilisation. Si Metra est à jour, un message s’affiche pendant six secondes en bas du panneau. La version installée de Windows x64 peut appliquer les mises à jour signées dans Metra. La version portable de Windows, macOS et Linux ouvrent la page de publication GitHub pour une installation manuelle.
 
 [Configuration Linux](docs/linux.md) · [Widget Omarchy](integrations/omarchy/README.md)
 

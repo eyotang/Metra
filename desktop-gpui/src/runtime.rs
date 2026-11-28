@@ -367,7 +367,7 @@ pub(super) fn start(
         };
         if !(cfg!(feature = "native-smoke") && std::env::var_os("METRA_GPUI_DEMO").is_some()) {
             view.refresh(cx);
-            view.check_update(false, cx);
+            view.check_update(None, cx);
         }
         view
     });
@@ -715,6 +715,12 @@ fn smoke(cx: &mut App) {
                     9=>{
                         assert!(dashboard.read(cx).page == Page::Settings);
                         let panel = cx.global::<Runtime>().panel.unwrap();
+                        dashboard.update(cx, |view, cx| {
+                            view.finish_update_check(None, Default::default(), cx);
+                            assert!(view.update_feedback.is_none(), "Background checks must stay quiet");
+                            view.finish_update_check(Some(panel), Default::default(), cx);
+                            assert!(matches!(view.update_feedback, Some(UpdateFeedback::UpToDate { .. })));
+                        });
                         dashboard.read(cx).settings_scroll.scroll_to_bottom();
                         panel.update(cx, |_, window, _| window.refresh()).unwrap();
                     },
@@ -747,6 +753,7 @@ fn smoke(cx: &mut App) {
                     13=>{
                         assert_eq!(dashboard.read(cx).service.store.load().bubble_provider_order, [Cursor, Codex, Claude]);
                         let panel = cx.global::<Runtime>().panel.unwrap();
+                        dashboard.update(cx, |view, cx| view.finish_update_check(Some(panel), Default::default(), cx));
                         panel.update(cx, |_, window, cx| {
                             smoke_click_at(window, cx, preferences::smoke::color_trigger(), MouseButton::Left);
                         }).unwrap();
@@ -768,6 +775,7 @@ fn smoke(cx: &mut App) {
                         }).unwrap();
                     },
                     16=>{
+                        assert!(matches!(dashboard.read(cx).update_feedback, Some(UpdateFeedback::UpToDate { .. })), "The second result must restart the six-second timer");
                         let panel = cx.global::<Runtime>().panel.unwrap();
                         panel.update(cx, |_, window, cx| {
                             smoke_click_at(window, cx, preferences::smoke::color_swatch(), MouseButton::Left);
@@ -801,6 +809,7 @@ fn smoke(cx: &mut App) {
                         });
                     },
                     20=>{
+                        assert!(dashboard.read(cx).update_feedback.is_none(), "The up-to-date notice must expire");
                         assert_eq!(usage::RENDERED_REFRESHING.get(), [true, false, false]);
                         dashboard.update(cx, |view, cx| {
                             view.refreshing.clear();
