@@ -21,7 +21,10 @@ mod operations;
 mod platform;
 mod preferences;
 mod runtime;
+mod typography;
 mod usage;
+
+use typography::UI_FONT_FAMILY;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Page {
@@ -61,6 +64,7 @@ struct Dashboard {
     updater: Arc<metra_lib::updater::Updater>,
     update_task: Option<Task<()>>,
     update_timer: Option<Task<()>>,
+    update_feedback: Option<String>,
     login_task: Option<Task<()>>,
     labels: Vec<(
         metra_lib::model::Provider,
@@ -279,9 +283,14 @@ impl Render for Dashboard {
             .flex_1()
             .min_h_0()
             .overflow_y_scroll();
-        if self.page == Page::Details {
-            header = header.child(self.update_banner(cx));
+        if self.page != Page::Consent {
+            if let Some(feedback) = &self.update_feedback {
+                header = header.child(feedback.clone());
+            }
         }
+        let update_banner = (self.page != Page::Consent)
+            .then(|| self.update_banner(cx))
+            .flatten();
         if let Some(error) = &self.error {
             header = header.child(error.clone());
         }
@@ -325,8 +334,9 @@ impl Render for Dashboard {
                 .text_size(px(12.))
                 .bg(rgb(0x171c27))
                 .text_color(rgb(0xedf0f8))
-                .font_family("Inter")
+                .font_family(UI_FONT_FAMILY)
                 .child(header)
+                .children(update_banner)
                 .child(
                     content
                         .track_scroll(&self.settings_scroll)
@@ -343,10 +353,10 @@ impl Render for Dashboard {
                 .on_key_down(runtime::panel_key_down)
                 .rounded(px(22.))
                 .overflow_hidden()
-                .text_sm()
+                .text_size(px(12.))
                 .bg(rgb(0x121620))
                 .text_color(rgb(0xe8ecf3))
-                .font_family("Inter")
+                .font_family(UI_FONT_FAMILY)
                 .child(header)
                 .child(content.child(self.consent(cx)))
                 .child(status);
@@ -365,12 +375,14 @@ impl Render for Dashboard {
                 .gap_2()
                 .child(
                     Button::new("recheck")
+                        .font_weight(FontWeight::MEDIUM)
                         .label(t.t("native.recheck"))
                         .disabled(self.refresh_task.is_some())
                         .on_click(cx.listener(|this, _, _, cx| this.refresh_mode(true, cx))),
                 )
                 .child(
                     Button::new("check-update")
+                        .font_weight(FontWeight::MEDIUM)
                         .label(t.t("native.checkUpdate"))
                         .loading(self.update_task.is_some())
                         .on_click(cx.listener(|this, _, _, cx| this.check_update(true, cx))),
@@ -384,11 +396,12 @@ impl Render for Dashboard {
             .on_key_down(runtime::panel_key_down)
             .rounded(px(22.))
             .overflow_hidden()
-            .text_sm()
+            .text_size(px(12.))
             .bg(rgb(0x121620))
             .text_color(rgb(0xe8ecf3))
-            .font_family("Inter")
+            .font_family(UI_FONT_FAMILY)
             .child(header)
+            .children(update_banner)
             .child(content)
             .child(status)
     }
@@ -441,7 +454,7 @@ fn main() {
         component::Theme::change(component::ThemeMode::Dark, None, cx);
         let theme = component::Theme::global_mut(cx);
         theme.font_size = px(12.);
-        theme.font_family = "Inter".into();
+        theme.font_family = UI_FONT_FAMILY.into();
         theme.colors.popover = rgb(0x263147).into();
         theme.colors.popover_foreground = rgb(0xedf0f8).into();
         theme.colors.primary = rgb(0xb6a0ff).into();
@@ -451,12 +464,7 @@ fn main() {
         theme.colors.ring = rgb(0xc4b4ff).into();
         theme.tokens.primary = theme.colors.primary.into();
         theme.tokens.accent = theme.colors.accent.into();
-        if let Err(error) =
-            cx.text_system()
-                .add_fonts(vec![std::borrow::Cow::Borrowed(include_bytes!(
-                    "../../assets/fonts/InterVariable.ttf"
-                ))])
-        {
+        if let Err(error) = typography::load_fonts(cx) {
             eprintln!("Unable to load bundled font: {error}");
         }
 

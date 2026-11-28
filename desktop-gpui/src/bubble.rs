@@ -21,24 +21,31 @@ pub(super) struct Bubble {
     snap: bool,
     percent_mode: metra_lib::settings::BubblePercentMode,
     locale: &'static str,
+    update_version: Option<String>,
     drag_finished: Option<std::time::Instant>,
     pending: Option<Task<()>>,
 }
 impl Bubble {
     fn new(dashboard: Entity<Dashboard>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let data = dashboard.read(cx).service.payload();
+        let view = dashboard.read(cx);
+        let data = view.service.payload();
+        let update_version = view.updater.available_version();
         let subscription = cx.observe(&dashboard, |this, view, cx| {
-            let data = view.read(cx).service.payload();
+            let view = view.read(cx);
+            let data = view.service.payload();
             let next = entries(&data.snapshot, &data.settings);
             let locale = I18n::new(data.settings.ui_language).locale;
+            let update_version = view.updater.available_version();
             if next != this.entries
                 || this.snap != data.settings.bubble_snap_enabled
                 || this.percent_mode != data.settings.bubble_percent_mode
                 || this.locale != locale
+                || this.update_version != update_version
             {
                 this.percent_mode = data.settings.bubble_percent_mode;
                 this.locale = locale;
                 this.entries = next;
+                this.update_version = update_version;
                 cx.notify();
             }
         });
@@ -53,6 +60,7 @@ impl Bubble {
             snap: data.settings.bubble_snap_enabled,
             percent_mode: data.settings.bubble_percent_mode,
             locale: I18n::new(data.settings.ui_language).locale,
+            update_version,
             drag_finished: None,
             pending: None,
         };
@@ -201,7 +209,7 @@ impl Render for Bubble {
             })
             .collect::<Vec<_>>()
             .join(&t.t("bubble.usageSeparator"));
-        let accessible = t.format(
+        let mut accessible = t.format(
             "bubble.ariaLabel",
             &[
                 ("usage", usage),
@@ -215,6 +223,11 @@ impl Render for Bubble {
                 ),
             ],
         );
+        if let Some(version) = &self.update_version {
+            accessible.push_str(". ");
+            accessible
+                .push_str(&t.format("update.availableTitle", &[("version", version.clone())]));
+        }
         let ring = linear_gradient(
             138.,
             linear_color_stop(rgb(0x8d72ff), 0.),
@@ -237,6 +250,7 @@ impl Render for Bubble {
                 }
             })
             .v_flex()
+            .relative()
             .items_center()
             .justify_center()
             .gap_0()
@@ -330,8 +344,8 @@ impl Render for Bubble {
             .justify_center()
             .rounded_full()
             .bg(rgb(0x121a2b))
-            .font_family("Inter Variable")
-            .font_weight(FontWeight::EXTRA_BOLD)
+            .font_family(UI_FONT_FAMILY)
+            .font_weight(typography::BADGE_WEIGHT)
             .line_height(relative(1.))
             .gap(px(1.))
             .px(px(if self.peek { 0.5 } else { 3.5 }));
@@ -396,7 +410,27 @@ impl Render for Bubble {
                     ),
             );
         }
-        content.child(rows)
+        content
+            .child(rows)
+            .when(self.update_version.is_some(), |view| {
+                view.child(
+                    div()
+                        .absolute()
+                        .top(px(4.))
+                        .left_0()
+                        .right_0()
+                        .flex()
+                        .justify_center()
+                        .child(
+                            div()
+                                .size(px(6.))
+                                .rounded_full()
+                                .border_1()
+                                .border_color(rgb(0x121a2b))
+                                .bg(rgb(0xffcd67)),
+                        ),
+                )
+            })
     }
 }
 pub(super) fn open(cx: &mut App) -> Result<AnyWindowHandle, String> {

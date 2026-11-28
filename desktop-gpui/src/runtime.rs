@@ -16,7 +16,7 @@ pub(super) struct Runtime {
     bubble: Option<AnyWindowHandle>,
     _state: Subscription,
     _displays: Subscription,
-    tray_locale: String,
+    tray_menu_key: String,
     icon: tray_icon::Icon,
     cycle: usize,
     cycle_task: Option<Task<()>>,
@@ -353,6 +353,7 @@ pub(super) fn start(
             updater: Arc::new(metra_lib::updater::Updater::default()),
             update_task: None,
             update_timer: None,
+            update_feedback: None,
             login_task: None,
             labels: Vec::new(),
             pending_settings: std::collections::VecDeque::new(),
@@ -366,7 +367,7 @@ pub(super) fn start(
         };
         if !(cfg!(feature = "native-smoke") && std::env::var_os("METRA_GPUI_DEMO").is_some()) {
             view.refresh(cx);
-            view.schedule_update(std::time::Duration::from_secs(20), cx);
+            view.check_update(false, cx);
         }
         view
     });
@@ -396,6 +397,7 @@ pub(super) fn start(
                     open_panel(Page::Details, cx);
                 }
                 "details" => toggle_panel(cx),
+                "update" => open_panel(Page::Details, cx),
                 "settings" => open_panel(Page::Settings, cx),
                 "refresh" => {
                     let view = cx.global::<Runtime>().dashboard.clone();
@@ -430,7 +432,7 @@ pub(super) fn start(
         bubble: None,
         _state: state,
         _displays: displays,
-        tray_locale: String::new(),
+        tray_menu_key: String::new(),
         icon,
         cycle: 0,
         cycle_task: None,
@@ -481,7 +483,9 @@ pub(super) fn start(
 
 pub(super) fn sync(cx: &mut App) {
     use metra_lib::{settings::DisplayMode, status_bar};
-    let data = cx.global::<Runtime>().dashboard.read(cx).service.payload();
+    let dashboard = cx.global::<Runtime>().dashboard.read(cx);
+    let update = dashboard.updater.available_version();
+    let data = dashboard.service.payload();
     let t = I18n::new(data.settings.ui_language);
     let mode = data.settings.display_mode;
     let entries = status_bar::entries(&data.snapshot, &data.settings);
@@ -492,10 +496,19 @@ pub(super) fn sync(cx: &mut App) {
             .map(status_bar::StatusEntry::headline)
             .collect::<Vec<_>>()
             .join(" | ");
-        let _ = tray.set_tooltip(Some(format!("Metra · {summary}")));
-        let key = format!("{}:{mode:?}", t.locale);
-        if runtime.tray_locale != key {
+        let update_title = update
+            .as_ref()
+            .map(|version| t.format("update.availableTitle", &[("version", version.clone())]));
+        let title = update_title.as_deref().unwrap_or("Metra");
+        let _ = tray.set_tooltip(Some(format!("{title} · {summary}")));
+        let key = format!("{}:{mode:?}:{}", t.locale, update.as_deref().unwrap_or(""));
+        if runtime.tray_menu_key != key {
             let menu = Menu::new();
+            if let Some(title) = update_title
+                && let Err(error) = menu.append(&MenuItem::with_id("update", title, true, None))
+            {
+                eprintln!("{error}");
+            }
             for (id, key) in [
                 ("details", "native.details"),
                 ("settings", "native.settings"),
@@ -515,19 +528,27 @@ pub(super) fn sync(cx: &mut App) {
                 }
             }
             tray.set_menu(Some(Box::new(menu)));
-            runtime.tray_locale = key;
+            runtime.tray_menu_key = key;
         }
     }
     if let Some(tray) = &runtime._tray {
         if mode == DisplayMode::StatusBar {
-            if let Some(entry) = entries.get(runtime.cycle % entries.len().max(1)) {
-                #[cfg(any(target_os = "macos", target_os = "linux"))]
-                tray.set_title(Some(entry.headline()));
-                #[cfg(any(target_os = "windows", target_os = "linux"))]
-                if let Ok(icon) = tray_icon::Icon::from_rgba(status_bar::usage_icon(entry), 32, 32)
-                {
-                    let _ = tray.set_icon(Some(icon));
+            let entry = entries.get(runtime.cycle % entries.len().max(1));
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            {
+                let mut title = entry
+                    .map(status_bar::StatusEntry::headline)
+                    .unwrap_or_default();
+                if update.is_some() {
+                    title = format!("↑ {title}");
                 }
+                tray.set_title(Some(title));
+            }
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            if let Some(entry) = entry
+                && let Ok(icon) = tray_icon::Icon::from_rgba(status_bar::usage_icon(entry), 32, 32)
+            {
+                let _ = tray.set_icon(Some(icon));
             }
         } else {
             #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -585,6 +606,7 @@ mod tests {
 
 #[cfg(feature = "native-smoke")]
 fn smoke(cx: &mut App) {
+    typography::verify_fonts(cx);
     let config = std::env::var_os("METRA_CONFIG_DIR")
         .expect("Native smoke requires isolated METRA_CONFIG_DIR");
     cx.spawn(async move |cx| {
@@ -624,7 +646,7 @@ fn smoke(cx: &mut App) {
                         open_panel(Page::Settings,cx);
                         assert_eq!(dashboard.read(cx).service.payload().settings.ui_language, UiLanguage::Ja);
                         if cx.global::<Runtime>()._tray.is_some() {
-                            assert!(cx.global::<Runtime>().tray_locale.starts_with("ja:"));
+                            assert!(cx.global::<Runtime>().tray_menu_key.starts_with("ja:"));
                         }
                         dashboard.update(cx,|view,cx|view.save(Change::Display(DisplayMode::Bubble),cx));
                     },

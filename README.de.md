@@ -40,7 +40,7 @@ Metra starten, bei den verwendeten Tools anmelden und auf die Blase klicken. Fü
 
 Sprache, Aktualisierungsintervall und Autostart in den Einstellungen ändern. Das Schließen eines Panels lässt Metra weiterlaufen; über Einstellungen oder Tray-Menü beenden.
 
-Im Nutzungsfenster **Nach Updates suchen** wählen. Die installierte Version für Windows x64 kann signierte Updates direkt in Metra einspielen. Die portable Windows-Version sowie macOS und Linux öffnen die GitHub-Release-Seite zur manuellen Installation.
+Metra sucht beim Start und anschließend täglich nach Updates, solange es läuft. Ein Punkt auf der schwebenden Blase und ein Eintrag im Tray-Menü weisen auf eine neue Version hin. Im Nutzungsfenster kannst du auch **Nach Updates suchen** auswählen. Die installierte Version für Windows x64 kann signierte Updates direkt in Metra einspielen. Die portable Windows-Version sowie macOS und Linux öffnen die GitHub-Release-Seite zur manuellen Installation.
 
 [Linux-Einrichtung](docs/linux.md) · [Omarchy-Widget](integrations/omarchy/README.md)
 

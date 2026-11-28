@@ -40,7 +40,7 @@ sudo xattr -dr com.apple.quarantine /Applications/Metra.app
 
 在设置中调整语言、刷新周期和开机启动。关闭面板后继续后台运行；退出请使用设置或托盘菜单。
 
-在用量面板点击 **检查更新**。Windows x64 安装版可在应用内安装经过签名验证的更新。Windows 便携版、macOS 和 Linux 会打开 GitHub 发布页供手动安装。
+Metra 会在启动时检查更新，并在后台运行期间每天检查。发现新版时，悬浮球会显示提示圆点，托盘菜单会显示新版入口。你也可以在用量面板点击 **检查更新**。Windows x64 安装版可在应用内安装经过签名验证的更新。Windows 便携版、macOS 和 Linux 会打开 GitHub 发布页供手动安装。
 
 [Linux 配置](docs/linux.md) · [Omarchy 插件](integrations/omarchy/README.md)
 

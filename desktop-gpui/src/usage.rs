@@ -124,7 +124,9 @@ impl Dashboard {
                     .child(
                         div()
                             .h_flex()
+                            .items_center()
                             .gap_2()
+                            .font_weight(typography::HEADING_WEIGHT)
                             .text_color(accent)
                             .child(
                                 div()
@@ -134,6 +136,7 @@ impl Dashboard {
                                     .rounded_md()
                                     .bg(accent.opacity(0.12))
                                     .text_size(px(9.))
+                                    .font_weight(typography::BADGE_WEIGHT)
                                     .flex()
                                     .items_center()
                                     .justify_center()
@@ -146,6 +149,8 @@ impl Dashboard {
                             .h_flex()
                             .gap_1()
                             .items_center()
+                            .text_size(px(9.))
+                            .text_color(rgb(if stale { 0xf2c675 } else { 0xa0adc2 }))
                             .when(running, |status| {
                                 status.child(Spinner::new().with_size(px(12.)))
                             })
@@ -169,25 +174,32 @@ impl Dashboard {
                         .loading(true),
                 )
             })
-            .child(snapshot.plan.clone().unwrap_or_else(|| t.t("plan.unknown")))
-            .child(date(
-                snapshot.captured_at.with_timezone(&chrono::Local),
-                t.locale,
-            ));
+            .child(
+                div()
+                    .v_flex()
+                    .text_size(px(9.))
+                    .text_color(rgb(0xa0adc2))
+                    .child(snapshot.plan.clone().unwrap_or_else(|| t.t("plan.unknown")))
+                    .child(date(
+                        snapshot.captured_at.with_timezone(&chrono::Local),
+                        t.locale,
+                    )),
+            );
         for (index, quota) in snapshot.quotas.iter().enumerate() {
             let remaining = quota.remaining_percent.clamp(0., 100.);
             let mut row = div()
                 .v_flex()
                 .gap_1()
+                .text_size(px(11.))
                 .child(
                     div()
                         .h_flex()
                         .justify_between()
                         .child(quota.label.clone())
-                        .child(t.format(
+                        .child(div().font_weight(FontWeight(550.)).child(t.format(
                             "quota.remaining",
                             &[("value", remaining.round().to_string())],
-                        )),
+                        ))),
                 )
                 .child(
                     Progress::new(("quota", index))
@@ -196,30 +208,40 @@ impl Dashboard {
                         .with_size(px(5.))
                         .value(remaining as f32),
                 )
-                .child(t.format(
-                    "quota.used",
-                    &[("value", quota.used_percent.round().to_string())],
-                ));
+                .child(
+                    div()
+                        .text_size(px(9.))
+                        .text_color(rgb(0xa0adc2))
+                        .child(t.format(
+                            "quota.used",
+                            &[("value", quota.used_percent.round().to_string())],
+                        )),
+                );
             if let Some(reset) = quota.resets_at {
                 let minutes =
                     ((reset - chrono::Utc::now()).num_milliseconds().max(0) + 59_999) / 60_000;
-                row = row.child(t.format(
-                    "quota.resetsAt",
-                    &[(
-                        "date",
-                        format!(
-                            "{} · {}h {}m",
-                            date(reset.with_timezone(&chrono::Local), t.locale),
-                            minutes / 60,
-                            minutes % 60
-                        ),
-                    )],
-                ));
+                row = row.child(
+                    div()
+                        .text_size(px(9.))
+                        .text_color(rgb(0xa0adc2))
+                        .child(t.format(
+                            "quota.resetsAt",
+                            &[(
+                                "date",
+                                format!(
+                                    "{} · {}h {}m",
+                                    date(reset.with_timezone(&chrono::Local), t.locale),
+                                    minutes / 60,
+                                    minutes % 60
+                                ),
+                            )],
+                        )),
+                );
             }
             card = card.child(row);
         }
         if snapshot.quotas.is_empty() {
-            card = card.child(if running {
+            let description = if running {
                 t.t("provider.connectingDescription")
             } else {
                 snapshot
@@ -227,10 +249,23 @@ impl Dashboard {
                     .as_deref()
                     .map(|m| t.message(m))
                     .unwrap_or_else(|| t.t("quota.noData"))
-            });
+            };
+            card = card.child(
+                div()
+                    .text_size(px(10.))
+                    .text_color(rgb(0xa0adc2))
+                    .child(description),
+            );
         }
         for (label, value) in metrics(snapshot, t) {
-            card = card.child(div().h_flex().justify_between().child(label).child(value));
+            card = card.child(
+                div()
+                    .h_flex()
+                    .justify_between()
+                    .text_size(px(10.))
+                    .child(div().text_color(rgb(0xa0adc2)).child(label))
+                    .child(value),
+            );
         }
         if !snapshot.quotas.is_empty() {
             if let Some(message) = &snapshot.message {
@@ -245,6 +280,7 @@ impl Dashboard {
         {
             card = card.child(
                 Button::new("cursor-login")
+                    .font_weight(FontWeight::MEDIUM)
                     .label(t.t(if self.login_task.is_some() {
                         "cursor.opening"
                     } else {
@@ -257,6 +293,7 @@ impl Dashboard {
         if provider == Provider::Cursor && !self.service.payload().settings.cursor_compat_enabled {
             card = card.child(
                 Button::new("cursor-consent")
+                    .font_weight(FontWeight::MEDIUM)
                     .label(t.t("cursor.readExactUsage"))
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.navigate(Page::Consent, window, cx);

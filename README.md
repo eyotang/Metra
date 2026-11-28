@@ -40,7 +40,7 @@ Launch Metra, sign in to the tools you use, then click the bubble to see usage. 
 
 Use Settings to change the language, refresh interval or launch-at-startup. Closing a panel keeps Metra running; quit from Settings or the tray menu.
 
-Choose **Check for updates** in the usage panel. The Windows x64 installed version can apply signed updates in Metra. The Windows portable version, macOS and Linux open the GitHub release page for manual installation.
+Metra checks for updates at startup and daily while running. A dot on the floating bubble and a tray menu item indicate an available update. You can also choose **Check for updates** in the usage panel. The Windows x64 installed version can apply signed updates in Metra. The Windows portable version, macOS and Linux open the GitHub release page for manual installation.
 
 [Linux setup](docs/linux.md) · [Omarchy widget](integrations/omarchy/README.md)
 

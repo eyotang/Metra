@@ -194,7 +194,7 @@ impl Dashboard {
                     .child(
                         div()
                             .text_size(px(12.))
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .font_weight(typography::HEADING_WEIGHT)
                             .child(t.t("config.title")),
                     )
                     .child(setting_hint(t.t("config.reorderHint"))),
@@ -268,7 +268,7 @@ impl Dashboard {
                                 div()
                                     .flex_1()
                                     .text_size(px(11.))
-                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .font_weight(FontWeight::BOLD)
                                     .text_color(accent)
                                     .child(name),
                             )
@@ -385,6 +385,7 @@ impl Dashboard {
                         .h(px(30.))
                         .border_color(rgb(0x545868))
                         .text_color(rgb(0xa0adc2))
+                        .font_weight(FontWeight::MEDIUM)
                         .label(t.t("menu.rescanCli"))
                         .loading(self.refresh_task.is_some())
                         .disabled(self.refresh_task.is_some())
@@ -396,6 +397,7 @@ impl Dashboard {
                         .danger()
                         .outline()
                         .h(px(30.))
+                        .font_weight(FontWeight::MEDIUM)
                         .label(t.t("menu.quit"))
                         .on_click(|_, _, cx| cx.quit()),
                 ),

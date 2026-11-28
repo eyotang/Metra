@@ -151,6 +151,9 @@ fn fetch_latest_release(current: &str) -> Result<UpdateStatus, String> {
 }
 
 impl Updater {
+    pub fn available_version(&self) -> Option<String> {
+        self.status.lock().expect("update status").version.clone()
+    }
     pub fn status(&self) -> UpdateStatus {
         self.status.lock().expect("update status").clone()
     }
