@@ -36,6 +36,8 @@ Sur macOS, après avoir déplacé l’application dans Applications, exécutez a
 sudo xattr -dr com.apple.quarantine /Applications/Metra.app
 ```
 
+Lors du passage d’une version à signature ad hoc à une version signée avec Developer ID, le trousseau peut redemander une autorisation. Choisissez **Toujours autoriser** pour Metra afin que les versions suivantes signées par la même équipe conservent l’accès à cet élément.
+
 Lancez Metra, connectez-vous aux outils utilisés, puis cliquez sur la bulle. Pour les données Cursor exactes, activez la **compatibilité Cursor** dans les paramètres et autorisez la lecture des identifiants locaux. Déplacez la bulle par glisser-déposer ; l’ancrage automatique la replie au bord de l’écran.
 
 Réglez la langue, l’actualisation et le lancement au démarrage dans les paramètres. Fermer un panneau laisse Metra actif ; quittez via les paramètres ou le menu de la zone de notification.

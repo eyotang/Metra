@@ -203,7 +203,7 @@ impl Dashboard {
                     .rounded(px(7.))
                     .border_color(rgb(0x545868))
                     .text_color(rgb(0xa0adc2))
-                    .font_weight(FontWeight::MEDIUM)
+                    .font_weight(typography::CONTROL_WEIGHT)
                     .label(t.t(if self.updater.supports_install() {
                         "native.installUpdate"
                     } else {

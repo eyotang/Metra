@@ -14,6 +14,7 @@ weights = {
     650: "DemiBold",
     700: "Bold",
     750: "Heavy",
+    850: "ExtraBold",
 }
 
 for weight, style in weights.items():

@@ -153,11 +153,33 @@ jobs:
         run: |
           version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
           test "$GITHUB_REF_NAME" = "v$version"
-      - name: Universal macOS application and DMG
+      - name: Install universal macOS targets
         if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Build the universal macOS application and DMG
+        if: runner.os == 'macOS'
+        id: macos_package
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
-          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          if [[ -n "$APPLE_CERTIFICATE" || -n "$APPLE_CERTIFICATE_PASSWORD" ]]; then
+            : "${APPLE_CERTIFICATE:?Set the Developer ID Application PKCS#12 in the release environment}"
+            : "${APPLE_CERTIFICATE_PASSWORD:?Set the PKCS#12 export password in the release environment}"
+            echo 'developer_id=true' >> "$GITHUB_OUTPUT"
+          else
+            echo '::warning::No Developer ID configured. The ad-hoc signed DMG may prompt for Keychain access after each upgrade.'
+          fi
           node scripts/package-native.mjs --universal
+      - name: Verify the Developer ID signature inside the release DMG
+        if: steps.macos_package.outputs.developer_id == 'true'
+        run: |
+          mount_dir=$(mktemp -d)
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "release-assets/Metra-${GITHUB_REF_NAME#v}-macos-universal.dmg"
+          trap 'hdiutil detach "$mount_dir"' EXIT
+          codesign --verify --deep --strict --all-architectures \
+            -R='identifier "dev.metra.desktop" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists' \
+            "$mount_dir/Metra.app"
       - name: Linux Debian package
         if: runner.os == 'Linux'
         run: node scripts/package-native.mjs

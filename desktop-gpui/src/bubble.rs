@@ -344,7 +344,7 @@ impl Render for Bubble {
             .justify_center()
             .rounded_full()
             .bg(rgb(0x121a2b))
-            .font_family(UI_FONT_FAMILY)
+            .font(typography::ui_font(self.locale))
             .font_weight(typography::BADGE_WEIGHT)
             .line_height(relative(1.))
             .gap(px(1.))
@@ -361,11 +361,11 @@ impl Render for Bubble {
             let accent =
                 u32::from_str_radix(entry.color.trim_start_matches('#'), 16).unwrap_or(0x9c83ff);
             let value_color = quota_color(entry.value, self.percent_mode, accent);
-            // A fourth glyph only fits in the capsule at a slightly smaller size.
-            let value_size = if self.peek && entry.value == Some(100) {
-                8.5
-            } else {
-                10.
+            // Keep all four glyphs of 100% visible beside a full-width badge.
+            let value_size = match (self.peek, entry.value) {
+                (true, Some(100)) => 8.5,
+                (false, Some(100)) if cfg!(windows) => 9.,
+                _ => 10.,
             };
             rows = rows.child(
                 div()

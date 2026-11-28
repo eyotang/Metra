@@ -36,6 +36,8 @@ On macOS, after moving the app to Applications, run this before the first launch
 sudo xattr -dr com.apple.quarantine /Applications/Metra.app
 ```
 
+When upgrading from an ad-hoc signed build to a Developer ID release, Keychain may ask for access again. Choose **Always Allow** for Metra to remember access to that item across updates signed by the same team.
+
 Launch Metra, sign in to the tools you use, then click the bubble to see usage. Enable **Cursor compatibility** in Settings if you want exact Cursor usage; it requires your consent to read local credentials. Drag to reposition; enable auto-dock to tuck it against an edge.
 
 Use Settings to change the language, refresh interval or launch-at-startup. Closing a panel keeps Metra running; quit from Settings or the tray menu.

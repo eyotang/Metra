@@ -46,6 +46,7 @@ fn open_overlay<V: Render>(
             native_window::configure_overlay(window)?;
             gpui_kit::base::Root::update(window, cx, |root, _, cx| {
                 root.style().background = Some(transparent_black().into());
+                root.style().text.font_weight = Some(typography::BODY_WEIGHT);
                 cx.notify();
             });
             Ok::<_, String>(())
@@ -334,7 +335,7 @@ impl Render for Dashboard {
                 .text_size(px(12.))
                 .bg(rgb(0x171c27))
                 .text_color(rgb(0xedf0f8))
-                .font_family(UI_FONT_FAMILY)
+                .font(typography::ui_font(t.locale))
                 .child(header)
                 .children(update_banner)
                 .child(
@@ -356,7 +357,7 @@ impl Render for Dashboard {
                 .text_size(px(12.))
                 .bg(rgb(0x121620))
                 .text_color(rgb(0xe8ecf3))
-                .font_family(UI_FONT_FAMILY)
+                .font(typography::ui_font(t.locale))
                 .child(header)
                 .child(content.child(self.consent(cx)))
                 .child(status);
@@ -375,14 +376,14 @@ impl Render for Dashboard {
                 .gap_2()
                 .child(
                     Button::new("recheck")
-                        .font_weight(FontWeight::MEDIUM)
+                        .font_weight(typography::CONTROL_WEIGHT)
                         .label(t.t("native.recheck"))
                         .disabled(self.refresh_task.is_some())
                         .on_click(cx.listener(|this, _, _, cx| this.refresh_mode(true, cx))),
                 )
                 .child(
                     Button::new("check-update")
-                        .font_weight(FontWeight::MEDIUM)
+                        .font_weight(typography::CONTROL_WEIGHT)
                         .label(t.t("native.checkUpdate"))
                         .loading(self.update_task.is_some())
                         .on_click(cx.listener(|this, _, _, cx| this.check_update(true, cx))),
@@ -399,7 +400,7 @@ impl Render for Dashboard {
             .text_size(px(12.))
             .bg(rgb(0x121620))
             .text_color(rgb(0xe8ecf3))
-            .font_family(UI_FONT_FAMILY)
+            .font(typography::ui_font(t.locale))
             .child(header)
             .children(update_banner)
             .child(content)

@@ -65,9 +65,21 @@ selects the Rust build directory; bundler staging is `target/gpui-package/`.
 
 macOS packaging retains both `.app` and DMG. `npm run install:local` installs
 `target/gpui-package/release/bundle/macos/Metra.app`; pass a different `.app` path
-as an argument when installing a universal build. Distribution packages use
-`APPLE_SIGNING_IDENTITY` when supplied, otherwise an ad-hoc signature. The local
-installer still requires the persistent signing identity described above.
+as an argument when installing a universal build. Local packages can use
+`APPLE_SIGNING_IDENTITY` from the build machine's Keychain and default to ad-hoc signing.
+The local installer applies the persistent signing identity described above.
+
+For tagged macOS releases, configure the GitHub `release` environment with the
+original Tauri Developer ID secret names. Set
+`APPLE_CERTIFICATE` to the Base64 encoding of a password-protected Developer ID
+Application PKCS#12 export containing the certificate and its private key. Set
+`APPLE_CERTIFICATE_PASSWORD` to its export password. The bundler imports the
+identity for signing. Release CI verifies the application identifier and the
+Developer ID signature on both architectures inside the finished DMG. When
+both secrets are absent, CI reports that it is producing an ad-hoc build.
+Keep the same Apple developer team and bundle identifier across updates so
+Keychain can recognize the application when a certificate is renewed.
+
 `npm run build:portable` builds the release executable in
 `desktop-gpui/target/release/`; `npm run package` creates named release assets.
 

@@ -196,7 +196,7 @@ impl Dashboard {
                         .h_flex()
                         .justify_between()
                         .child(quota.label.clone())
-                        .child(div().font_weight(FontWeight(550.)).child(t.format(
+                        .child(div().font_weight(typography::VALUE_WEIGHT).child(t.format(
                             "quota.remaining",
                             &[("value", remaining.round().to_string())],
                         ))),
@@ -280,7 +280,7 @@ impl Dashboard {
         {
             card = card.child(
                 Button::new("cursor-login")
-                    .font_weight(FontWeight::MEDIUM)
+                    .font_weight(typography::CONTROL_WEIGHT)
                     .label(t.t(if self.login_task.is_some() {
                         "cursor.opening"
                     } else {
@@ -293,7 +293,7 @@ impl Dashboard {
         if provider == Provider::Cursor && !self.service.payload().settings.cursor_compat_enabled {
             card = card.child(
                 Button::new("cursor-consent")
-                    .font_weight(FontWeight::MEDIUM)
+                    .font_weight(typography::CONTROL_WEIGHT)
                     .label(t.t("cursor.readExactUsage"))
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.navigate(Page::Consent, window, cx);

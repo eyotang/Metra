@@ -385,7 +385,7 @@ impl Dashboard {
                         .h(px(30.))
                         .border_color(rgb(0x545868))
                         .text_color(rgb(0xa0adc2))
-                        .font_weight(FontWeight::MEDIUM)
+                        .font_weight(typography::CONTROL_WEIGHT)
                         .label(t.t("menu.rescanCli"))
                         .loading(self.refresh_task.is_some())
                         .disabled(self.refresh_task.is_some())
@@ -397,7 +397,7 @@ impl Dashboard {
                         .danger()
                         .outline()
                         .h(px(30.))
-                        .font_weight(FontWeight::MEDIUM)
+                        .font_weight(typography::CONTROL_WEIGHT)
                         .label(t.t("menu.quit"))
                         .on_click(|_, _, cx| cx.quit()),
                 ),

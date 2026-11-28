@@ -6,6 +6,10 @@ import { resolve, join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { packageLinux } from './package-gpui-linux.mjs';
 const root=resolve(import.meta.dirname,'..');
+const { APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, ...buildEnv } = process.env;
+if (process.platform === 'darwin' && APPLE_CERTIFICATE && APPLE_CERTIFICATE_PASSWORD === undefined) {
+  throw Error('Set APPLE_CERTIFICATE_PASSWORD for the signing certificate');
+}
 if(process.argv.includes('--binary') || process.argv.includes('--no-build')) throw Error('Native packaging builds and verifies its own executable.');
 const debug=process.argv.includes('--debug');
 const universal=process.argv.includes('--universal');
@@ -25,7 +29,7 @@ const targetName=universal?'universal-apple-darwin':null;
 const stagedProfile=join(staging,...(targetName?[targetName]:[]),profile);
 mkdirSync(stagedProfile,{recursive:true});
 const suffix=process.platform==='win32'?'.exe':'';
-function run(command,args,env=process.env){
+function run(command,args,env=buildEnv){
  const result=spawnSync(command,args,{cwd:root,env,stdio:'inherit'});
  if(result.error || result.status!==0) throw Error(result.error?.message || `${command} failed (${result.status})`);
 }
@@ -48,17 +52,31 @@ if(process.platform==='linux') {
  writeFileSync(`${destination}.sha256`,`${createHash('sha256').update(readFileSync(destination)).digest('hex')}  ${basename(destination)}\n`);
  console.log(destination);process.exit(0);
 }
-const config={build:{beforeBuildCommand:null,beforeBundleCommand:null},bundle:{macOS:{signingIdentity:process.env.APPLE_SIGNING_IDENTITY || '-'},windows:{webviewInstallMode:{type:'skip',silent:null}},linux:{deb:{depends:['libfontconfig1','libxkbcommon0','libxkbcommon-x11-0','libvulkan1']}}}};
+// Tauri selects the identity from an imported PKCS#12. Passing "-" here
+// would explicitly request ad-hoc signing and conflict with the certificate.
+const signingIdentity = buildEnv.APPLE_SIGNING_IDENTITY || (APPLE_CERTIFICATE ? undefined : '-');
+const config = {
+  build: { beforeBuildCommand: null, beforeBundleCommand: null },
+  bundle: {
+    macOS: { signingIdentity },
+    windows: { webviewInstallMode: { type: 'skip', silent: null } },
+    linux: { deb: { depends: ['libfontconfig1', 'libxkbcommon0', 'libxkbcommon-x11-0', 'libvulkan1'] } },
+  },
+};
 const args=[join(root,'node_modules/@tauri-apps/cli/tauri.js'),'bundle','--ci','--no-binary-patching','--bundles',process.platform==='darwin'?'app,dmg':bundle,'--config',JSON.stringify(config)];
 if(debug) args.push('--debug');
 if(universal) args.push('--target',targetName);
-run(process.execPath,args,{...process.env,CARGO_TARGET_DIR:staging});
+const bundleEnv = { ...buildEnv, CARGO_TARGET_DIR: staging };
+if (process.platform === 'darwin' && APPLE_CERTIFICATE) {
+  Object.assign(bundleEnv, { APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD });
+}
+run(process.execPath,args,bundleEnv);
 if(process.platform==='darwin') {
  const app=join(stagedProfile,'bundle/macos/Metra.app');
  run('/usr/bin/codesign',['--verify','--deep','--strict',app]);
  const info=join(app,'Contents/Info.plist');
  const property=key=> {
-  const result=spawnSync('/usr/bin/plutil',['-extract',key,'raw','-o','-',info],{encoding:'utf8'});
+  const result=spawnSync('/usr/bin/plutil',['-extract',key,'raw','-o','-',info],{encoding:'utf8',env:buildEnv});
   if(result.status!==0) throw Error(`Missing macOS property ${key}`);
   return result.stdout.trim();
  };

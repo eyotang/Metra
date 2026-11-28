@@ -36,6 +36,8 @@ Unter macOS nach dem Verschieben nach Applications vor dem ersten Start ausführ
 sudo xattr -dr com.apple.quarantine /Applications/Metra.app
 ```
 
+Beim Wechsel von einer Ad-hoc-signierten Version zu einer mit Developer ID signierten Version kann der Schlüsselbund erneut um Erlaubnis bitten. Wählen Sie für Metra **Immer erlauben**, damit spätere Versionen desselben Entwicklerteams auf diesen Eintrag zugreifen können.
+
 Metra starten, bei den verwendeten Tools anmelden und auf die Blase klicken. Für genaue Cursor-Daten die **Cursor-Kompatibilität** in den Einstellungen aktivieren und dem Lesen lokaler Zugangsdaten zustimmen. Die Blase lässt sich ziehen und mit automatischem Andocken am Rand einklappen.
 
 Sprache, Aktualisierungsintervall und Autostart in den Einstellungen ändern. Das Schließen eines Panels lässt Metra weiterlaufen; über Einstellungen oder Tray-Menü beenden.
